@@ -62,11 +62,18 @@ def route_incoming_call(request):
     if getattr(campaign, 'ipqs_enabled', False):
         from spam_protection.ipqs import IPQSService
         ipqs_result = IPQSService.check_phone(caller)
-        if ipqs_result.get('success', True):
-            call_log.ipqs_checked = True
-            call_log.ipqs_fraud_score = ipqs_result.get('fraud_score', 0)
-            call_log.ipqs_is_voip = ipqs_result.get('VOIP', False)
-            call_log.ipqs_line_type = ipqs_result.get('line_type', '')
+        call_log.ipqs_checked = True
+        call_log.ipqs_fraud_score = ipqs_result.get('fraud_score', 0) or 0
+        call_log.ipqs_is_voip = ipqs_result.get('VOIP', False) or False
+        call_log.ipqs_line_type = ipqs_result.get('line_type', '') or ''
+        if not ipqs_result.get('success', True) or not ipqs_result.get('valid', True):
+            if getattr(campaign, 'block_invalid_numbers', False):
+                call_log.ipqs_block_reason = 'invalid_number'
+                call_log.status = CallLog.Status.FAILED
+                call_log.ended_at = timezone.now()
+                call_log.save()
+                return JsonResponse({"action": "hangup", "reason": "invalid_number"})
+        else:
             should_block, reason = IPQSService.should_block(ipqs_result, campaign)
             if should_block:
                 call_log.ipqs_block_reason = reason
@@ -74,7 +81,7 @@ def route_incoming_call(request):
                 call_log.ended_at = timezone.now()
                 call_log.save()
                 return JsonResponse({"action": "hangup", "reason": reason})
-            call_log.save()
+        call_log.save()
 
     decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,

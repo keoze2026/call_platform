@@ -1,8 +1,10 @@
-.env
-.env.local
-db.sqlite3
-venv/
 __pycache__/
 *.pyc
-.vscode/
-.idea/
+*.pyo
+*.pyd
+.env
+db.sqlite3
+celerybeat-schedule*
+staticfiles/
+*.log
+venv/
