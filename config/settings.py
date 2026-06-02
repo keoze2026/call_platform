@@ -8,6 +8,7 @@ import dj_database_url
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
 from sentry_sdk.integrations.celery import CeleryIntegration
+from django.templatetags.static import static
 
 sentry_sdk.init(
     dsn=config('SENTRY_DSN', default=''),
@@ -29,6 +30,9 @@ CSRF_TRUSTED_ORIGINS = ['https://*.railway.app', 'https://*.up.railway.app']
 
 # Application definition
 INSTALLED_APPS = [
+    "unfold",
+    "unfold.contrib.filters",
+    "unfold.contrib.forms",
 
     'channels',
     'django.contrib.admin',
@@ -37,27 +41,27 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    
-    # Third party apps
+
+    # Third party
     'corsheaders',
-    
+
     # Local apps
-     'accounts',
-     'campaigns',
-     'buyers',
-     'publishers',
-     "phone_numbers",
-     "routing",
-     "spam_protection",
-     "ivr",
-     "dni",
-     "analytics",
-     "rtb",
-     "white_label",
-     "webhooks",
-     "notifications",
-     "billing",
-     'call_queue',
+    'accounts',
+    'campaigns',
+    'buyers',
+    'publishers',
+    'phone_numbers',
+    'routing',
+    'spam_protection',
+    'ivr',
+    'dni',
+    'analytics',
+    'rtb',
+    'white_label',
+    'webhooks',
+    'notifications',
+    'billing',
+    'call_queue',
 ]
 
 
@@ -75,6 +79,7 @@ CHANNEL_LAYERS = {
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware', 
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -89,7 +94,7 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -234,15 +239,178 @@ CAPITALIST_SECRET = config('CAPITALIST_SECRET', default='')
 ASTERISK_SHARED_SECRET = config('ASTERISK_SHARED_SECRET', default='')
 
 IPQS_API_KEY = config('IPQS_API_KEY', default='')
-# Production security headers
-SECURE_CONTENT_TYPE_NOSNIFF = True
-SECURE_BROWSER_XSS_FILTER = True
-X_FRAME_OPTIONS = 'DENY'
-SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
-SECURE_HSTS_SECONDS = 31536000
-SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_HSTS_PRELOAD = True
-SESSION_COOKIE_SECURE = not DEBUG
-CSRF_COOKIE_SECURE = not DEBUG
-SESSION_COOKIE_HTTPONLY = True
-CSRF_COOKIE_HTTPONLY = True
+
+UNFOLD = {
+    "SITE_TITLE": "Kezox Admin",
+    "SITE_HEADER": "Kezox Call Platform",
+    "SITE_URL": "/",
+    "SITE_ICON": None,
+    "STYLES": [],
+    "SCRIPTS": [],
+    "FONTS": {
+        "google_fonts": "https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap",
+    },
+    "DASHBOARD_CALLBACK": "config.dashboard.dashboard_callback",
+    "COLORS": {
+        "primary": {
+            "50": "240 253 244",
+            "100": "220 252 231",
+            "200": "187 247 208",
+            "300": "134 239 172",
+            "400": "74 222 128",
+            "500": "34 197 94",
+            "600": "22 163 74",
+            "700": "15 118 110",
+            "800": "6 78 59",
+            "900": "2 44 34",
+            "950": "0 20 15",
+        },
+    },
+    "SIDEBAR": {
+        "show_search": True,
+        "show_all_applications": True,
+        "navigation": [
+            {
+                "title": "Dashboard",
+                "icon": "dashboard",
+                "items": [
+                    {"title": "Dashboard", "icon": "dashboard", "link": "/admin/"},
+                ],
+            },
+            {
+                "title": "Users & Orgs",
+                "icon": "group",
+                "items": [
+                    {"title": "Organizations", "icon": "corporate_fare", "link": "/admin/accounts/organization/"},
+                    {"title": "Users", "icon": "person", "link": "/admin/accounts/user/"},
+                ],
+            },
+            {
+                "title": "Campaigns",
+                "icon": "campaign",
+                "items": [
+                    {"title": "Campaigns", "icon": "rocket_launch", "link": "/admin/campaigns/campaign/"},
+                ],
+            },
+            {
+                "title": "Call Routing",
+                "icon": "call_split",
+                "items": [
+                    {"title": "Call Logs", "icon": "list_alt", "link": "/admin/routing/calllog/"},
+                    {"title": "Routing Rules", "icon": "rule", "link": "/admin/routing/routingrule/"},
+                    {"title": "Destinations", "icon": "call_made", "link": "/admin/routing/ruledestination/"},
+                ],
+            },
+            {
+                "title": "Buyers",
+                "icon": "people",
+                "items": [
+                    {"title": "Buyers", "icon": "person_pin", "link": "/admin/buyers/buyer/"},
+                    {"title": "Buyer Caps", "icon": "data_usage", "link": "/admin/buyers/buyercap/"},
+                    {"title": "Campaign Assignments", "icon": "assignment", "link": "/admin/buyers/buyercampaign/"},
+                    {"title": "Schedules", "icon": "schedule", "link": "/admin/buyers/buyerschedule/"},
+                ],
+            },
+            {
+                "title": "Publishers",
+                "icon": "share",
+                "items": [
+                    {"title": "Publishers", "icon": "cell_tower", "link": "/admin/publishers/publisher/"},
+                    {"title": "Publisher Caps", "icon": "data_usage", "link": "/admin/publishers/publishercap/"},
+                    {"title": "Campaign Assignments", "icon": "assignment", "link": "/admin/publishers/publishercampaign/"},
+                ],
+            },
+            {
+                "title": "Phone Numbers",
+                "icon": "dialpad",
+                "items": [
+                    {"title": "Phone Numbers", "icon": "phone", "link": "/admin/phone_numbers/phonenumber/"},
+                ],
+            },
+            {
+                "title": "Billing",
+                "icon": "payments",
+                "items": [
+                    {"title": "Billing Accounts", "icon": "account_balance", "link": "/admin/billing/billingaccount/"},
+                    {"title": "Transactions", "icon": "receipt_long", "link": "/admin/billing/transaction/"},
+                    {"title": "Invoices", "icon": "description", "link": "/admin/billing/invoice/"},
+                ],
+            },
+            {
+                "title": "Spam Protection",
+                "icon": "security",
+                "items": [
+                    {"title": "Blacklist", "icon": "block", "link": "/admin/spam_protection/blacklist/"},
+                    {"title": "Whitelist", "icon": "verified", "link": "/admin/spam_protection/whitelist/"},
+                    {"title": "Spam Reports", "icon": "report", "link": "/admin/spam_protection/spamreport/"},
+                ],
+            },
+            {
+                "title": "RTB",
+                "icon": "bid_landscape",
+                "items": [
+                    {"title": "Auctions", "icon": "bid_landscape", "link": "/admin/rtb/rtbauction/"},
+                    {"title": "Bids", "icon": "payments", "link": "/admin/rtb/rtbbid/"},
+                ],
+            },
+            {
+                "title": "IVR",
+                "icon": "phone_in_talk",
+                "items": [
+                    {"title": "IVR Flows", "icon": "account_tree", "link": "/admin/ivr/ivrflow/"},
+                    {"title": "IVR Nodes", "icon": "device_hub", "link": "/admin/ivr/ivrnode/"},
+                    {"title": "Transitions", "icon": "alt_route", "link": "/admin/ivr/ivrnodeTransition/"},
+                ],
+            },
+            {
+                "title": "DNI",
+                "icon": "track_changes",
+                "items": [
+                    {"title": "DNI Pools", "icon": "workspaces", "link": "/admin/dni/dnipool/"},
+                    {"title": "DNI Numbers", "icon": "pin", "link": "/admin/dni/dninumber/"},
+                    {"title": "DNI Sessions", "icon": "sensors", "link": "/admin/dni/dnisession/"},
+                ],
+            },
+            {
+                "title": "Webhooks",
+                "icon": "webhook",
+                "items": [
+                    {"title": "Webhooks", "icon": "cable", "link": "/admin/webhooks/webhook/"},
+                    {"title": "Deliveries", "icon": "send", "link": "/admin/webhooks/webhookdelivery/"},
+                    {"title": "Conversion Pixels", "icon": "track_changes", "link": "/admin/webhooks/conversionpixel/"},
+                    {"title": "Conversion Events", "icon": "bolt", "link": "/admin/webhooks/conversionevent/"},
+                ],
+            },
+            {
+                "title": "Notifications",
+                "icon": "notifications",
+                "items": [
+                    {"title": "Rules", "icon": "rule", "link": "/admin/notifications/notificationrule/"},
+                    {"title": "Logs", "icon": "list_alt", "link": "/admin/notifications/notificationlog/"},
+                ],
+            },
+            {
+                "title": "Analytics",
+                "icon": "analytics",
+                "items": [
+                    {"title": "Call Records", "icon": "bar_chart", "link": "/admin/analytics/callrecord/"},
+                ],
+            },
+            {
+                "title": "Call Queue",
+                "icon": "queue",
+                "items": [
+                    {"title": "Queue", "icon": "line_weight", "link": "/admin/call_queue/callqueue/"},
+                ],
+            },
+            {
+                "title": "White Label",
+                "icon": "style",
+                "items": [
+                    {"title": "White Labels", "icon": "palette", "link": "/admin/white_label/whitelabel/"},
+                    {"title": "Domains", "icon": "language", "link": "/admin/white_label/whitelabeldomain/"},
+                ],
+            },
+        ],
+    },
+}
