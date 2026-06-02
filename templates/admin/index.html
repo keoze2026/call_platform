@@ -1,0 +1,172 @@
+{% extends 'unfold/layouts/base.html' %}
+{% load i18n %}
+<style>
+* { font-family: 'Inter', sans-serif !important; }
+</style>
+{% block content %}
+<div style="padding:1.5rem;">
+
+    <!-- Stats Grid -->
+    <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:0.75rem;margin-bottom:1.5rem;">
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Total Calls Today</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#ffffff;">{{ total_calls_today }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">{{ completed_calls_today }} completed</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Live Calls</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#4ade80;">{{ live_calls }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">In progress now</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Revenue Today</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#ffffff;">${{ revenue_today }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">Profit ${{ profit_today }}</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Buyer Payouts</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#ffffff;">${{ buyer_payout_today }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">Publisher ${{ publisher_payout_today }}</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#1a0000,#3b0000);border:1px solid #7f1d1d;">
+            <div style="font-size:0.65rem;font-weight:600;color:#fca5a5;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Blocked Today</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#f87171;">{{ blocked_today }}</div>
+            <div style="font-size:0.7rem;color:#fca5a5;margin-top:0.35rem;">Spam / fraud calls</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#1c1917,#292524);border:1px solid #44403c;">
+            <div style="font-size:0.65rem;font-weight:600;color:#d6d3d1;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">No Answer</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#fbbf24;">{{ no_answer_today }}</div>
+            <div style="font-size:0.7rem;color:#d6d3d1;margin-top:0.35rem;">Missed calls</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Active Campaigns</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#ffffff;">{{ active_campaigns }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">of {{ total_campaigns }} total</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Active Buyers</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#ffffff;">{{ active_buyers }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">of {{ total_buyers }} total</div>
+        </div>
+
+        <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
+            <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Platform Balance</div>
+            <div style="font-size:1.75rem;font-weight:800;color:#ffffff;">${{ total_balance }}</div>
+            <div style="font-size:0.7rem;color:#86efac;margin-top:0.35rem;">All billing accounts</div>
+        </div>
+
+    </div>
+
+    <!-- Charts Row -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+
+        <div style="border-radius:8px;padding:1.25rem;background:#111827;border:1px solid #1f2937;">
+            <div style="font-size:0.65rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem;">Call Volume — Last 7 Days</div>
+            <div style="display:flex;align-items:flex-end;gap:0.5rem;height:100px;">
+                {% for day in last_7_days %}
+                <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:0.3rem;height:100%;">
+                    <div style="font-size:0.6rem;color:#6b7280;font-weight:600;">{{ day.count }}</div>
+                    <div style="width:100%;background:linear-gradient(180deg,#22c55e,#15803d);border-radius:3px 3px 0 0;min-height:3px;
+                        {% if day.count %}height:{{ day.count }}px;{% else %}height:3px;{% endif %}
+                        max-height:80px;"></div>
+                    <div style="font-size:0.6rem;color:#6b7280;">{{ day.day }}</div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+
+        <div style="border-radius:8px;padding:1.25rem;background:#111827;border:1px solid #1f2937;">
+            <div style="font-size:0.65rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem;">Call Status Breakdown</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                <tr style="border-bottom:1px solid #1f2937;">
+                    <td style="padding:0.6rem 0;color:#d1d5db;">Completed</td>
+                    <td style="padding:0.6rem 0;text-align:right;font-weight:700;color:#22c55e;">{{ completed_calls_today }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #1f2937;">
+                    <td style="padding:0.6rem 0;color:#d1d5db;">In Progress</td>
+                    <td style="padding:0.6rem 0;text-align:right;font-weight:700;color:#60a5fa;">{{ live_calls }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #1f2937;">
+                    <td style="padding:0.6rem 0;color:#d1d5db;">No Answer</td>
+                    <td style="padding:0.6rem 0;text-align:right;font-weight:700;color:#fbbf24;">{{ no_answer_today }}</td>
+                </tr>
+                <tr style="border-bottom:1px solid #1f2937;">
+                    <td style="padding:0.6rem 0;color:#d1d5db;">Failed</td>
+                    <td style="padding:0.6rem 0;text-align:right;font-weight:700;color:#f87171;">{{ failed_calls_today }}</td>
+                </tr>
+                <tr>
+                    <td style="padding:0.6rem 0;color:#d1d5db;">Blocked by IPQS</td>
+                    <td style="padding:0.6rem 0;text-align:right;font-weight:700;color:#f87171;">{{ blocked_today }}</td>
+                </tr>
+            </table>
+        </div>
+
+    </div>
+
+    <!-- Top Tables -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+
+        <div style="border-radius:8px;padding:1.25rem;background:#111827;border:1px solid #1f2937;">
+            <div style="font-size:0.65rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem;">Top Campaigns Today</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                <thead>
+                    <tr style="border-bottom:1px solid #1f2937;">
+                        <th style="padding:0.4rem 0;text-align:left;color:#6b7280;font-weight:500;font-size:0.7rem;">Campaign</th>
+                        <th style="padding:0.4rem 0;text-align:right;color:#6b7280;font-weight:500;font-size:0.7rem;">Calls</th>
+                        <th style="padding:0.4rem 0;text-align:right;color:#6b7280;font-weight:500;font-size:0.7rem;">Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for c in top_campaigns %}
+                    <tr style="border-bottom:1px solid #1f2937;">
+                        <td style="padding:0.6rem 0;color:#d1d5db;">{{ c.campaign__name|default:"—" }}</td>
+                        <td style="padding:0.6rem 0;text-align:right;font-weight:600;color:#ffffff;">{{ c.total }}</td>
+                        <td style="padding:0.6rem 0;text-align:right;font-weight:600;color:#22c55e;">${{ c.revenue|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="3" style="padding:0.75rem 0;color:#6b7280;text-align:center;">No calls today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div style="border-radius:8px;padding:1.25rem;background:#111827;border:1px solid #1f2937;">
+            <div style="font-size:0.65rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem;">Top Buyers Today</div>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                <thead>
+                    <tr style="border-bottom:1px solid #1f2937;">
+                        <th style="padding:0.4rem 0;text-align:left;color:#6b7280;font-weight:500;font-size:0.7rem;">Buyer</th>
+                        <th style="padding:0.4rem 0;text-align:right;color:#6b7280;font-weight:500;font-size:0.7rem;">Calls</th>
+                        <th style="padding:0.4rem 0;text-align:right;color:#6b7280;font-weight:500;font-size:0.7rem;">Payout</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in top_buyers %}
+                    <tr style="border-bottom:1px solid #1f2937;">
+                        <td style="padding:0.6rem 0;color:#d1d5db;">{{ b.buyer__name|default:"—" }}</td>
+                        <td style="padding:0.6rem 0;text-align:right;font-weight:600;color:#ffffff;">{{ b.total }}</td>
+                        <td style="padding:0.6rem 0;text-align:right;font-weight:600;color:#22c55e;">${{ b.payout|floatformat:2 }}</td>
+                    </tr>
+                    {% empty %}
+                    <tr>
+                        <td colspan="3" style="padding:0.75rem 0;color:#6b7280;text-align:center;">No calls today</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+    </div>
+
+</div>
+{% endblock %}
