@@ -95,8 +95,12 @@ TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
         'DIRS': [BASE_DIR / 'templates'],
-        'APP_DIRS': True,
+        'APP_DIRS': False,
         'OPTIONS': {
+            'loaders': [
+                'django.template.loaders.filesystem.Loader',
+                'django.template.loaders.app_directories.Loader',
+            ],
             'context_processors': [
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
@@ -241,8 +245,8 @@ ASTERISK_SHARED_SECRET = config('ASTERISK_SHARED_SECRET', default='')
 IPQS_API_KEY = config('IPQS_API_KEY', default='')
 
 UNFOLD = {
-    "SITE_TITLE": "Kezox Admin",
-    "SITE_HEADER": "Kezox Call Platform",
+    "SITE_TITLE": "Call Platform Admin",
+    "SITE_HEADER": "Call Platform",
     "SITE_URL": "/",
     "SITE_ICON": None,
     "STYLES": [],

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+{% load i18n %}
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Call Platform Admin</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+</head>
+<body style="margin:0;padding:0;background:#0a0f1e;font-family:'Inter',sans-serif;min-height:100vh;display:flex;align-items:center;justify-content:center;">
+
+    <div style="width:100%;max-width:400px;padding:1.5rem;">
+
+        <div style="text-align:center;margin-bottom:2rem;">
+            <div style="font-size:1.5rem;font-weight:800;color:#ffffff;margin-bottom:0.25rem;">Call Platform</div>
+            <div style="font-size:0.875rem;color:#6b7280;">Sign in to your admin account</div>
+        </div>
+
+        <div style="background:#111827;border:1px solid #1f2937;border-radius:12px;padding:2rem;">
+            <form method="post" action="{{ app_path }}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ next }}" />
+
+                <div style="margin-bottom:1.25rem;">
+                    <label style="display:block;font-size:0.75rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Username</label>
+                    <input type="text" name="username" autofocus autocapitalize="none" autocomplete="username" required
+                        style="width:100%;padding:0.75rem 1rem;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#ffffff;font-size:0.875rem;outline:none;box-sizing:border-box;" />
+                </div>
+
+                <div style="margin-bottom:1.5rem;">
+                    <label style="display:block;font-size:0.75rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Password</label>
+                    <input type="password" name="password" autocomplete="current-password" required
+                        style="width:100%;padding:0.75rem 1rem;background:#1f2937;border:1px solid #374151;border-radius:8px;color:#ffffff;font-size:0.875rem;outline:none;box-sizing:border-box;" />
+                </div>
+
+                {% if form.errors %}
+                <div style="background:#3b0000;border:1px solid #7f1d1d;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1.25rem;font-size:0.8rem;color:#f87171;">
+                    Invalid username or password.
+                </div>
+                {% endif %}
+
+                <button type="submit"
+                    style="width:100%;padding:0.875rem;background:#16a34a;border:none;border-radius:8px;color:#ffffff;font-size:0.875rem;font-weight:700;cursor:pointer;">
+                    Sign In
+                </button>
+
+            </form>
+        </div>
+
+        <div style="text-align:center;margin-top:1.5rem;font-size:0.75rem;color:#4b5563;">
+            Call Platform Admin &copy; 2026
+        </div>
+
+    </div>
+
+</body>
+</html>

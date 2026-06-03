@@ -6,8 +6,7 @@
 {% block content %}
 <div style="padding:1.5rem;">
 
-    <!-- Stats Grid -->
-    <div style="display:grid;grid-template-columns:repeat(9,1fr);gap:0.75rem;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
 
         <div style="border-radius:8px;padding:1rem 1.25rem;background:linear-gradient(135deg,#052e16,#14532d);border:1px solid #166534;">
             <div style="font-size:0.65rem;font-weight:600;color:#86efac;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:0.5rem;">Total Calls Today</div>
@@ -65,8 +64,7 @@
 
     </div>
 
-    <!-- Charts Row -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;margin-bottom:1.5rem;">
 
         <div style="border-radius:8px;padding:1.25rem;background:#111827;border:1px solid #1f2937;">
             <div style="font-size:0.65rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem;">Call Volume — Last 7 Days</div>
@@ -74,9 +72,7 @@
                 {% for day in last_7_days %}
                 <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:0.3rem;height:100%;">
                     <div style="font-size:0.6rem;color:#6b7280;font-weight:600;">{{ day.count }}</div>
-                    <div style="width:100%;background:linear-gradient(180deg,#22c55e,#15803d);border-radius:3px 3px 0 0;min-height:3px;
-                        {% if day.count %}height:{{ day.count }}px;{% else %}height:3px;{% endif %}
-                        max-height:80px;"></div>
+                    <div style="width:100%;background:linear-gradient(180deg,#22c55e,#15803d);border-radius:3px 3px 0 0;min-height:3px;{% if day.count %}height:{{ day.count }}px;{% else %}height:3px;{% endif %}max-height:80px;"></div>
                     <div style="font-size:0.6rem;color:#6b7280;">{{ day.day }}</div>
                 </div>
                 {% endfor %}
@@ -111,8 +107,7 @@
 
     </div>
 
-    <!-- Top Tables -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem;">
 
         <div style="border-radius:8px;padding:1.25rem;background:#111827;border:1px solid #1f2937;">
             <div style="font-size:0.65rem;font-weight:600;color:#9ca3af;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:1rem;">Top Campaigns Today</div>
