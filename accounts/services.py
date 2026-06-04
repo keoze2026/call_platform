@@ -67,7 +67,12 @@ class AuthService:
    
     @staticmethod
     def login(email: str, password: str, ip_address: str = None, user_agent: str = None):
-        user = authenticate(username=email, password=password)
+        from accounts.models import User as UserModel
+        try:
+            u = UserModel.objects.get(email=email)
+            user = authenticate(username=u.username, password=password)
+        except UserModel.DoesNotExist:
+            user = authenticate(username=email, password=password)
 
         if not user:
             raise ValueError("Invalid email or password")

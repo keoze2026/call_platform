@@ -1,0 +1,13 @@
+[0;1;32m●[0m daphne.service - Call Platform Daphne ASGI Server
+     Loaded: loaded (]8;;file://vmi3333575/etc/systemd/system/daphne.service/etc/systemd/system/daphne.service]8;;; [0;1;32menabled[0m; preset: [0;1;32menabled[0m)
+     Active: [0;1;32mactive (running)[0m since Thu 2026-06-04 21:16:32 CEST; 11ms ago
+   Main PID: 276648 (daphne)
+      Tasks: 1 (limit: 28792)
+     Memory: 2.5M (peak: 2.5M)
+        CPU: 7ms
+     CGroup: /system.slice/daphne.service
+             └─[0;38;5;245m276648 /opt/call_platform/venv/bin/python3 /opt/call_platform/venv/bin/daphne -b 127.0.0.1 -p 8000 config.asgi:application[0m
+
+Jun 04 21:16:27 vmi3333575 systemd[1]: daphne.service: Consumed 1.951s CPU time.
+Jun 04 21:16:32 vmi3333575 systemd[1]: daphne.service: Scheduled restart job, restart counter is at 20.
+Jun 04 21:16:32 vmi3333575 systemd[1]: Started daphne.service - Call Platform Daphne ASGI Server.

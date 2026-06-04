@@ -65,8 +65,11 @@ def register(request: HttpRequest, data: RegisterSchema):
     except ValueError as e:
         return 400, {"detail": str(e)}
 
-@router.post("/login", response={200: dict, 400: dict}, auth=None)
+@router.post("/login", response={200: dict, 400: dict, 429: dict}, auth=None)
 def login(request: HttpRequest, data: LoginSchema):
+    from django_ratelimit.decorators import is_ratelimited
+    if is_ratelimited(request, group="login", key="ip", rate="5/m", method="POST", increment=True):
+        return 429, {"detail": "Too many login attempts. Please wait 1 minute."}
     try:
         result, is_mfa = AuthService.login(
             data.email,

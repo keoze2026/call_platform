@@ -1,7 +1,8 @@
 # config/settings.py
 
 from pathlib import Path
-from decouple import config
+from decouple import config, AutoConfig
+config = AutoConfig(search_path='/opt/call_platform')
 from datetime import timedelta
 import dj_database_url
 
@@ -24,7 +25,7 @@ sentry_sdk.init(
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^wosqcp*bb73+*g&n0%dy&l($pxb#y')
-DEBUG = config('DEBUG', default=True, cast=bool)
+DEBUG = config("DEBUG", default=False, cast=bool)
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
 CSRF_TRUSTED_ORIGINS = ['https://*.railway.app', 'https://*.up.railway.app']
 
@@ -418,3 +419,9 @@ UNFOLD = {
         ],
     },
 }
+
+# Security Headers
+SECURE_BROWSER_XSS_FILTER = True
+SECURE_CONTENT_TYPE_NOSNIFF = True
+X_FRAME_OPTIONS = 'DENY'
+SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'

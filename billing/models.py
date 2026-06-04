@@ -88,7 +88,7 @@ class Transaction(models.Model):
 
     #capitalist.net 
     capitalist_payment_id = models.CharField(max_length=255, blank=True)
-    capitalist_payment_url = models.URLField(blank=True)
+    capitalist_payment_url = models.URLField(blank=True, max_length=500)
 
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDING)
 
