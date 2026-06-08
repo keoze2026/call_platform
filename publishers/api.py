@@ -133,3 +133,29 @@ def get_stats(request: HttpRequest, publisher_id: str):
         return 200, stats
     except ValueError as e:
         return 404, {"detail": str(e)}
+
+@router.get("/{publisher_id}/payouts", response={200: dict, 404: dict})
+def list_publisher_payouts(request: HttpRequest, publisher_id: str, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
+    from billing.models import Transaction
+    try:
+        publisher = PublisherService.get_publisher(publisher_id, request.auth)
+        transactions = Transaction.objects.filter(
+            organization=request.auth.organization,
+            publisher_name=publisher.name,
+            transaction_type='payout'
+        ).order_by('-created_at')
+        data = [
+            {
+                'id': str(t.id),
+                'amount': float(t.amount),
+                'status': t.status,
+                'period': t.description,
+                'paid_at': t.created_at.isoformat() if t.status == 'completed' else None,
+                'created_at': t.created_at.isoformat(),
+            }
+            for t in transactions
+        ]
+        return 200, paginate_list(data, page, page_size)
+    except ValueError as e:
+        return 404, {"detail": str(e)}

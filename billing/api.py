@@ -354,3 +354,18 @@ def capitalist_webhook(request):
         txn.save()
 
     return 200, {"received": True}
+
+@router.get("/expenses", response={200: dict})
+def get_expenses(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
+    from django.db.models import Sum
+    transactions = BillingService.list_transactions(request.auth)
+    categories = {}
+    for t in transactions:
+        cat = t.transaction_type
+        if cat not in categories:
+            categories[cat] = {'category': cat, 'total': 0, 'count': 0}
+        categories[cat]['total'] += float(t.amount)
+        categories[cat]['count'] += 1
+    data = list(categories.values())
+    return 200, paginate_list(data, page, page_size)

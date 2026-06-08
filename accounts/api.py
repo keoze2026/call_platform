@@ -117,6 +117,25 @@ def get_profile(request: HttpRequest):
     return ProfileService.get_profile(request.auth)
 
 
+@router.post("/me/avatar", response={200: dict, 400: dict})
+def upload_avatar(request: HttpRequest):
+    import base64
+    from django.core.files.base import ContentFile
+    import uuid
+    try:
+        file = request.FILES.get('avatar')
+        if not file:
+            return 400, {"detail": "No file provided"}
+        ext = file.name.split('.')[-1]
+        filename = f"avatars/{uuid.uuid4()}.{ext}"
+        user = request.auth
+        user.avatar = filename
+        user.save()
+        return 200, {"avatar_url": filename, "message": "Avatar uploaded"}
+    except Exception as e:
+        return 400, {"detail": str(e)}
+
+
 @router.patch("/me", response=UserOutSchema)
 def update_profile(request: HttpRequest, data: UpdateProfileSchema):
     """Update current user profile"""
