@@ -80,3 +80,4 @@ class CallRecord(models.Model):
 
     def __str__(self):
         return f"{self.caller_number} → {self.campaign_name} ({self.status})"
+from .scheduled_reports import ScheduledReport
