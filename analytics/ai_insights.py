@@ -41,7 +41,7 @@ class AIInsightsService:
 
         campaigns = Campaign.objects.filter(organization=organization, status='active')
         for campaign in campaigns:
-            if campaign.buyers.filter(is_active=True).count() == 0:
+            if not campaign.campaign_assignments.filter(is_active=True).exists():
                 recommendations.append({
                     'id': make_id('campaign', campaign.id, 'no_buyers'),
                     'type': 'error',

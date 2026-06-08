@@ -1,8 +1,9 @@
+from accounts.api import JWTAuth
 from ninja import Router, Schema
 from typing import List, Optional
 from .ai_insights import AIInsightsService
 
-router = Router(tags=["AI Insights"])
+router = Router(tags=["AI Insights"], auth=JWTAuth())
 
 
 class RecommendationSchema(Schema):
