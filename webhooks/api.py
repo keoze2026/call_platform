@@ -24,10 +24,12 @@ def create_webhook(request: HttpRequest, data: CreateWebhookSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("", response={200: List[WebhookOutSchema]})
-def list_webhooks(request: HttpRequest):
+@router.get("", response={200: dict})
+def list_webhooks(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     webhooks = WebhookService.list(request.auth)
-    return 200, [WebhookService.format(w) for w in webhooks]
+    data = [WebhookService.format(w) for w in webhooks]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/{webhook_id}", response={200: WebhookOutSchema, 404: dict})
@@ -57,11 +59,12 @@ def delete_webhook(request: HttpRequest, webhook_id: str):
         return 404, {"detail": str(e)}
 
 
-@router.get("/{webhook_id}/deliveries", response={200: List[WebhookDeliveryOutSchema], 404: dict})
+@router.get("/{webhook_id}/deliveries", response={200: dict})
 def list_deliveries(request: HttpRequest, webhook_id: str):
     try:
+        from config.pagination import paginate_list
         deliveries = WebhookService.list_deliveries(webhook_id, request.auth)
-        return 200, [
+        data = [
             {
                 'id': str(d.id),
                 'event': d.event,
@@ -74,6 +77,7 @@ def list_deliveries(request: HttpRequest, webhook_id: str):
             }
             for d in deliveries
         ]
+        return 200, paginate_list(data, page, page_size)
     except ValueError as e:
         return 404, {"detail": str(e)}
 

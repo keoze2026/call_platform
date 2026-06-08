@@ -23,10 +23,11 @@ def create_buyer(request: HttpRequest, data: CreateBuyerSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("", response={200: List[BuyerListOutSchema]})
-def list_buyers(request: HttpRequest):
+@router.get("", response={200: dict})
+def list_buyers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     buyers = BuyerService.list_buyers(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(b.id),
             'name': b.name,
@@ -38,6 +39,7 @@ def list_buyers(request: HttpRequest):
         }
         for b in buyers
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/{buyer_id}", response={200: BuyerOutSchema, 404: dict})

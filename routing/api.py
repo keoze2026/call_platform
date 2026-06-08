@@ -24,10 +24,11 @@ def create_rule(request: HttpRequest, data: CreateRoutingRuleSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("/rules", response={200: List[RoutingRuleListSchema]})
-def list_rules(request: HttpRequest, campaign_id: Optional[str] = None):
+@router.get("/rules", response={200: dict})
+def list_rules(request: HttpRequest, campaign_id: Optional[str] = None, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     rules = RoutingService.list_rules(request.auth, campaign_id)
-    return 200, [
+    data = [
         {
             'id': str(r.id),
             'name': r.name,
@@ -40,6 +41,7 @@ def list_rules(request: HttpRequest, campaign_id: Optional[str] = None):
         }
         for r in rules
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/rules/{rule_id}", response={200: RoutingRuleOutSchema, 404: dict})
@@ -120,10 +122,11 @@ def live_calls(request: HttpRequest):
         for c in calls
     ]
 
-@router.get("/calls", response={200: List[CallLogListSchema]})
-def list_calls(request: HttpRequest, campaign_id: Optional[str] = None):
+@router.get("/calls", response={200: dict})
+def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     calls = RoutingService.list_calls(request.auth, campaign_id)
-    return 200, [
+    data = [
         {
             'id': str(c.id),
             'caller_number': c.caller_number,
@@ -140,6 +143,7 @@ def list_calls(request: HttpRequest, campaign_id: Optional[str] = None):
         }
         for c in calls
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 

@@ -21,10 +21,12 @@ def create_rule(request: HttpRequest, data: CreateNotificationRuleSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("/rules", response={200: List[NotificationRuleOutSchema]})
-def list_rules(request: HttpRequest):
+@router.get("/rules", response={200: dict})
+def list_rules(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     rules = NotificationService.list_rules(request.auth)
-    return 200, [NotificationService.format_rule(r) for r in rules]
+    data = [NotificationService.format_rule(r) for r in rules]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/rules/{rule_id}", response={200: NotificationRuleOutSchema, 404: dict})
@@ -54,10 +56,11 @@ def delete_rule(request: HttpRequest, rule_id: str):
         return 404, {"detail": str(e)}
 
 
-@router.get("/logs", response={200: List[NotificationLogOutSchema]})
-def list_logs(request: HttpRequest):
+@router.get("/logs", response={200: dict})
+def list_logs(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     logs = NotificationService.list_logs(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(l.id),
             'event': l.event,
@@ -70,6 +73,7 @@ def list_logs(request: HttpRequest):
         }
         for l in logs
     ]
+    return 200, paginate_list(data, page, page_size)
 
 @router.post("/test", response={200: dict, 400: dict})
 def test_notification(request: HttpRequest):

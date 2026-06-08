@@ -9,13 +9,14 @@ from .services import CallQueueService
 router = Router(tags=["Call Queue"], auth=JWTAuth())
 
 
-@router.get("/", response={200: List[CallQueueOutSchema]})
-def list_queue(request: HttpRequest, campaign_id: str = None):
+@router.get("/", response={200: dict})
+def list_queue(request: HttpRequest, campaign_id: str = None, page: int = 1, page_size: int = 50):
     entries = CallQueueService.list_queue(
         organization=request.auth.organization,
         campaign_id=campaign_id
     )
-    return 200, [
+    from config.pagination import paginate_list
+    data = [
         {
             'id': str(e.id),
             'caller_number': e.caller_number,
@@ -31,3 +32,4 @@ def list_queue(request: HttpRequest, campaign_id: str = None):
         }
         for e in entries
     ]
+    return 200, paginate_list(data, page, page_size)

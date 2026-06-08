@@ -15,6 +15,7 @@ from notifications.api import router as notifications_router
 from billing.api import router as billing_router
 from call_queue.api import router as call_queue_router
 from spam_protection.api import router as spam_router
+from analytics.ai_api import router as ai_router
 
 api = NinjaAPI(title="Call Platform API", version="1.0.0")
 
@@ -34,3 +35,4 @@ api.add_router("/notifications/", notifications_router)
 api.add_router("/billing/", billing_router)
 api.add_router("/queue/", call_queue_router)
 api.add_router("/spam/", spam_router)
+api.add_router("/ai/", ai_router)

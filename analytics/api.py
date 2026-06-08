@@ -30,21 +30,21 @@ def time_series(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...
     return 200, data
 
 
-@router.get("/campaigns", response={200: List[CampaignPerformanceSchema]})
+@router.get("/campaigns", response={200: dict})
 def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per campaign."""
     data = AnalyticsService.get_campaign_performance(request.auth, filters)
     return 200, data
 
 
-@router.get("/buyers", response={200: List[BuyerPerformanceSchema]})
+@router.get("/buyers", response={200: dict})
 def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per buyer — win rate, avg bid, payout."""
     data = AnalyticsService.get_buyer_performance(request.auth, filters)
     return 200, data
 
 
-@router.get("/publishers", response={200: List[PublisherPerformanceSchema]})
+@router.get("/publishers", response={200: dict})
 def publisher_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per publisher — calls, conversion, spam rate."""
     data = AnalyticsService.get_publisher_performance(request.auth, filters)

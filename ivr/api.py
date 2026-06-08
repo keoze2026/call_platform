@@ -24,10 +24,11 @@ def create_flow(request: HttpRequest, data: CreateIVRFlowSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("/flows", response={200: List[IVRFlowListSchema]})
-def list_flows(request: HttpRequest):
+@router.get("/flows", response={200: dict})
+def list_flows(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     flows = IVRService.list_flows(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(f.id),
             'name': f.name,
@@ -38,6 +39,7 @@ def list_flows(request: HttpRequest):
         }
         for f in flows
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/flows/{flow_id}", response={200: IVRFlowOutSchema, 404: dict})

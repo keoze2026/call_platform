@@ -22,10 +22,11 @@ def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("", response={200: List[CampaignListOutSchema]})
-def list_campaigns(request: HttpRequest):
+@router.get("", response={200: dict})
+def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     campaigns = CampaignService.list_campaigns(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(c.id),
             'name': c.name,
@@ -37,6 +38,7 @@ def list_campaigns(request: HttpRequest):
         }
         for c in campaigns
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/{campaign_id}", response={200: CampaignOutSchema, 404: dict})

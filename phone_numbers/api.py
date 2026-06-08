@@ -41,10 +41,11 @@ def import_number(request: HttpRequest, data: PurchaseNumberSchema):
     except ValueError as e:
         return 400, {"detail": str(e)}
 
-@router.get("", response={200: List[PhoneNumberListSchema]})
-def list_numbers(request: HttpRequest):
+@router.get("", response={200: dict})
+def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     numbers = PhoneNumberService.list_numbers(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(n.id),
             'number': n.number,
@@ -59,6 +60,7 @@ def list_numbers(request: HttpRequest):
         }
         for n in numbers
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/{number_id}", response={200: PhoneNumberOutSchema, 404: dict})

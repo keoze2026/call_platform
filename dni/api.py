@@ -28,10 +28,11 @@ def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("/pools", response={200: List[DNIPoolListSchema]})
-def list_pools(request: HttpRequest):
+@router.get("/pools", response={200: dict})
+def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     pools = DNIService.list_pools(request.auth)
-    return 200, [
+    data = [
         {
             'id':                str(p.id),
             'name':              p.name,
@@ -44,6 +45,7 @@ def list_pools(request: HttpRequest):
         }
         for p in pools
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/pools/{pool_id}", response={200: DNIPoolOutSchema, 404: dict})
@@ -96,17 +98,19 @@ def remove_number(request: HttpRequest, pool_id: str, number_id: str):
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
-@router.get("/pools/{pool_id}/sessions", response={200: List[DNISessionOutSchema], 404: dict})
-def list_sessions(request: HttpRequest, pool_id: str):
+@router.get("/pools/{pool_id}/sessions", response={200: dict})
+def list_sessions(request: HttpRequest, pool_id: str, page: int = 1, page_size: int = 50):
     try:
         sessions = DNIService.list_sessions(pool_id, request.auth)
-        return 200, list(sessions.values(
+        from config.pagination import paginate_list
+        data = list(sessions.values(
             'id', 'visitor_id', 'assigned_number',
             'utm_source', 'utm_medium', 'utm_campaign',
             'utm_term', 'utm_content', 'gclid', 'fbclid',
             'referrer', 'landing_page', 'status',
             'expires_at', 'created_at'
         ))
+        return 200, paginate_list(data, page, page_size)
     except ValueError as e:
         return 404, {"detail": str(e)}
 

@@ -1,3 +1,4 @@
+
 # config/settings.py
 
 from pathlib import Path
@@ -25,18 +26,14 @@ sentry_sdk.init(
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^wosqcp*bb73+*g&n0%dy&l($pxb#y')
+ALLOWED_HOSTS = ['avortyx.io', 'www.avortyx.io', '156.67.25.167', 'localhost']
 DEBUG = config("DEBUG", default=False, cast=bool)
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='*').split(',')
-CSRF_TRUSTED_ORIGINS = ['https://*.railway.app', 'https://*.up.railway.app']
+CSRF_TRUSTED_ORIGINS = ['https://avortyx.io', 'https://www.avortyx.io']
 
 # Application definition
 INSTALLED_APPS = [
-    "unfold",
-    "unfold.contrib.filters",
-    "unfold.contrib.forms",
 
     'channels',
-    'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
@@ -157,7 +154,14 @@ SIMPLE_JWT = {
 }
 
 # CORS
-CORS_ALLOW_ALL_ORIGINS = True  # Change in production
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOWED_ORIGINS = [
+    'https://avortyx.com',
+    'https://www.avortyx.com',
+    'https://avortyx.io',
+    'http://localhost:3000',
+    'http://localhost:3001',
+]  # Change in production
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
@@ -425,3 +429,5 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+CAPITALIST_API_KEY = config('CAPITALIST_API_KEY', default='')
+CAPITALIST_API_SECRET = config('CAPITALIST_API_SECRET', default='')

@@ -60,10 +60,11 @@ def confirm_deposit(request: HttpRequest, data: DepositSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("/transactions", response={200: List[TransactionOutSchema]})
-def list_transactions(request: HttpRequest):
+@router.get("/transactions", response={200: dict})
+def list_transactions(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     transactions = BillingService.list_transactions(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(t.id),
             'transaction_type': t.transaction_type,
@@ -81,12 +82,14 @@ def list_transactions(request: HttpRequest):
         }
         for t in transactions
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
-@router.get("/invoices", response={200: List[InvoiceOutSchema]})
-def list_invoices(request: HttpRequest):
+@router.get("/invoices", response={200: dict})
+def list_invoices(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     invoices = BillingService.list_invoices(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(i.id),
             'invoice_number': i.invoice_number,
@@ -102,6 +105,7 @@ def list_invoices(request: HttpRequest):
         }
         for i in invoices
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 
@@ -200,7 +204,7 @@ def coingate_deposit(request, amount: float):
     try:
         order = CoinGateService.create_order(
             amount=Decimal(str(amount)),
-            currency='USD',
+            currency=currency.upper(),
             order_id=str(txn.id),
             callback_url=f'{backend_url}/api/billing/coingate-webhook',
             success_url=f'{frontend_url}/billing/success',
@@ -269,7 +273,7 @@ def coingate_webhook(request):
 
 
 @router.post("/deposit/capitalist", response={200: dict, 400: dict})
-def capitalist_deposit(request, amount: float):
+def capitalist_deposit(request, amount: float, currency: str = 'USD'):
     """Create a Capitalist.net checkout for the user to deposit funds."""
     if amount <= 0:
         return 400, {"detail": "Amount must be greater than 0"}
@@ -294,7 +298,7 @@ def capitalist_deposit(request, amount: float):
     from billing.capitalist import CapitalistService
     checkout_url, params = CapitalistService.build_checkout(
         amount=Decimal(str(amount)),
-        currency='USD',
+        currency=currency.upper(),
         order_id=str(txn.id),
         description=f'Deposit ${amount} to account',
     )

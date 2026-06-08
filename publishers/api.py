@@ -23,10 +23,11 @@ def create_publisher(request: HttpRequest, data: CreatePublisherSchema):
         return 400, {"detail": str(e)}
 
 
-@router.get("", response={200: List[PublisherListOutSchema]})
-def list_publishers(request: HttpRequest):
+@router.get("", response={200: dict})
+def list_publishers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
     publishers = PublisherService.list_publishers(request.auth)
-    return 200, [
+    data = [
         {
             'id': str(p.id),
             'name': p.name,
@@ -38,6 +39,7 @@ def list_publishers(request: HttpRequest):
         }
         for p in publishers
     ]
+    return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/{publisher_id}", response={200: PublisherOutSchema, 404: dict})
