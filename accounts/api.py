@@ -259,3 +259,124 @@ def get_activity(request: HttpRequest):
         }
         for l in logs
     ]
+
+# ─── Workspace ────────────────────────────────────────────────────────────────
+
+@router.get("/workspace", response={200: dict})
+def get_workspace(request: HttpRequest):
+    org = request.auth.organization
+    return 200, {
+        'id': str(org.id),
+        'name': org.name,
+        'slug': org.slug,
+        'is_active': org.is_active,
+        'created_at': org.created_at.isoformat(),
+    }
+
+
+@router.patch("/workspace", response={200: dict, 400: dict})
+def update_workspace(request: HttpRequest):
+    import json
+    org = request.auth.organization
+    try:
+        data = json.loads(request.body)
+        if 'name' in data:
+            org.name = data['name']
+        if 'slug' in data:
+            org.slug = data['slug']
+        org.save()
+        return 200, {
+            'id': str(org.id),
+            'name': org.name,
+            'slug': org.slug,
+            'is_active': org.is_active,
+            'created_at': org.created_at.isoformat(),
+        }
+    except Exception as e:
+        return 400, {"detail": str(e)}
+
+
+@router.get("/workspace/members", response={200: dict})
+def list_members(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
+    members = User.objects.filter(organization=request.auth.organization)
+    data = [
+        {
+            'id': str(m.id),
+            'email': m.email,
+            'username': m.username,
+            'first_name': m.first_name,
+            'last_name': m.last_name,
+            'role': m.role,
+            'is_active': m.is_active,
+            'created_at': m.created_at.isoformat(),
+        }
+        for m in members
+    ]
+    return 200, paginate_list(data, page, page_size)
+
+
+@router.post("/workspace/members/invite", response={201: dict, 400: dict})
+def invite_member(request: HttpRequest):
+    import json
+    import secrets
+    try:
+        data = json.loads(request.body)
+        email = data.get('email')
+        role = data.get('role', 'agent')
+        if not email:
+            return 400, {"detail": "Email is required"}
+        if User.objects.filter(email=email).exists():
+            return 400, {"detail": "User with this email already exists"}
+        temp_password = secrets.token_urlsafe(12)
+        user = User.objects.create(
+            email=email,
+            username=email.split('@')[0],
+            role=role,
+            organization=request.auth.organization,
+            is_email_verified=True,
+            is_active=True,
+        )
+        user.set_password(temp_password)
+        user.save()
+        return 201, {
+            'id': str(user.id),
+            'email': user.email,
+            'role': user.role,
+            'temp_password': temp_password,
+            'message': 'Member invited successfully',
+        }
+    except Exception as e:
+        return 400, {"detail": str(e)}
+
+
+@router.delete("/workspace/members/{user_id}", response={200: dict, 404: dict})
+def remove_member(request: HttpRequest, user_id: str):
+    try:
+        user = User.objects.get(id=user_id, organization=request.auth.organization)
+        if user.id == request.auth.id:
+            return 400, {"detail": "Cannot remove yourself"}
+        user.delete()
+        return 200, {"detail": "Member removed"}
+    except User.DoesNotExist:
+        return 404, {"detail": "Member not found"}
+
+
+@router.patch("/workspace/members/{user_id}/role", response={200: dict, 400: dict, 404: dict})
+def update_member_role(request: HttpRequest, user_id: str):
+    import json
+    try:
+        data = json.loads(request.body)
+        role = data.get('role')
+        if not role:
+            return 400, {"detail": "Role is required"}
+        user = User.objects.get(id=user_id, organization=request.auth.organization)
+        user.role = role
+        user.save()
+        return 200, {
+            'id': str(user.id),
+            'email': user.email,
+            'role': user.role,
+        }
+    except User.DoesNotExist:
+        return 404, {"detail": "Member not found"}
