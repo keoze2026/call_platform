@@ -283,6 +283,14 @@ def capitalist_deposit(request, amount: float, currency: str = 'USD'):
     except BillingAccount.DoesNotExist:
         return 400, {"detail": "Billing account not found"}
 
+    from django.utils import timezone
+    date_str = timezone.now().strftime('%y%m%d')
+    seq = Transaction.objects.filter(
+        organization=request.auth.organization,
+        created_at__date=timezone.now().date()
+    ).count() + 1
+    order_number = f'{date_str}-{str(seq).zfill(3)}'
+
     txn = Transaction.objects.create(
         organization=request.auth.organization,
         billing_account=account,
@@ -292,15 +300,15 @@ def capitalist_deposit(request, amount: float, currency: str = 'USD'):
         balance_after=account.balance,
         status=Transaction.Status.PENDING,
         provider='capitalist',
-        description=f'Capitalist deposit of ${amount}',
+        description=f'Balance Recharge',
     )
 
     from billing.capitalist import CapitalistService
     checkout_url, params = CapitalistService.build_checkout(
         amount=Decimal(str(amount)),
         currency=currency.upper(),
-        order_id=str(txn.id),
-        description=f'Deposit ${amount} to account',
+        order_id=order_number,
+        description=f'Balance Recharge',
     )
 
     txn.capitalist_payment_id = str(txn.id)
