@@ -17,6 +17,7 @@ from call_queue.api import router as call_queue_router
 from spam_protection.api import router as spam_router
 from analytics.ai_api import router as ai_router
 from accounts.kyc_api import router as kyc_router
+from accounts.access_requests_api import router as access_requests_router
 from analytics.scheduled_reports_api import router as scheduled_reports_router
 from spam_protection.shields_api import router as shields_router
 
@@ -40,5 +41,6 @@ api.add_router("/queue/", call_queue_router)
 api.add_router("/spam/", spam_router)
 api.add_router("/ai/", ai_router)
 api.add_router("/kyc/", kyc_router)
+api.add_router("/accounts/access-requests/", access_requests_router)
 api.add_router("/analytics/reports/", scheduled_reports_router)
 api.add_router("/spam/shields/", shields_router)

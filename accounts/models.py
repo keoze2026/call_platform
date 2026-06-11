@@ -167,3 +167,5 @@ class PasswordResetToken(models.Model):
     def __str__(self):
         return f"Reset token for {self.user.email} - {'Valid' if self.is_valid() else 'Invalid'}"
 from .kyc import KYCVerification
+
+from .access_requests import AccessRequest, SetupToken

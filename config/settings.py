@@ -26,7 +26,7 @@ sentry_sdk.init(
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^wosqcp*bb73+*g&n0%dy&l($pxb#y')
-ALLOWED_HOSTS = ['avortyx.io', 'www.avortyx.io', '156.67.25.167', 'localhost']
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
 DEBUG = config("DEBUG", default=False, cast=bool)
 CSRF_TRUSTED_ORIGINS = ['https://avortyx.io', 'https://www.avortyx.io']
 
@@ -231,6 +231,7 @@ EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@example.com')
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=False, cast=bool)
 
 ASSEMBLYAI_API_KEY = config('ASSEMBLYAI_API_KEY', default='')
 

@@ -1,3 +1,4 @@
+from accounts.api import JWTAuth
 import uuid
 from typing import List
 from django.shortcuts import get_object_or_404
@@ -13,7 +14,7 @@ from .schemas import (
     MessageSchema,
 )
 
-router = Router(tags=['Spam & Fraud Protection'])
+router = Router(tags=['Spam & Fraud Protection'], auth=JWTAuth())
 
 
 

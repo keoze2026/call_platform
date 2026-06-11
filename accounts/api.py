@@ -309,6 +309,7 @@ def list_members(request: HttpRequest, page: int = 1, page_size: int = 50):
             'last_name': m.last_name,
             'role': m.role,
             'is_active': m.is_active,
+            'status': 'active' if m.is_active else 'suspended',
             'created_at': m.created_at.isoformat(),
         }
         for m in members
@@ -368,15 +369,20 @@ def update_member_role(request: HttpRequest, user_id: str):
     try:
         data = json.loads(request.body)
         role = data.get('role')
-        if not role:
-            return 400, {"detail": "Role is required"}
+        status = data.get('status')
         user = User.objects.get(id=user_id, organization=request.auth.organization)
-        user.role = role
+        if role:
+            user.role = role
+        if status == 'suspended':
+            user.is_active = False
+        elif status == 'active':
+            user.is_active = True
         user.save()
         return 200, {
             'id': str(user.id),
             'email': user.email,
             'role': user.role,
+            'status': 'active' if user.is_active else 'suspended',
         }
     except User.DoesNotExist:
         return 404, {"detail": "Member not found"}
