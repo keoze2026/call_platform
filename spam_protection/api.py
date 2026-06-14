@@ -231,20 +231,10 @@ def check_number(request, phone_number: str, campaign_id: uuid.UUID = None):
     )
     return result
 
-@router.get("/reports", response={200: dict})
-def list_spam_reports(request, page: int = 1, page_size: int = 50):
-    from config.pagination import paginate_list
-    from spam_protection.models import SpamReport
-    try:
-        reports = SpamReport.objects.filter(organization=request.auth.organization)
-        data = [{'id': str(r.id), 'phone_number': r.phone_number, 'reason': r.reason, 'created_at': r.created_at.isoformat()} for r in reports]
-        return 200, paginate_list(data, page, page_size)
-    except Exception:
-        return 200, {"items": [], "total": 0, "page": page, "page_size": page_size, "pages": 0}
-
 
 @router.get("/check", response={200: dict})
-def check_number(request, number: str = ''):
+def check_number(request, phone_number: str = ''):
+    number = phone_number
     if not number:
         return 200, {"number": number, "is_blocked": False, "is_whitelisted": False}
     from spam_protection.models import Blacklist, Whitelist
@@ -256,8 +246,11 @@ def check_number(request, number: str = ''):
 @router.get("/anonymous-block", response={200: dict})
 def get_anonymous_block(request):
     from django.core.cache import cache
-    config = cache.get(f'anon_block_{request.auth.organization.id}', {})
-    return 200, {"enabled": config.get('enabled', False), "campaigns": config.get('campaigns', [])}
+    org_id = str(request.auth.organization.id)
+    config = cache.get(f'anon_block_{org_id}')
+    if config is None:
+        config = {"enabled": False, "campaigns": []}
+    return 200, config
 
 
 @router.post("/anonymous-block", response={200: dict})
