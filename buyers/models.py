@@ -124,3 +124,4 @@ class BuyerSchedule(models.Model):
 
     def __str__(self):
         return f"{self.buyer.name} — {self.get_day_of_week_display()} {self.start_time}-{self.end_time}"
+from .destination import Destination

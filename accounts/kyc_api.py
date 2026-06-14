@@ -125,3 +125,24 @@ def update_kyc(request, payload: KYCIndividualSchema):
         return 200, format_kyc(kyc)
     except KYCVerification.DoesNotExist:
         return 404, {"detail": "KYC not found"}
+
+
+@router.post("/documents/upload/", response={200: dict, 400: dict})
+def upload_kyc_document(request):
+    import uuid, os
+    from django.conf import settings
+    file = request.FILES.get('file')
+    if not file:
+        return 400, {"detail": "No file provided"}
+    ext = file.name.split('.')[-1].lower()
+    if ext not in ['jpg', 'jpeg', 'png', 'pdf']:
+        return 400, {"detail": "Only jpg, jpeg, png, pdf allowed"}
+    filename = f"kyc/{uuid.uuid4()}.{ext}"
+    upload_dir = os.path.join(settings.MEDIA_ROOT, 'kyc')
+    os.makedirs(upload_dir, exist_ok=True)
+    filepath = os.path.join(settings.MEDIA_ROOT, filename)
+    with open(filepath, 'wb') as f:
+        for chunk in file.chunks():
+            f.write(chunk)
+    base_url = getattr(settings, 'BASE_URL', 'https://avortyx.io')
+    return 200, {"url": f"{base_url}/media/{filename}"}

@@ -135,3 +135,13 @@ def get_stats(request: HttpRequest, buyer_id: str):
         return 200, stats
     except ValueError as e:
         return 404, {"detail": str(e)}
+
+@router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: dict, 404: dict})
+def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    from buyers.models import BuyerCampaign
+    try:
+        bc = BuyerCampaign.objects.get(buyer_id=buyer_id, campaign_id=campaign_id)
+        bc.delete()
+        return 200, {"message": "Campaign detached", "success": True}
+    except BuyerCampaign.DoesNotExist:
+        return 404, {"detail": "Assignment not found"}

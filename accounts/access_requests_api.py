@@ -51,9 +51,6 @@ def create_access_request(request, payload: AccessRequestSchema):
         return 429, {"detail": "Too many requests. Please wait 1 minute."}
 
     from accounts.access_requests import AccessRequest
-    if AccessRequest.objects.filter(email=payload.email).exists():
-        return 400, {"detail": "A request with this email already exists."}
-
     req = AccessRequest.objects.create(
         name=payload.name,
         company=payload.company,
@@ -61,6 +58,45 @@ def create_access_request(request, payload: AccessRequestSchema):
         phone=payload.phone,
         use_case=payload.use_case,
     )
+    # Send confirmation email to user
+    try:
+        from django.core.mail import send_mail
+        send_mail(
+            subject='We received your request — Avortyx',
+            message=f'Hi {payload.name},\n\nThank you for your interest in Avortyx. We have received your request and will review it shortly.\n\nYou will receive another email once your account has been approved.\n\nAvortyx Team',
+            from_email='support@keozx.com',
+            recipient_list=[payload.email],
+            fail_silently=True,
+        )
+    except Exception:
+        pass
+
+    # Notify admin
+    try:
+        from django.core.mail import send_mail
+        send_mail(
+            subject=f'New Access Request — {payload.name} from {payload.company}',
+            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: https://avortyx.com/admin/access-requests',
+            from_email='support@keozx.com',
+            recipient_list=['support@keozx.com'],
+            fail_silently=True,
+        )
+    except Exception:
+        pass
+
+    # Notify admin
+    try:
+        from django.core.mail import send_mail
+        send_mail(
+            subject=f'New Access Request — {payload.name} from {payload.company}',
+            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: https://avortyx.com/admin/access-requests',
+            from_email='support@keozx.com',
+            recipient_list=['support@keozx.com'],
+            fail_silently=False,
+        )
+    except Exception as e:
+        print('Admin email failed:', e)
+
     return 201, format_request(req)
 
 

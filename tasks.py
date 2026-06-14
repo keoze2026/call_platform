@@ -242,3 +242,18 @@ def transcribe_call_recording(call_log_id):
 
     TranscriptionService.transcribe_call(call_log)
     return f"Transcription done for call {call_log_id}: {call_log.transcription_status}"
+
+@app.task(name='tasks.send_telegram')
+def send_telegram(bot_token, chat_id, message):
+    try:
+        import requests, time
+        time.sleep(2)
+        r = requests.post(
+            f'https://api.telegram.org/bot{bot_token}/sendMessage',
+            json={'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True},
+            timeout=5
+        )
+        print('Telegram status:', r.status_code)
+        print('Telegram response:', r.text)
+    except Exception as e:
+        print('Telegram failed:', e)

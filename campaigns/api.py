@@ -131,3 +131,24 @@ def get_stats(request: HttpRequest, campaign_id: str):
         return 200, stats
     except ValueError as e:
         return 404, {"detail": str(e)}
+
+@router.put("/{campaign_id}/schedules", response={200: dict, 404: dict})
+def replace_schedules(request: HttpRequest, campaign_id: str):
+    import json
+    from campaigns.models import CampaignSchedule
+    try:
+        campaign = CampaignService.get_campaign(campaign_id, request.auth)
+        data = json.loads(request.body)
+        schedules = data if isinstance(data, list) else data.get('schedules', [])
+        CampaignSchedule.objects.filter(campaign=campaign).delete()
+        for s in schedules:
+            CampaignSchedule.objects.create(
+                campaign=campaign,
+                day_of_week=s.get('day_of_week', 0),
+                open_time=s.get('open_time', '09:00'),
+                close_time=s.get('close_time', '17:00'),
+                is_closed=s.get('is_closed', False),
+            )
+        return 200, {"message": "Schedules updated", "success": True}
+    except ValueError as e:
+        return 404, {"detail": str(e)}

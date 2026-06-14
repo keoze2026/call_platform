@@ -169,3 +169,5 @@ class PasswordResetToken(models.Model):
 from .kyc import KYCVerification
 
 from .access_requests import AccessRequest, SetupToken
+
+from .contact import ContactMessage

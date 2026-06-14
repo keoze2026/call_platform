@@ -230,3 +230,56 @@ def check_number(request, phone_number: str, campaign_id: uuid.UUID = None):
         log=False,
     )
     return result
+
+@router.get("/reports", response={200: dict})
+def list_spam_reports(request, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
+    from spam_protection.models import SpamReport
+    try:
+        reports = SpamReport.objects.filter(organization=request.auth.organization)
+        data = [{'id': str(r.id), 'phone_number': r.phone_number, 'reason': r.reason, 'created_at': r.created_at.isoformat()} for r in reports]
+        return 200, paginate_list(data, page, page_size)
+    except Exception:
+        return 200, {"items": [], "total": 0, "page": page, "page_size": page_size, "pages": 0}
+
+
+@router.get("/check", response={200: dict})
+def check_number(request, number: str = ''):
+    if not number:
+        return 200, {"number": number, "is_blocked": False, "is_whitelisted": False}
+    from spam_protection.models import Blacklist, Whitelist
+    is_blocked = Blacklist.objects.filter(organization=request.auth.organization, phone_number=number, is_active=True).exists()
+    is_whitelisted = Whitelist.objects.filter(organization=request.auth.organization, phone_number=number, is_active=True).exists()
+    return 200, {"number": number, "is_blocked": is_blocked, "is_whitelisted": is_whitelisted}
+
+
+@router.get("/anonymous-block", response={200: dict})
+def get_anonymous_block(request):
+    from django.core.cache import cache
+    config = cache.get(f'anon_block_{request.auth.organization.id}', {})
+    return 200, {"enabled": config.get('enabled', False), "campaigns": config.get('campaigns', [])}
+
+
+@router.post("/anonymous-block", response={200: dict})
+def create_anonymous_block(request):
+    import json
+    from django.core.cache import cache
+    data = json.loads(request.body)
+    cache.set(f'anon_block_{request.auth.organization.id}', data, timeout=None)
+    return 200, {"message": "Anonymous block updated", "success": True}
+
+
+@router.patch("/anonymous-block/{campaign_id}", response={200: dict})
+def update_anonymous_block(request, campaign_id: str):
+    import json
+    from django.core.cache import cache
+    data = json.loads(request.body)
+    config = cache.get(f'anon_block_{request.auth.organization.id}', {'enabled': False, 'campaigns': []})
+    campaigns = config.get('campaigns', [])
+    if campaign_id not in campaigns and data.get('enabled'):
+        campaigns.append(campaign_id)
+    elif campaign_id in campaigns and not data.get('enabled'):
+        campaigns.remove(campaign_id)
+    config['campaigns'] = campaigns
+    cache.set(f'anon_block_{request.auth.organization.id}', config, timeout=None)
+    return 200, {"message": "Updated", "success": True}

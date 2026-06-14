@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^wosqcp*bb73+*g&n0%dy&l($pxb#y')
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
-DEBUG = config("DEBUG", default=False, cast=bool)
+DEBUG = True
 CSRF_TRUSTED_ORIGINS = ['https://avortyx.io', 'https://www.avortyx.io']
 
 # Application definition
@@ -432,3 +432,9 @@ X_FRAME_OPTIONS = 'DENY'
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 CAPITALIST_API_KEY = config('CAPITALIST_API_KEY', default='')
 CAPITALIST_API_SECRET = config('CAPITALIST_API_SECRET', default='')
+
+TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
+TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
+
+MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_URL = '/media/'

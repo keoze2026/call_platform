@@ -33,6 +33,23 @@ class Campaign(models.Model):
     duplicate_call_block = models.BooleanField(default=False)
     duplicate_call_block_hours = models.IntegerField(default=24)
 
+    class PayoutModel(models.TextChoices):
+        PER_CALL = 'per_call', 'Per Call'
+        PER_QUALIFIED = 'per_qualified', 'Per Qualified'
+        PER_MINUTE = 'per_minute', 'Per Minute'
+
+    class Vertical(models.TextChoices):
+        HEALTH = 'health', 'Health'
+        AUTO = 'auto', 'Auto'
+        HOME = 'home', 'Home'
+        FINANCE = 'finance', 'Finance'
+        LEGAL = 'legal', 'Legal'
+        INSURANCE = 'insurance', 'Insurance'
+        OTHER = 'other', 'Other'
+
+    vertical = models.CharField(max_length=50, choices=Vertical.choices, default='other', blank=True)
+    payout_model = models.CharField(max_length=20, choices=PayoutModel.choices, default='per_call', blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -94,6 +111,23 @@ class CampaignCap(models.Model):
     max_calls_monthly = models.IntegerField(default=0)    # 0 = unlimited
     max_calls_global = models.IntegerField(default=0)     # 0 = unlimited
     max_concurrency = models.IntegerField(default=0)      # 0 = unlimited
+
+    class PayoutModel(models.TextChoices):
+        PER_CALL = 'per_call', 'Per Call'
+        PER_QUALIFIED = 'per_qualified', 'Per Qualified'
+        PER_MINUTE = 'per_minute', 'Per Minute'
+
+    class Vertical(models.TextChoices):
+        HEALTH = 'health', 'Health'
+        AUTO = 'auto', 'Auto'
+        HOME = 'home', 'Home'
+        FINANCE = 'finance', 'Finance'
+        LEGAL = 'legal', 'Legal'
+        INSURANCE = 'insurance', 'Insurance'
+        OTHER = 'other', 'Other'
+
+    vertical = models.CharField(max_length=50, choices=Vertical.choices, default='other', blank=True)
+    payout_model = models.CharField(max_length=20, choices=PayoutModel.choices, default='per_call', blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

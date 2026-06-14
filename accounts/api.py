@@ -386,3 +386,18 @@ def update_member_role(request: HttpRequest, user_id: str):
         }
     except User.DoesNotExist:
         return 404, {"detail": "Member not found"}
+
+
+@router.get("/workspace/roles", response={200: dict})
+def list_roles(request: HttpRequest):
+    from config.pagination import paginate_list
+    from accounts.models import User
+    roles = [
+        {"slug": "admin", "name": "Admin", "description": "Full access. Can manage members and billing.", "is_builtin": True, "permission_count": 55, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='admin').count()},
+        {"slug": "manager", "name": "Manager", "description": "Can manage campaigns, buyers and publishers.", "is_builtin": True, "permission_count": 40, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='manager').count()},
+        {"slug": "agent", "name": "Agent", "description": "Can view and manage assigned campaigns.", "is_builtin": True, "permission_count": 20, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='agent').count()},
+        {"slug": "buyer", "name": "Buyer", "description": "Can view buyer dashboard and stats.", "is_builtin": True, "permission_count": 10, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='buyer').count()},
+        {"slug": "publisher", "name": "Publisher", "description": "Can view publisher dashboard and stats.", "is_builtin": True, "permission_count": 10, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='publisher').count()},
+        {"slug": "viewer", "name": "Viewer", "description": "Read-only access to all resources.", "is_builtin": True, "permission_count": 5, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='viewer').count()},
+    ]
+    return 200, {"items": roles}
