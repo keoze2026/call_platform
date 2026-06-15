@@ -9,7 +9,7 @@ class Destination(models.Model):
         SIP = 'sip', 'SIP Endpoint'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    buyer = models.ForeignKey('buyers.Buyer', on_delete=models.CASCADE, related_name='destinations')
+    buyer = models.ForeignKey('buyers.Buyer', on_delete=models.SET_NULL, null=True, blank=True, related_name='destinations')
     organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='destinations')
     name = models.CharField(max_length=200)
     tfn = models.CharField(max_length=30)

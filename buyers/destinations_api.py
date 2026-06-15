@@ -1,5 +1,5 @@
 from ninja import Router, Schema
-from typing import Optional, List
+from typing import Optional, List, Union
 from accounts.api import JWTAuth
 from django.db.models import Sum, Count, Q
 
@@ -7,7 +7,7 @@ router = Router(tags=["Destinations"], auth=JWTAuth())
 
 
 class DestinationSchema(Schema):
-    buyer_id: str
+    buyer_id: Union[str, None] = None
     name: str
     tfn: str
     forward_type: str = 'number'
@@ -46,8 +46,8 @@ class DestinationUpdateSchema(Schema):
 def format_destination(d):
     return {
         'id': str(d.id),
-        'buyer_id': str(d.buyer_id),
-        'buyer_name': d.buyer.name if d.buyer else '',
+        'buyer_id': str(d.buyer_id) if d.buyer_id else None,
+        'buyer_name': d.buyer.name if d.buyer else None,
         'name': d.name,
         'tfn': d.tfn,
         'forward_type': d.forward_type,
@@ -111,10 +111,12 @@ def get_destination_stats(request):
 def create_destination(request, payload: DestinationSchema):
     from buyers.destination import Destination
     from buyers.models import Buyer
-    try:
-        buyer = Buyer.objects.get(id=payload.buyer_id, organization=request.auth.organization)
-    except (Buyer.DoesNotExist, Exception):
-        return 400, {"detail": "Buyer not found or invalid buyer_id"}
+    buyer = None
+    if payload.buyer_id:
+        try:
+            buyer = Buyer.objects.get(id=payload.buyer_id, organization=request.auth.organization)
+        except (Buyer.DoesNotExist, Exception):
+            return 400, {"detail": "Buyer not found or invalid buyer_id"}
     d = Destination.objects.create(
         organization=request.auth.organization,
         buyer=buyer,

@@ -85,7 +85,7 @@ class CampaignService:
         """List all campaigns for the user organization"""
         return Campaign.objects.filter(
             organization=user.organization
-        ).order_by('-created_at')
+        ).exclude(status='archived').order_by('-created_at')
 
     @staticmethod
     def update(campaign_id: str, data: UpdateCampaignSchema, user: User) -> Campaign:

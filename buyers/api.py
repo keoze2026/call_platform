@@ -8,6 +8,7 @@ from .schemas import (
     AssignCampaignSchema, MessageResponseSchema
 )
 from .services import BuyerService
+from .models import Buyer
 from accounts.api import JWTAuth
 
 router = Router(tags=["Buyers"], auth=JWTAuth())
@@ -145,3 +146,26 @@ def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
         return 200, {"message": "Campaign detached", "success": True}
     except BuyerCampaign.DoesNotExist:
         return 404, {"detail": "Assignment not found"}
+
+
+@router.post("/{buyer_id}/invite", response={200: dict, 400: dict, 404: dict})
+def invite_buyer(request: HttpRequest, buyer_id: str):
+    import secrets
+    from django.core.mail import send_mail
+    from buyers.models import Buyer as BuyerModel
+    try:
+        buyer = BuyerModel.objects.get(id=buyer_id, organization=request.auth.organization)
+        if not buyer.created_by or not buyer.created_by.email:
+            return 400, {"detail": "No email found for this buyer"}
+        token = secrets.token_urlsafe(32)
+        invite_link = f"https://avortyx.com/buyer-setup?token={token}&buyer_id={buyer_id}"
+        send_mail(
+            subject="You have been invited to Avortyx as a Buyer",
+            message=f"Hi,\n\nYou have been invited to join Avortyx as a buyer.\n\nClick the link below:\n\n{invite_link}\n\nAvortyx Team",
+            from_email="support@keozx.com",
+            recipient_list=[buyer.created_by.email],
+            fail_silently=True,
+        )
+        return 200, {"message": "Invite sent", "invite_link": invite_link, "success": True}
+    except BuyerModel.DoesNotExist:
+        return 404, {"detail": "Buyer not found"}

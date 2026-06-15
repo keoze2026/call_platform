@@ -25,7 +25,7 @@ def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
 @router.get("", response={200: dict})
 def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
-    campaigns = CampaignService.list_campaigns(request.auth)
+    campaigns = CampaignService.list_campaigns(request.auth).exclude(status='archived')
     data = [
         {
             'id': str(c.id),

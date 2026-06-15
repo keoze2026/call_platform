@@ -27,7 +27,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^wosqcp*bb73+*g&n0%dy&l($pxb#y')
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
-DEBUG = True
+DEBUG = config("DEBUG", default=False, cast=bool)
 CSRF_TRUSTED_ORIGINS = ['https://avortyx.io', 'https://www.avortyx.io']
 
 # Application definition

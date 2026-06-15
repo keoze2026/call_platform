@@ -117,6 +117,10 @@ class ActivityLog(models.Model):
 
 
 class APIKey(models.Model):
+    @staticmethod
+    def generate_key():
+        import secrets
+        return f'avx_{secrets.token_urlsafe(32)}'
     """API keys for programmatic access"""
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)

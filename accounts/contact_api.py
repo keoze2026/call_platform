@@ -72,7 +72,7 @@ def contact(request, payload: ContactSchema):
 
     time.sleep(1)
 
-    # Telegram via Celery
+    # Telegram direct call
     try:
         from django.conf import settings
         from tasks import send_telegram
@@ -81,7 +81,7 @@ def contact(request, payload: ContactSchema):
         if bot_token and chat_id:
             ellipsis = '...' if len(message) > 300 else ''
             tg_message = f'New contact form submission\nName: {name}\nEmail: {email}\nMessage: {message[:300]}{ellipsis}'
-            send_telegram.delay(bot_token, chat_id, tg_message)
+            send_telegram(bot_token, chat_id, tg_message)
     except Exception as e:
         print('Telegram task failed:', e)
 
