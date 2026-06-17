@@ -137,21 +137,20 @@ class PhoneNumberService:
         return phone_number
 
     @staticmethod
-    def release_number(number_id: str, user: User):
-        """Release a phone number back to Twilio"""
+    def release_number(number_id: str, user) -> None:
+        """Release a phone number — skip Twilio if no twilio_sid"""
         phone_number = PhoneNumberService.get_number(number_id, user)
-        client = PhoneNumberService.get_twilio_client()
+        if phone_number.twilio_sid:
+            client = PhoneNumberService.get_twilio_client()
+            try:
+                client.incoming_phone_numbers(phone_number.twilio_sid).delete()
+            except Exception as e:
+                raise ValueError(f"Twilio error: {str(e)}")
+        phone_number.status = PhoneNumber.Status.RELEASED
+        phone_number.campaign = None
+        phone_number.publisher = None
+        phone_number.save()
 
-        try:
-            client.incoming_phone_numbers(phone_number.twilio_sid).delete()
-            phone_number.status = PhoneNumber.Status.RELEASED
-            phone_number.campaign = None
-            phone_number.publisher = None
-            phone_number.save()
-        except Exception as e:
-            raise ValueError(f"Twilio error: {str(e)}")
-
-    @staticmethod
     def update_number(number_id: str, data, user: User) -> PhoneNumber:
         """Update phone number details"""
         phone_number = PhoneNumberService.get_number(number_id, user)
@@ -184,41 +183,22 @@ class PhoneNumberService:
             'updated_at': phone_number.updated_at.isoformat(),
         }
     @staticmethod
-    def import_existing_number(data, user: User) -> PhoneNumber:
-        """Import an already purchased Twilio number into the platform"""
-
+    def import_existing_number(data, user) -> PhoneNumber:
+        """Import any number into the platform without Twilio verification"""
         if not user.organization:
             raise ValueError("User has no organization")
-
         if PhoneNumber.objects.filter(number=data.phone_number).exists():
             raise ValueError("Number already exists in platform")
+        phone_number = PhoneNumber.objects.create(
+            organization=user.organization,
+            created_by=user,
+            number=data.phone_number,
+            friendly_name=data.phone_number,
+            number_type=data.number_type,
+            country_code='US',
+            voice_enabled=True,
+            sms_enabled=True,
+            status=PhoneNumber.Status.ACTIVE
+        )
+        return phone_number
 
-        client = PhoneNumberService.get_twilio_client()
-
-        try:
-            numbers = client.incoming_phone_numbers.list(
-                phone_number=data.phone_number
-            )
-
-            if not numbers:
-                raise ValueError("Number not found in your Twilio account")
-
-            twilio_number = numbers[0]
-
-            phone_number = PhoneNumber.objects.create(
-                organization=user.organization,
-                created_by=user,
-                number=twilio_number.phone_number,
-                friendly_name=twilio_number.friendly_name,
-                number_type=data.number_type,
-                twilio_sid=twilio_number.sid,
-                country_code='US',
-                voice_enabled=True,
-                sms_enabled=True,
-                status=PhoneNumber.Status.ACTIVE
-            )
-
-            return phone_number
-
-        except Exception as e:
-            raise ValueError(f"Twilio error: {str(e)}")
