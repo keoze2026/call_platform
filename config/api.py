@@ -19,6 +19,8 @@ from analytics.ai_api import router as ai_router
 from accounts.kyc_api import router as kyc_router
 from accounts.access_requests_api import router as access_requests_router
 from accounts.contact_api import router as contact_router
+from support.api import router as support_router
+from support.telegram_webhook import router as telegram_webhook_router
 from accounts.api_keys_api import router as api_keys_router
 from analytics.scheduled_reports_api import router as scheduled_reports_router
 from spam_protection.shields_api import router as shields_router
@@ -54,6 +56,8 @@ api.add_router("/ai/", ai_router)
 api.add_router("/kyc/", kyc_router)
 api.add_router("/accounts/access-requests/", access_requests_router)
 api.add_router("/contact/", contact_router)
+api.add_router("/support/", support_router)
+api.add_router("/support/", telegram_webhook_router)
 api.add_router("/accounts/api-keys", api_keys_router)
 api.add_router("/analytics/reports/", scheduled_reports_router)
 api.add_router("/spam/shields/", shields_router)

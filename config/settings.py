@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'phone_numbers',
     'routing',
     'spam_protection',
+    'support',
     'ivr',
     'dni',
     'analytics',
@@ -438,3 +439,5 @@ TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
 
 MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = '/media/'
+
+TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')

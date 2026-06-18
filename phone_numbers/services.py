@@ -171,7 +171,7 @@ class PhoneNumberService:
             'number_type': phone_number.number_type,
             'status': phone_number.status,
             'country_code': phone_number.country_code,
-            'twilio_sid': phone_number.twilio_sid,
+            'twilio_sid': phone_number.twilio_sid or '',
             'voice_enabled': phone_number.voice_enabled,
             'sms_enabled': phone_number.sms_enabled,
             'campaign_id': str(phone_number.campaign_id) if phone_number.campaign_id else None,

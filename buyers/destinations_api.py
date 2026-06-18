@@ -9,7 +9,11 @@ router = Router(tags=["Destinations"], auth=JWTAuth())
 class DestinationSchema(Schema):
     buyer_id: Union[str, None] = None
     name: str
-    tfn: str
+    tfn: str = ''
+    phone_number: Union[str, None] = None
+
+    def get_tfn(self):
+        return self.tfn or self.phone_number or ''
     forward_type: str = 'number'
     enabled: bool = True
     concurrency_cap: int = 0
@@ -121,7 +125,7 @@ def create_destination(request, payload: DestinationSchema):
         organization=request.auth.organization,
         buyer=buyer,
         name=payload.name,
-        tfn=payload.tfn,
+        tfn=payload.get_tfn(),
         forward_type=payload.forward_type,
         enabled=payload.enabled,
         concurrency_cap=payload.concurrency_cap,
