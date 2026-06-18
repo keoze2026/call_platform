@@ -96,10 +96,14 @@ class RoutingService:
             except Buyer.DoesNotExist:
                 raise ValueError("Buyer not found")
 
+        destination_value = data.destination or data.phone_number
+        if not destination_value:
+            raise ValueError("destination or phone_number is required")
+
         destination = RuleDestination.objects.create(
             rule=rule,
             destination_type=data.destination_type,
-            destination=data.destination,
+            destination=destination_value,
             buyer=buyer,
             priority=data.priority,
             weight=data.weight

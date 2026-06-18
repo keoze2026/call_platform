@@ -81,6 +81,18 @@ class PhoneNumberService:
                 status=PhoneNumber.Status.ACTIVE
             )
 
+            if getattr(data, 'campaign_id', None):
+                from campaigns.models import Campaign
+                try:
+                    campaign = Campaign.objects.get(
+                        id=data.campaign_id,
+                        organization=user.organization
+                    )
+                    phone_number.campaign = campaign
+                    phone_number.save(update_fields=['campaign', 'updated_at'])
+                except Campaign.DoesNotExist:
+                    pass
+
             return phone_number
 
         except Exception as e:
@@ -171,7 +183,7 @@ class PhoneNumberService:
             'number_type': phone_number.number_type,
             'status': phone_number.status,
             'country_code': phone_number.country_code,
-            'twilio_sid': phone_number.twilio_sid or '',
+            'twilio_sid': phone_number.twilio_sid,
             'voice_enabled': phone_number.voice_enabled,
             'sms_enabled': phone_number.sms_enabled,
             'campaign_id': str(phone_number.campaign_id) if phone_number.campaign_id else None,
@@ -182,6 +194,7 @@ class PhoneNumberService:
             'created_at': phone_number.created_at.isoformat(),
             'updated_at': phone_number.updated_at.isoformat(),
         }
+
     @staticmethod
     def import_existing_number(data, user) -> PhoneNumber:
         """Import any number into the platform without Twilio verification"""
@@ -189,6 +202,7 @@ class PhoneNumberService:
             raise ValueError("User has no organization")
         if PhoneNumber.objects.filter(number=data.phone_number).exists():
             raise ValueError("Number already exists in platform")
+
         phone_number = PhoneNumber.objects.create(
             organization=user.organization,
             created_by=user,
@@ -200,5 +214,17 @@ class PhoneNumberService:
             sms_enabled=True,
             status=PhoneNumber.Status.ACTIVE
         )
-        return phone_number
 
+        if getattr(data, 'campaign_id', None):
+            from campaigns.models import Campaign
+            try:
+                campaign = Campaign.objects.get(
+                    id=data.campaign_id,
+                    organization=user.organization
+                )
+                phone_number.campaign = campaign
+                phone_number.save(update_fields=['campaign', 'updated_at'])
+            except Campaign.DoesNotExist:
+                pass
+
+        return phone_number

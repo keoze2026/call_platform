@@ -16,6 +16,7 @@ class PurchaseNumberSchema(Schema):
     phone_number: str
     friendly_name: Optional[str] = ''
     number_type: str = 'local'
+    campaign_id: Optional[str] = None
 
 
 class AssignNumberSchema(Schema):
@@ -46,7 +47,7 @@ class PhoneNumberOutSchema(Schema):
     number_type: str
     status: str
     country_code: str
-    twilio_sid: str
+    twilio_sid: Optional[str] = None
     voice_enabled: bool
     sms_enabled: bool
     campaign_id: Optional[str] = None

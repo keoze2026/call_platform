@@ -24,7 +24,8 @@ class CreateConditionSchema(Schema):
 
 class CreateDestinationSchema(Schema):
     destination_type: str = 'phone'
-    destination: str
+    destination: Optional[str] = None
+    phone_number: Optional[str] = None
     buyer_id: Optional[str] = None
     priority: int = 1
     weight: int = 100
@@ -40,7 +41,7 @@ class ConditionOutSchema(Schema):
 class DestinationOutSchema(Schema):
     id: str
     destination_type: str
-    destination: str
+    destination: Optional[str] = None
     priority: int
     weight: int
     buyer_id: Optional[str] = None
