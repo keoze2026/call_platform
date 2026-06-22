@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'phone_numbers',
     'routing',
     'spam_protection',
+    'referrals',
     'support',
     'ivr',
     'dni',

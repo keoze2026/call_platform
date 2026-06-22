@@ -25,6 +25,7 @@ from accounts.api_keys_api import router as api_keys_router
 from analytics.scheduled_reports_api import router as scheduled_reports_router
 from spam_protection.shields_api import router as shields_router
 from buyers.destinations_api import router as destinations_router
+from referrals.api import router as referrals_router
 
 from django.http import JsonResponse
 
@@ -62,3 +63,4 @@ api.add_router("/accounts/api-keys", api_keys_router)
 api.add_router("/analytics/reports/", scheduled_reports_router)
 api.add_router("/spam/shields/", shields_router)
 api.add_router("/destinations/", destinations_router)
+api.add_router("/referrals/", referrals_router)
