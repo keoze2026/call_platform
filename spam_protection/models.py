@@ -169,3 +169,19 @@ class SpamReport(models.Model):
 
     def __str__(self):
         return f'SpamReport [{self.phone_number}] — {self.block_reason}'
+
+class Shield(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, related_name='shields')
+    name = models.CharField(max_length=255)
+    shield_type = models.CharField(max_length=20)
+    campaign_ids = models.JSONField(default=list)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'spam_shields'
+
+    def __str__(self):
+        return f"{self.name} ({self.shield_type})"
