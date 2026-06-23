@@ -62,6 +62,16 @@ def get_number(request: HttpRequest, number_id: str):
 @router.patch("/{number_id}", response={200: PhoneNumberOutSchema, 400: dict, 404: dict})
 def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema):
     try:
+        import json as _json
+        try:
+            body = _json.loads(request.body)
+        except Exception:
+            body = {}
+        # If campaign_id explicitly sent as null, detach
+        if 'campaign_id' in body and body['campaign_id'] is None:
+            data._detach_campaign = True
+        else:
+            data._detach_campaign = False
         phone_number = PhoneNumberService.update_number(number_id, data, request.auth)
         return 200, PhoneNumberService.format_number(phone_number)
     except ValueError as e:

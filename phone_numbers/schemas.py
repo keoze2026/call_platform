@@ -31,6 +31,8 @@ class AssignNumberSchema(Schema):
     publisher_id: Optional[str] = None
 
 
+_UNSET = object()
+
 class UpdateNumberSchema(Schema):
     friendly_name: Optional[str] = None
     vendor: Optional[str] = None
@@ -40,6 +42,8 @@ class UpdateNumberSchema(Schema):
     label: Optional[str] = None
     cap_enabled: Optional[bool] = None
     daily_cap: Optional[int] = None
+    campaign_id: Optional[str] = None
+    detach_campaign: Optional[bool] = None
 
 
 # ===== RESPONSE SCHEMAS =====

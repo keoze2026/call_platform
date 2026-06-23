@@ -198,6 +198,16 @@ class PhoneNumberService:
         _daily_cap = getattr(data, 'daily_cap', None)
         if _daily_cap is not None:
             phone_number.daily_cap = _daily_cap
+        # Handle campaign_id - detach if explicitly null, assign if uuid
+        if getattr(data, '_detach_campaign', False):
+            phone_number.campaign = None
+        elif getattr(data, 'campaign_id', None):
+            try:
+                from campaigns.models import Campaign
+                campaign = Campaign.objects.get(id=data.campaign_id, organization=user.organization)
+                phone_number.campaign = campaign
+            except Exception:
+                pass
         phone_number.save()
         return phone_number
 
