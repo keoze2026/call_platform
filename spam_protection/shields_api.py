@@ -16,6 +16,7 @@ class ShieldUpdateSchema(Schema):
     name: Optional[str] = None
     campaign_ids: Optional[list] = None
     is_active: Optional[bool] = None
+    blocked_carriers: Optional[list] = None
 
 
 def get_or_create_shields(organization):
@@ -51,7 +52,7 @@ def create_shield(request, payload: ShieldSchema):
             id__in=payload.campaign_ids,
             organization=request.auth.organization
         ).update(block_voip=payload.is_active)
-    return 201, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active}
+    return 201, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active, 'blocked_carriers': shield.blocked_carriers}
 
 
 @router.get("/{shield_id}/", response={200: dict, 404: dict})
@@ -59,7 +60,7 @@ def get_shield(request, shield_id: str):
     from spam_protection.models import Shield
     try:
         shield = Shield.objects.get(id=shield_id, organization=request.auth.organization)
-        return 200, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active}
+        return 200, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active, 'blocked_carriers': shield.blocked_carriers}
     except Shield.DoesNotExist:
         return 404, {"detail": "Shield not found"}
 
@@ -75,8 +76,10 @@ def patch_shield(request, shield_id: str, payload: ShieldUpdateSchema):
             shield.campaign_ids = payload.campaign_ids
         if payload.is_active is not None:
             shield.is_active = payload.is_active
+        if payload.blocked_carriers is not None:
+            shield.blocked_carriers = payload.blocked_carriers
         shield.save()
-        return 200, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active}
+        return 200, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active, 'blocked_carriers': shield.blocked_carriers}
     except Shield.DoesNotExist:
         return 404, {"detail": "Shield not found"}
 
@@ -92,8 +95,10 @@ def update_shield(request, shield_id: str, payload: ShieldUpdateSchema):
             shield.campaign_ids = payload.campaign_ids
         if payload.is_active is not None:
             shield.is_active = payload.is_active
+        if payload.blocked_carriers is not None:
+            shield.blocked_carriers = payload.blocked_carriers
         shield.save()
-        return 200, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active}
+        return 200, {'id': str(shield.id), 'name': shield.name, 'shield_type': shield.shield_type, 'campaign_ids': shield.campaign_ids, 'is_active': shield.is_active, 'blocked_carriers': shield.blocked_carriers}
     except Shield.DoesNotExist:
         return 404, {"detail": "Shield not found"}
 

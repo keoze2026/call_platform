@@ -12,30 +12,17 @@ class PhoneNumberService:
 
     @staticmethod
     def search_available_numbers(data, user: User) -> list:
-        """Search for available numbers on Twilio"""
         client = PhoneNumberService.get_twilio_client()
-
-        params = {
-            'limit': data.limit,
-            'voice_enabled': True,
-        }
-
+        params = {'limit': data.limit, 'voice_enabled': True}
         if data.area_code:
             params['area_code'] = data.area_code
-
         if data.contains:
             params['contains'] = data.contains
-
         try:
             if data.number_type == 'toll_free':
-                available = client.available_phone_numbers(
-                    data.country_code
-                ).toll_free.list(**params)
+                available = client.available_phone_numbers(data.country_code).toll_free.list(**params)
             else:
-                available = client.available_phone_numbers(
-                    data.country_code
-                ).local.list(**params)
-
+                available = client.available_phone_numbers(data.country_code).local.list(**params)
             return [
                 {
                     'phone_number': n.phone_number,
@@ -53,20 +40,21 @@ class PhoneNumberService:
 
     @staticmethod
     def purchase_number(data, user: User) -> PhoneNumber:
-        """Purchase a phone number from Twilio"""
         client = PhoneNumberService.get_twilio_client()
-
         if not user.organization:
             raise ValueError("User has no organization")
-
         if PhoneNumber.objects.filter(number=data.phone_number).exists():
             raise ValueError("Number already purchased")
-
         try:
             purchased = client.incoming_phone_numbers.create(
                 phone_number=data.phone_number,
                 friendly_name=data.friendly_name or data.phone_number,
             )
+
+            renews_at = None
+            if getattr(data, 'renews_at', None):
+                from django.utils.dateparse import parse_datetime
+                renews_at = parse_datetime(data.renews_at)
 
             phone_number = PhoneNumber.objects.create(
                 organization=user.organization,
@@ -75,7 +63,11 @@ class PhoneNumberService:
                 friendly_name=purchased.friendly_name,
                 number_type=data.number_type,
                 twilio_sid=purchased.sid,
+                vendor=getattr(data, 'vendor', 'Twilio') or 'Twilio',
                 country_code='US',
+                state=getattr(data, 'state', '') or '',
+                allocated_capacity=getattr(data, 'allocated_capacity', 1) or 1,
+                renews_at=renews_at,
                 voice_enabled=purchased.capabilities.get('voice', True),
                 sms_enabled=purchased.capabilities.get('SMS', False),
                 status=PhoneNumber.Status.ACTIVE
@@ -84,73 +76,93 @@ class PhoneNumberService:
             if getattr(data, 'campaign_id', None):
                 from campaigns.models import Campaign
                 try:
-                    campaign = Campaign.objects.get(
-                        id=data.campaign_id,
-                        organization=user.organization
-                    )
+                    campaign = Campaign.objects.get(id=data.campaign_id, organization=user.organization)
                     phone_number.campaign = campaign
                     phone_number.save(update_fields=['campaign', 'updated_at'])
                 except Campaign.DoesNotExist:
                     pass
 
             return phone_number
-
         except Exception as e:
             raise ValueError(f"Twilio error: {str(e)}")
 
     @staticmethod
+    def import_existing_number(data, user) -> PhoneNumber:
+        if not user.organization:
+            raise ValueError("User has no organization")
+        if PhoneNumber.objects.filter(number=data.phone_number).exists():
+            raise ValueError("Number already exists in platform")
+
+        renews_at = None
+        if getattr(data, 'renews_at', None):
+            from django.utils.dateparse import parse_datetime
+            renews_at = parse_datetime(data.renews_at)
+
+        phone_number = PhoneNumber.objects.create(
+            organization=user.organization,
+            created_by=user,
+            number=data.phone_number,
+            friendly_name=data.phone_number,
+            number_type=data.number_type,
+            vendor=getattr(data, 'vendor', 'Twilio') or 'Twilio',
+            country_code='US',
+            state=getattr(data, 'state', '') or '',
+            allocated_capacity=getattr(data, 'allocated_capacity', 1) or 1,
+            renews_at=renews_at,
+            voice_enabled=True,
+            sms_enabled=True,
+            status=PhoneNumber.Status.ACTIVE
+        )
+
+        if getattr(data, 'campaign_id', None):
+            from campaigns.models import Campaign
+            try:
+                campaign = Campaign.objects.get(id=data.campaign_id, organization=user.organization)
+                phone_number.campaign = campaign
+                phone_number.save(update_fields=['campaign', 'updated_at'])
+            except Campaign.DoesNotExist:
+                pass
+
+        return phone_number
+
+    @staticmethod
     def get_number(number_id: str, user: User) -> PhoneNumber:
-        """Get a single phone number by ID"""
         try:
-            return PhoneNumber.objects.select_related(
-                'campaign', 'publisher'
-            ).get(
-                id=number_id,
-                organization=user.organization
+            return PhoneNumber.objects.select_related('campaign', 'publisher').get(
+                id=number_id, organization=user.organization
             )
         except PhoneNumber.DoesNotExist:
             raise ValueError("Phone number not found")
 
     @staticmethod
     def list_numbers(user: User):
-        """List all phone numbers for the organization"""
         return PhoneNumber.objects.filter(
-            organization=user.organization
+            organization=user.organization,
+            status__in=['active', 'pending', 'available']
         ).select_related('campaign', 'publisher').order_by('-created_at')
 
     @staticmethod
     def assign_number(number_id: str, data, user: User) -> PhoneNumber:
-        """Assign a number to a campaign or publisher"""
         phone_number = PhoneNumberService.get_number(number_id, user)
-
         if data.campaign_id:
             from campaigns.models import Campaign
             try:
-                campaign = Campaign.objects.get(
-                    id=data.campaign_id,
-                    organization=user.organization
-                )
+                campaign = Campaign.objects.get(id=data.campaign_id, organization=user.organization)
                 phone_number.campaign = campaign
             except Campaign.DoesNotExist:
                 raise ValueError("Campaign not found")
-
         if data.publisher_id:
             from publishers.models import Publisher
             try:
-                publisher = Publisher.objects.get(
-                    id=data.publisher_id,
-                    organization=user.organization
-                )
+                publisher = Publisher.objects.get(id=data.publisher_id, organization=user.organization)
                 phone_number.publisher = publisher
             except Publisher.DoesNotExist:
                 raise ValueError("Publisher not found")
-
         phone_number.save()
         return phone_number
 
     @staticmethod
     def release_number(number_id: str, user) -> None:
-        """Release a phone number — skip Twilio if no twilio_sid"""
         phone_number = PhoneNumberService.get_number(number_id, user)
         if phone_number.twilio_sid:
             client = PhoneNumberService.get_twilio_client()
@@ -163,19 +175,34 @@ class PhoneNumberService:
         phone_number.publisher = None
         phone_number.save()
 
+    @staticmethod
     def update_number(number_id: str, data, user: User) -> PhoneNumber:
-        """Update phone number details"""
         phone_number = PhoneNumberService.get_number(number_id, user)
-
-        if data.friendly_name:
+        if data.friendly_name is not None:
             phone_number.friendly_name = data.friendly_name
-            phone_number.save(update_fields=['friendly_name', 'updated_at'])
-
+        if getattr(data, 'vendor', None) is not None:
+            phone_number.vendor = data.vendor
+        if getattr(data, 'state', None) is not None:
+            phone_number.state = data.state
+        if getattr(data, 'allocated_capacity', None) is not None:
+            phone_number.allocated_capacity = data.allocated_capacity
+        if getattr(data, 'renews_at', None) is not None:
+            from django.utils.dateparse import parse_datetime
+            phone_number.renews_at = parse_datetime(data.renews_at)
+        _label = getattr(data, 'label', None)
+        if _label is not None:
+            phone_number.label = _label
+        _cap_enabled = getattr(data, 'cap_enabled', None)
+        if _cap_enabled is not None:
+            phone_number.cap_enabled = _cap_enabled
+        _daily_cap = getattr(data, 'daily_cap', None)
+        if _daily_cap is not None:
+            phone_number.daily_cap = _daily_cap
+        phone_number.save()
         return phone_number
 
     @staticmethod
     def format_number(phone_number: PhoneNumber) -> dict:
-        """Format phone number object to dict for response"""
         return {
             'id': str(phone_number.id),
             'number': phone_number.number,
@@ -184,6 +211,13 @@ class PhoneNumberService:
             'status': phone_number.status,
             'country_code': phone_number.country_code,
             'twilio_sid': phone_number.twilio_sid,
+            'vendor': phone_number.vendor,
+            'state': phone_number.state,
+            'allocated_capacity': phone_number.allocated_capacity,
+            'label': phone_number.label,
+            'cap_enabled': phone_number.cap_enabled,
+            'daily_cap': phone_number.daily_cap,
+            'renews_at': phone_number.renews_at.isoformat() if phone_number.renews_at else None,
             'voice_enabled': phone_number.voice_enabled,
             'sms_enabled': phone_number.sms_enabled,
             'campaign_id': str(phone_number.campaign_id) if phone_number.campaign_id else None,
@@ -194,37 +228,3 @@ class PhoneNumberService:
             'created_at': phone_number.created_at.isoformat(),
             'updated_at': phone_number.updated_at.isoformat(),
         }
-
-    @staticmethod
-    def import_existing_number(data, user) -> PhoneNumber:
-        """Import any number into the platform without Twilio verification"""
-        if not user.organization:
-            raise ValueError("User has no organization")
-        if PhoneNumber.objects.filter(number=data.phone_number).exists():
-            raise ValueError("Number already exists in platform")
-
-        phone_number = PhoneNumber.objects.create(
-            organization=user.organization,
-            created_by=user,
-            number=data.phone_number,
-            friendly_name=data.phone_number,
-            number_type=data.number_type,
-            country_code='US',
-            voice_enabled=True,
-            sms_enabled=True,
-            status=PhoneNumber.Status.ACTIVE
-        )
-
-        if getattr(data, 'campaign_id', None):
-            from campaigns.models import Campaign
-            try:
-                campaign = Campaign.objects.get(
-                    id=data.campaign_id,
-                    organization=user.organization
-                )
-                phone_number.campaign = campaign
-                phone_number.save(update_fields=['campaign', 'updated_at'])
-            except Campaign.DoesNotExist:
-                pass
-
-        return phone_number

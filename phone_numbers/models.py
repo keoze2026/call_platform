@@ -15,6 +15,13 @@ class PhoneNumber(models.Model):
         TOLL_FREE = 'toll_free', 'Toll Free'
         MOBILE = 'mobile', 'Mobile'
 
+    class Vendor(models.TextChoices):
+        TWILIO = 'Twilio', 'Twilio'
+        TELNYX = 'Telnyx', 'Telnyx'
+        BANDWIDTH = 'Bandwidth', 'Bandwidth'
+        VONAGE = 'Vonage', 'Vonage'
+        OTHER = 'Other', 'Other'
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='phone_numbers')
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='purchased_numbers')
@@ -25,9 +32,18 @@ class PhoneNumber(models.Model):
     number_type = models.CharField(max_length=20, choices=NumberType.choices, default=NumberType.LOCAL)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 
-    # Twilio details
-    twilio_sid = models.CharField(max_length=100, unique=True, null=True, blank=True, default=None)
+    # Carrier/vendor
+    twilio_sid = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    vendor = models.CharField(max_length=50, choices=Vendor.choices, default=Vendor.TWILIO)
     country_code = models.CharField(max_length=5, default='US')
+    state = models.CharField(max_length=100, blank=True, default='')
+
+    # Capacity & billing
+    allocated_capacity = models.IntegerField(default=1)
+    label = models.CharField(max_length=255, blank=True, default='')
+    cap_enabled = models.BooleanField(default=False)
+    daily_cap = models.IntegerField(default=0)
+    renews_at = models.DateTimeField(null=True, blank=True)
 
     # Assignment
     campaign = models.ForeignKey(

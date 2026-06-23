@@ -17,6 +17,13 @@ class PurchaseNumberSchema(Schema):
     friendly_name: Optional[str] = ''
     number_type: str = 'local'
     campaign_id: Optional[str] = None
+    vendor: Optional[str] = 'Twilio'
+    state: Optional[str] = ''
+    allocated_capacity: Optional[int] = 1
+    renews_at: Optional[str] = None
+    label: Optional[str] = None
+    cap_enabled: Optional[bool] = None
+    daily_cap: Optional[int] = None
 
 
 class AssignNumberSchema(Schema):
@@ -26,6 +33,13 @@ class AssignNumberSchema(Schema):
 
 class UpdateNumberSchema(Schema):
     friendly_name: Optional[str] = None
+    vendor: Optional[str] = None
+    state: Optional[str] = None
+    allocated_capacity: Optional[int] = None
+    renews_at: Optional[str] = None
+    label: Optional[str] = None
+    cap_enabled: Optional[bool] = None
+    daily_cap: Optional[int] = None
 
 
 # ===== RESPONSE SCHEMAS =====
@@ -48,6 +62,13 @@ class PhoneNumberOutSchema(Schema):
     status: str
     country_code: str
     twilio_sid: Optional[str] = None
+    vendor: str
+    state: str
+    allocated_capacity: int
+    label: str
+    cap_enabled: bool
+    daily_cap: int
+    renews_at: Optional[str] = None
     voice_enabled: bool
     sms_enabled: bool
     campaign_id: Optional[str] = None
@@ -65,6 +86,14 @@ class PhoneNumberListSchema(Schema):
     friendly_name: str
     number_type: str
     status: str
+    country_code: str
+    vendor: str
+    state: str
+    allocated_capacity: int
+    label: str
+    cap_enabled: bool
+    daily_cap: int
+    renews_at: Optional[str] = None
     campaign_id: Optional[str] = None
     campaign_name: Optional[str] = None
     publisher_id: Optional[str] = None

@@ -177,6 +177,7 @@ class Shield(models.Model):
     shield_type = models.CharField(max_length=20)
     campaign_ids = models.JSONField(default=list)
     is_active = models.BooleanField(default=True)
+    blocked_carriers = models.JSONField(default=list)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
