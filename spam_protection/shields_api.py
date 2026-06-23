@@ -32,7 +32,7 @@ def list_shields(request, shield_type: Optional[str] = None, page: int = 1, page
     qs = Shield.objects.filter(organization=request.auth.organization)
     if shield_type:
         qs = qs.filter(shield_type=shield_type)
-    data = [{'id': str(s.id), 'name': s.name, 'shield_type': s.shield_type, 'campaign_ids': s.campaign_ids, 'is_active': s.is_active} for s in qs]
+    data = [{'id': str(s.id), 'name': s.name, 'shield_type': s.shield_type, 'campaign_ids': s.campaign_ids, 'is_active': s.is_active, 'blocked_carriers': s.blocked_carriers} for s in qs]
     return 200, paginate_list(data, page, page_size)
 
 
