@@ -19,6 +19,8 @@ class DNIPool(models.Model):
 
     campaign = models.ForeignKey(
         'campaigns.Campaign',
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name='dni_pools'
     )

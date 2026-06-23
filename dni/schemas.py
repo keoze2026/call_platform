@@ -7,11 +7,16 @@ from datetime import datetime
 
 class CreateDNIPoolSchema(Schema):
     name:                     str
-    campaign_id:              str
+    campaign_id:              Optional[str] = None
     description:              Optional[str] = ''
     session_duration_minutes: Optional[int] = 30
     fallback_number:          Optional[str] = ''
     allowed_domains:          Optional[List[str]] = []
+    rotation_strategy:        Optional[str] = 'round-robin'
+    country:                  Optional[str] = None
+    closed_browser_delay_sec: Optional[int] = None
+    idle_time_sec:            Optional[int] = None
+    auto_buy:                 Optional[bool] = False
 
 
 class UpdateDNIPoolSchema(Schema):
@@ -21,6 +26,11 @@ class UpdateDNIPoolSchema(Schema):
     fallback_number:          Optional[str] = None
     allowed_domains:          Optional[List[str]] = None
     status:                   Optional[str] = None
+    rotation_strategy:        Optional[str] = None
+    country:                  Optional[str] = None
+    closed_browser_delay_sec: Optional[int] = None
+    idle_time_sec:            Optional[int] = None
+    auto_buy:                 Optional[bool] = None
 
 
 class AddNumberToPoolSchema(Schema):
@@ -39,8 +49,8 @@ class DNIPoolOutSchema(Schema):
     name:                     str
     status:                   str
     description:              str
-    campaign_id:              str
-    campaign_name:            str
+    campaign_id:              Optional[str] = None
+    campaign_name:            Optional[str] = None
     session_duration_minutes: int
     fallback_number:          str
     allowed_domains:          List[str]
@@ -56,8 +66,8 @@ class DNIPoolListSchema(Schema):
     id:                str
     name:              str
     status:            str
-    campaign_id:       str
-    campaign_name:     str
+    campaign_id:       Optional[str] = None
+    campaign_name:     Optional[str] = None
     total_numbers:     int
     available_numbers: int
     created_at:        str

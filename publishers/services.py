@@ -56,7 +56,7 @@ class PublisherService:
         """List all publishers for the user organization"""
         return Publisher.objects.filter(
             organization=user.organization
-        ).order_by('-created_at')
+        ).exclude(status='archived').order_by('-created_at')
 
     @staticmethod
     def update(publisher_id: str, data: UpdatePublisherSchema, user: User) -> Publisher:
@@ -113,8 +113,11 @@ class PublisherService:
 
         cap, created = PublisherCap.objects.get_or_create(publisher=publisher)
 
+        field_map = {'daily': 'max_calls_daily', 'monthly': 'max_calls_monthly', 'concurrency': 'max_concurrency'}
         for field, value in cap_data.model_dump(exclude_none=True).items():
-            setattr(cap, field, value)
+            mapped = field_map.get(field, field)
+            if hasattr(cap, mapped):
+                setattr(cap, mapped, value)
 
         cap.save()
         return cap

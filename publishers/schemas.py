@@ -7,9 +7,12 @@ from decimal import Decimal
 # ===== REQUEST SCHEMAS =====
 
 class PublisherCapSchema(Schema):
-    max_calls_daily: int = 0
-    max_calls_monthly: int = 0
-    max_calls_global: int = 0
+    max_calls_daily: Optional[int] = None
+    max_calls_monthly: Optional[int] = None
+    max_calls_global: Optional[int] = None
+    daily: Optional[int] = None
+    monthly: Optional[int] = None
+    concurrency: Optional[int] = None
 
 
 class CreatePublisherSchema(Schema):

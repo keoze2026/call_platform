@@ -60,7 +60,7 @@ def delete_webhook(request: HttpRequest, webhook_id: str):
 
 
 @router.get("/{webhook_id}/deliveries", response={200: dict})
-def list_deliveries(request: HttpRequest, webhook_id: str):
+def list_deliveries(request: HttpRequest, webhook_id: str, page: int = 1, page_size: int = 50):
     try:
         from config.pagination import paginate_list
         deliveries = WebhookService.list_deliveries(webhook_id, request.auth)

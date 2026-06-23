@@ -7,10 +7,13 @@ from decimal import Decimal
 # ===== REQUEST SCHEMAS =====
 
 class BuyerCapSchema(Schema):
-    max_calls_daily: int = 0
-    max_calls_monthly: int = 0
-    max_calls_global: int = 0
-    max_concurrency: int = 0
+    max_calls_daily: Optional[int] = None
+    max_calls_monthly: Optional[int] = None
+    max_calls_global: Optional[int] = None
+    max_concurrency: Optional[int] = None
+    daily: Optional[int] = None
+    monthly: Optional[int] = None
+    concurrency: Optional[int] = None
 
 
 class CreateBuyerSchema(Schema):
@@ -24,6 +27,8 @@ class CreateBuyerSchema(Schema):
     max_concurrency: int = 0
     dup_window_days: int = 30
     quality_score: int = 50
+    contact_name: Optional[str] = ''
+    contact_email: Optional[str] = ''
     cap: Optional[BuyerCapSchema] = None
 
     @field_validator('name')
@@ -67,6 +72,8 @@ class UpdateBuyerSchema(Schema):
     max_concurrency: Optional[int] = None
     dup_window_days: Optional[int] = None
     quality_score: Optional[int] = None
+    contact_name: Optional[str] = None
+    contact_email: Optional[str] = None
 
 
 class AssignCampaignSchema(Schema):
@@ -108,6 +115,9 @@ class BuyerOutSchema(Schema):
     dup_window_days: int
     quality_score: int
     organization_id: str
+    organization_name: str
+    contact_name: str
+    contact_email: str
     created_by_id: Optional[str] = None
     cap: Optional[BuyerCapOutSchema] = None
     campaigns: List[CampaignAssignmentOutSchema] = []

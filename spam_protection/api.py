@@ -21,11 +21,10 @@ router = Router(tags=['Spam & Fraud Protection'], auth=JWTAuth())
 # BLACKLIST
 
 
-@router.get('/blacklist', response=List[BlacklistOutSchema])
-def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = True):
+@router.get('/blacklist', response={200: dict})
+def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = False, page: int = 1, page_size: int = 500):
     """
     List blacklisted numbers for the authenticated user's organisation.
-    Optionally filter by campaign or include inactive entries.
     """
     qs = Blacklist.objects.filter(organization_id=request.auth.organization_id)
 
@@ -34,7 +33,27 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = T
     if active_only:
         qs = qs.filter(is_active=True)
 
-    return qs.order_by('-created_at')
+    qs = qs.order_by('-created_at')
+    total = qs.count()
+    start = (page - 1) * page_size
+    end = start + page_size
+    items = list(qs[start:end].values(
+        'id', 'phone_number', 'reason', 'notes', 'is_active', 'campaign_id', 'expires_at', 'created_at'
+    ))
+    for item in items:
+        item['id'] = str(item['id'])
+        item['campaign_id'] = str(item['campaign_id']) if item['campaign_id'] else None
+        item['expires_at'] = item['expires_at'].isoformat() if item['expires_at'] else None
+        item['created_at'] = item['created_at'].isoformat() if item['created_at'] else None
+
+    import math
+    return 200, {
+        'items': items,
+        'total': total,
+        'page': page,
+        'page_size': page_size,
+        'pages': math.ceil(total / page_size) if page_size else 1
+    }
 
 
 @router.post('/blacklist', response={201: BlacklistOutSchema})
@@ -42,7 +61,7 @@ def create_blacklist(request, payload: BlacklistCreateSchema):
     """Add a number to the blacklist."""
     entry = Blacklist.objects.create(
         organization_id=request.auth.organization_id,
-        phone_number=payload.phone_number,
+        phone_number=payload.phone_number or payload.number,
         reason=payload.reason,
         notes=payload.notes,
         campaign_id=payload.campaign_id,
@@ -60,15 +79,18 @@ def get_blacklist_entry(request, entry_id: uuid.UUID):
     return entry
 
 
-@router.patch('/blacklist/{entry_id}', response=BlacklistOutSchema)
+@router.patch('/blacklist/{entry_id}', response={200: BlacklistOutSchema, 400: dict})
 def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdateSchema):
+    if payload.phone_number is not None:
+        return 400, {"detail": "phone_number is immutable after creation. Delete and recreate to change the number."}
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
     for field, value in payload.dict(exclude_none=True).items():
-        setattr(entry, field, value)
+        if field != 'phone_number':
+            setattr(entry, field, value)
     entry.save()
-    return entry
+    return 200, entry
 
 
 @router.delete('/blacklist/{entry_id}', response=MessageSchema)
@@ -112,7 +134,7 @@ def create_whitelist(request, payload: WhitelistCreateSchema):
     """Add a trusted number that bypasses all spam checks."""
     entry = Whitelist.objects.create(
         organization_id=request.auth.organization_id,
-        phone_number=payload.phone_number,
+        phone_number=payload.phone_number or payload.number,
         notes=payload.notes,
         campaign_id=payload.campaign_id,
         added_by=request.auth,
@@ -229,6 +251,12 @@ def check_number(request, phone_number: str, campaign_id: uuid.UUID = None):
         campaign_id=str(campaign_id) if campaign_id else None,
         log=False,
     )
+    if isinstance(result, tuple):
+        status, data = result
+        if isinstance(data, dict) and 'is_spam' not in data:
+            data['is_spam'] = not data.get('allowed', True)
+            data['confidence'] = data.get('confidence', None)
+        return status, data
     return result
 
 
@@ -236,11 +264,11 @@ def check_number(request, phone_number: str, campaign_id: uuid.UUID = None):
 def check_number(request, phone_number: str = ''):
     number = phone_number
     if not number:
-        return 200, {"number": number, "is_blocked": False, "is_whitelisted": False}
+        return 200, {"number": number, "is_blocked": False, "is_whitelisted": False, "is_spam": False, "allowed": True, "confidence": None, "reason": None}
     from spam_protection.models import Blacklist, Whitelist
     is_blocked = Blacklist.objects.filter(organization=request.auth.organization, phone_number=number, is_active=True).exists()
     is_whitelisted = Whitelist.objects.filter(organization=request.auth.organization, phone_number=number, is_active=True).exists()
-    return 200, {"number": number, "is_blocked": is_blocked, "is_whitelisted": is_whitelisted}
+    return 200, {"number": number, "is_blocked": is_blocked, "is_whitelisted": is_whitelisted, "is_spam": is_blocked, "allowed": not is_blocked, "confidence": None, "reason": "blacklisted" if is_blocked else None}
 
 
 @router.get("/anonymous-block", response={200: dict})

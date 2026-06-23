@@ -93,6 +93,8 @@ def add_destination(request: HttpRequest, rule_id: str, data: CreateDestinationS
             'destination': destination.destination,
             'priority': destination.priority,
             'weight': destination.weight,
+            'buyer_id': str(destination.buyer_id) if destination.buyer_id else None,
+            'buyer_name': destination.buyer.name if destination.buyer else None,
         }
     except ValueError as e:
         return 400, {"detail": str(e)}

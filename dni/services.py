@@ -16,14 +16,16 @@ class DNIService:
         if not user.organization:
             raise ValueError("User has no organization")
 
-        from campaigns.models import Campaign
-        try:
-            campaign = Campaign.objects.get(
-                id=data.campaign_id,
-                organization=user.organization
-            )
-        except Campaign.DoesNotExist:
-            raise ValueError("Campaign not found")
+        campaign = None
+        if getattr(data, 'campaign_id', None):
+            from campaigns.models import Campaign
+            try:
+                campaign = Campaign.objects.get(
+                    id=data.campaign_id,
+                    organization=user.organization
+                )
+            except Campaign.DoesNotExist:
+                raise ValueError("Campaign not found")
 
         pool = DNIPool.objects.create(
             organization=user.organization,
@@ -264,7 +266,7 @@ class DNIService:
             'name':                     pool.name,
             'status':                   pool.status,
             'description':              pool.description,
-            'campaign_id':              str(pool.campaign_id),
+            'campaign_id':              str(pool.campaign_id) if pool.campaign_id else None,
             'campaign_name':            pool.campaign.name if pool.campaign else '',
             'session_duration_minutes': pool.session_duration_minutes,
             'fallback_number':          pool.fallback_number,

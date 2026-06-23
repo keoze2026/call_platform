@@ -37,7 +37,7 @@ def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
             'id':                str(p.id),
             'name':              p.name,
             'status':            p.status,
-            'campaign_id':       str(p.campaign_id),
+            'campaign_id':       str(p.campaign_id) if p.campaign_id else None,
             'campaign_name':     p.campaign.name if p.campaign else '',
             'total_numbers':     p.numbers.count(),
             'available_numbers': p.numbers.filter(status='available').count(),

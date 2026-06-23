@@ -1,5 +1,4 @@
 from ninja import Router, Schema
-from django.http import HttpRequest
 from typing import Optional
 
 router = Router(tags=["Support"])
@@ -23,7 +22,12 @@ def send_telegram_support(text, session_id):
     if bot_token and chat_id:
         requests.post(
             f'https://api.telegram.org/bot{bot_token}/sendMessage',
-            json={'chat_id': chat_id, 'text': text, 'disable_web_page_preview': True},
+            json={
+                'chat_id': chat_id,
+                'text': text,
+                'parse_mode': 'HTML',
+                'disable_web_page_preview': True,
+            },
             timeout=5
         )
 
@@ -44,11 +48,18 @@ def start_chat(request, payload: StartSessionSchema):
         message=payload.message,
     )
 
-    # Notify support team on Telegram
     try:
         name = payload.name or 'Anonymous'
         email = f' ({payload.email})' if payload.email else ''
-        tg_message = f'💬 New Support Chat\n👤 {name}{email}\n\nMessage: {payload.message}\n\nSession ID: {session.id}'
+        prefix = str(session.id)[:8]
+        tg_message = (
+            f'💬 <b>New Support Chat</b>\n'
+            f'👤 <b>{name}</b>{email}\n\n'
+            f'<b>Message:</b> {payload.message}\n\n'
+            f'─────────────────\n'
+            f'📨 <b>To reply, send:</b>\n'
+            f'<code>{prefix} your reply here</code>'
+        )
         send_telegram_support(tg_message, str(session.id))
     except Exception as e:
         print('Telegram support failed:', e)
@@ -70,7 +81,15 @@ def send_message(request, session_id: str, payload: SendMessageSchema):
             message=payload.message,
         )
         try:
-            tg_message = f'💬 New message from {session.name or "Anonymous"}\nSession: {session_id}\n\n{payload.message}\n\nReply: /reply {session_id} your message'
+            name = session.name or 'Anonymous'
+            prefix = str(session.id)[:8]
+            tg_message = (
+                f'💬 <b>Follow-up from {name}</b>\n\n'
+                f'<b>Message:</b> {payload.message}\n\n'
+                f'─────────────────\n'
+                f'📨 <b>To reply, send:</b>\n'
+                f'<code>{prefix} your reply here</code>'
+            )
             send_telegram_support(tg_message, session_id)
         except Exception:
             pass
@@ -104,7 +123,6 @@ def get_messages(request, session_id: str):
 
 @router.post("/chat/{session_id}/webhook", auth=None, response={200: dict})
 def telegram_webhook(request, session_id: str):
-    """Telegram bot calls this when agent replies"""
     import json
     try:
         data = json.loads(request.body)

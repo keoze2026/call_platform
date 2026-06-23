@@ -106,7 +106,7 @@ class SpamProtectionService:
 
         # 1. Whitelist bypass
         if SpamProtectionService.is_whitelisted(phone_number, organization_id, campaign_id):
-            return {'allowed': True, 'reason': None}
+            return {'allowed': True, 'is_spam': False, 'confidence': None, 'reason': None}
 
         # 2. Anonymous call block
         if SpamProtectionService.is_anonymous_blocked(phone_number, campaign_id):
@@ -115,7 +115,7 @@ class SpamProtectionService:
                     phone_number, organization_id,
                     campaign_id, SpamReport.BlockReason.ANONYMOUS
                 )
-            return {'allowed': False, 'reason': 'anonymous'}
+            return {'allowed': False, 'is_spam': True, 'confidence': None, 'reason': 'anonymous'}
 
         # 3. Blacklist
         if SpamProtectionService.is_blacklisted(phone_number, organization_id, campaign_id):
@@ -124,9 +124,9 @@ class SpamProtectionService:
                     phone_number, organization_id,
                     campaign_id, SpamReport.BlockReason.BLACKLISTED
                 )
-            return {'allowed': False, 'reason': 'blacklisted'}
+            return {'allowed': False, 'is_spam': True, 'confidence': None, 'reason': 'blacklisted'}
 
-        return {'allowed': True, 'reason': None}
+        return {'allowed': True, 'is_spam': False, 'confidence': None, 'reason': None}
 
     # ── Internal ───────────────────────────────────────────────────────────────
 

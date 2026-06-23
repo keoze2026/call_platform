@@ -7,14 +7,20 @@ from ninja import Schema
 # ─── Blacklist ────────────────────────────────────────────────────────────────
 
 class BlacklistCreateSchema(Schema):
-    phone_number: str
+    phone_number: Optional[str] = None
+    number: Optional[str] = None
     reason: str = 'manual'
     notes: str = ''
     campaign_id: Optional[uuid.UUID] = None
     expires_at: Optional[datetime] = None
 
+    @property
+    def resolved_number(self):
+        return self.phone_number or self.number
+
 
 class BlacklistUpdateSchema(Schema):
+    phone_number: Optional[str] = None
     reason: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None

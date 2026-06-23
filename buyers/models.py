@@ -34,6 +34,10 @@ class Buyer(models.Model):
     sip_endpoint = models.CharField(max_length=255, blank=True)
     rtb_endpoint = models.URLField(blank=True, default='')
 
+    # Contact
+    contact_name = models.CharField(max_length=255, blank=True, default='')
+    contact_email = models.EmailField(blank=True, default='')
+
     # Financial
     payout_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 

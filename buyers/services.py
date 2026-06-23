@@ -27,6 +27,8 @@ class BuyerService:
             status=Buyer.Status.ACTIVE,
             dup_window_days=data.dup_window_days,
             quality_score=data.quality_score,
+            contact_name=data.contact_name or '',
+            contact_email=data.contact_email or '',
         )
 
         if data.cap:
@@ -62,7 +64,7 @@ class BuyerService:
         """List all buyers for the user organization"""
         return Buyer.objects.filter(
             organization=user.organization
-        ).order_by('-created_at')
+        ).exclude(status='archived').order_by('-created_at')
 
     @staticmethod
     def update(buyer_id: str, data: UpdateBuyerSchema, user: User) -> Buyer:
@@ -120,8 +122,11 @@ class BuyerService:
 
         cap, created = BuyerCap.objects.get_or_create(buyer=buyer)
 
+        field_map = {'daily': 'max_calls_daily', 'monthly': 'max_calls_monthly', 'concurrency': 'max_concurrency'}
         for field, value in cap_data.model_dump(exclude_none=True).items():
-            setattr(cap, field, value)
+            mapped = field_map.get(field, field)
+            if hasattr(cap, mapped):
+                setattr(cap, mapped, value)
 
         cap.save()
         return cap
@@ -228,6 +233,9 @@ class BuyerService:
             'min_call_duration': buyer.min_call_duration,
             'max_concurrency': buyer.max_concurrency,
             'organization_id': str(buyer.organization_id),
+            'organization_name': buyer.organization.name,
+            'contact_name': buyer.contact_name,
+            'contact_email': buyer.contact_email,
             'created_by_id': str(buyer.created_by_id) if buyer.created_by_id else None,
             'cap': cap,
             'campaigns': campaigns,

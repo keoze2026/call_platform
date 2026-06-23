@@ -34,7 +34,9 @@ def format_report(r):
         'recipients': r.recipients,
         'filters': r.filters,
         'last_sent_at': str(r.last_sent_at) if r.last_sent_at else None,
+        'last_run_at': str(r.last_sent_at) if r.last_sent_at else None,
         'next_send_at': str(r.next_send_at) if r.next_send_at else None,
+        'next_run_at': str(r.next_send_at) if r.next_send_at else None,
         'created_at': str(r.created_at),
     }
 

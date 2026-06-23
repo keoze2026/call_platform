@@ -113,8 +113,8 @@ def update_schedules(request: HttpRequest, campaign_id: str, data: List[Campaign
                     'id': str(s.id),
                     'day_of_week': s.day_of_week,
                     'day_name': days[s.day_of_week],
-                    'open_time': s.open_time.strftime('%H:%M'),
-                    'close_time': s.close_time.strftime('%H:%M'),
+                    'open_time': s.open_time.strftime('%H:%M') if hasattr(s.open_time, 'strftime') else str(s.open_time)[:5],
+                    'close_time': s.close_time.strftime('%H:%M') if hasattr(s.close_time, 'strftime') else str(s.close_time)[:5],
                     'is_closed': s.is_closed,
                 }
                 for s in schedules

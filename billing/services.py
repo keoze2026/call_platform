@@ -247,7 +247,10 @@ class BillingService:
         try:
             import stripe
             from django.conf import settings
-            stripe.api_key = settings.STRIPE_SECRET_KEY
+            stripe_key = getattr(settings, 'STRIPE_SECRET_KEY', '')
+            if not stripe_key or stripe_key.startswith('<'):
+                return []
+            stripe.api_key = stripe_key
 
             account = BillingService.get(user)
 

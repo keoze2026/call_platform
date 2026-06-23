@@ -41,25 +41,12 @@ def import_number(request: HttpRequest, data: PurchaseNumberSchema):
     except ValueError as e:
         return 400, {"detail": str(e)}
 
+
 @router.get("", response={200: dict})
 def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
     numbers = PhoneNumberService.list_numbers(request.auth)
-    data = [
-        {
-            'id': str(n.id),
-            'number': n.number,
-            'friendly_name': n.friendly_name,
-            'number_type': n.number_type,
-            'status': n.status,
-            'campaign_id': str(n.campaign_id) if n.campaign_id else None,
-            'campaign_name': n.campaign.name if n.campaign else None,
-            'publisher_id': str(n.publisher_id) if n.publisher_id else None,
-            'publisher_name': n.publisher.name if n.publisher else None,
-            'created_at': n.created_at.isoformat(),
-        }
-        for n in numbers
-    ]
+    data = [PhoneNumberService.format_number(n) for n in numbers]
     return 200, paginate_list(data, page, page_size)
 
 
@@ -97,5 +84,3 @@ def release_number(request: HttpRequest, number_id: str):
         return 200, {"message": "Number released successfully", "success": True}
     except ValueError as e:
         return 400, {"detail": str(e)}
-
-
