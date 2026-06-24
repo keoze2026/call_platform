@@ -17,6 +17,12 @@ class CreateDNIPoolSchema(Schema):
     closed_browser_delay_sec: Optional[int] = None
     idle_time_sec:            Optional[int] = None
     auto_buy:                 Optional[bool] = False
+    replacement_number:       Optional[str] = None
+    phone_number_format:      Optional[str] = 'E164'
+    vendor_enabled:           Optional[bool] = False
+    vendor_id:                Optional[str] = None
+    traffic_sources_enabled:  Optional[bool] = False
+    traffic_sources:          Optional[list] = []
 
 
 class UpdateDNIPoolSchema(Schema):
@@ -31,6 +37,12 @@ class UpdateDNIPoolSchema(Schema):
     closed_browser_delay_sec: Optional[int] = None
     idle_time_sec:            Optional[int] = None
     auto_buy:                 Optional[bool] = None
+    replacement_number:       Optional[str] = None
+    phone_number_format:      Optional[str] = None
+    vendor_enabled:           Optional[bool] = None
+    vendor_id:                Optional[str] = None
+    traffic_sources_enabled:  Optional[bool] = None
+    traffic_sources:          Optional[list] = None
 
 
 class AddNumberToPoolSchema(Schema):
@@ -54,6 +66,12 @@ class DNIPoolOutSchema(Schema):
     session_duration_minutes: int
     fallback_number:          str
     allowed_domains:          List[str]
+    replacement_number:       Optional[str] = None
+    phone_number_format:      Optional[str] = 'E164'
+    vendor_enabled:           Optional[bool] = False
+    vendor_id:                Optional[str] = None
+    traffic_sources_enabled:  Optional[bool] = False
+    traffic_sources:          Optional[list] = []
     numbers:                  List[DNINumberOutSchema] = []
     total_numbers:            int
     available_numbers:        int

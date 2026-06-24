@@ -6,6 +6,7 @@ class CreateWebhookSchema(Schema):
     name: str
     url: str
     secret: Optional[str] = ''
+    headers: Optional[list] = []
     events: List[str] = []
     max_retries: Optional[int] = 3
     timeout_seconds: Optional[int] = 10
@@ -15,6 +16,7 @@ class UpdateWebhookSchema(Schema):
     name: Optional[str] = None
     url: Optional[str] = None
     secret: Optional[str] = None
+    headers: Optional[list] = None
     events: Optional[List[str]] = None
     status: Optional[str] = None
     max_retries: Optional[int] = None
@@ -39,6 +41,8 @@ class WebhookOutSchema(Schema):
     events: list
     status: str
     max_retries: int
+    secret: Optional[str] = None
+    headers: Optional[list] = []
     timeout_seconds: int
     organization_id: str
     created_at: str

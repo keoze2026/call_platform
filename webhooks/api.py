@@ -59,6 +59,19 @@ def delete_webhook(request: HttpRequest, webhook_id: str):
         return 404, {"detail": str(e)}
 
 
+@router.post("/{webhook_id}/rotate-secret", response={200: dict, 404: dict})
+def rotate_secret(request: HttpRequest, webhook_id: str):
+    from webhooks.models import Webhook
+    import secrets as _secrets
+    try:
+        webhook = Webhook.objects.get(id=webhook_id, organization=request.auth.organization)
+        webhook.secret = _secrets.token_hex(32)
+        webhook.save()
+        return 200, {"secret": webhook.secret}
+    except Webhook.DoesNotExist:
+        return 404, {"detail": "Webhook not found"}
+
+
 @router.get("/{webhook_id}/deliveries", response={200: dict})
 def list_deliveries(request: HttpRequest, webhook_id: str, page: int = 1, page_size: int = 50):
     try:

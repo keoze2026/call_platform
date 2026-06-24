@@ -42,6 +42,17 @@ class UpdateNumberSchema(Schema):
     label: Optional[str] = None
     cap_enabled: Optional[bool] = None
     daily_cap: Optional[int] = None
+    monthly_cap: Optional[int] = None
+    concurrency_enabled: Optional[bool] = None
+    concurrency_cap: Optional[int] = None
+    vendor_enabled: Optional[bool] = None
+    payout_per_call: Optional[float] = None
+    payout_type: Optional[str] = None
+    payout_on: Optional[str] = None
+    dupe_revenue: Optional[str] = None
+    dupe_revenue_days: Optional[int] = None
+    traffic_source_enabled: Optional[bool] = None
+    traffic_source_id: Optional[str] = None
     campaign_id: Optional[str] = None
     detach_campaign: Optional[bool] = None
 
@@ -72,6 +83,17 @@ class PhoneNumberOutSchema(Schema):
     label: str
     cap_enabled: bool
     daily_cap: int
+    monthly_cap: int
+    concurrency_enabled: bool
+    concurrency_cap: int
+    vendor_enabled: bool
+    payout_per_call: float
+    payout_type: str
+    payout_on: str
+    dupe_revenue: str
+    dupe_revenue_days: int
+    traffic_source_enabled: bool
+    traffic_source_id: Optional[str] = None
     renews_at: Optional[str] = None
     voice_enabled: bool
     sms_enabled: bool
@@ -97,6 +119,17 @@ class PhoneNumberListSchema(Schema):
     label: str
     cap_enabled: bool
     daily_cap: int
+    monthly_cap: int
+    concurrency_enabled: bool
+    concurrency_cap: int
+    vendor_enabled: bool
+    payout_per_call: float
+    payout_type: str
+    payout_on: str
+    dupe_revenue: str
+    dupe_revenue_days: int
+    traffic_source_enabled: bool
+    traffic_source_id: Optional[str] = None
     renews_at: Optional[str] = None
     campaign_id: Optional[str] = None
     campaign_name: Optional[str] = None

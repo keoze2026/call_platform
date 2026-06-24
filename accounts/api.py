@@ -401,3 +401,111 @@ def list_roles(request: HttpRequest):
         {"slug": "viewer", "name": "Viewer", "description": "Read-only access to all resources.", "is_builtin": True, "permission_count": 5, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='viewer').count()},
     ]
     return 200, {"items": roles}
+
+
+# ── Workspace Activity Log ────────────────────────────────────────────────────
+@router.get("/workspace/activity", response={200: dict})
+def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
+    from accounts.models import ActivityLog
+    logs = ActivityLog.objects.filter(
+        user__organization=request.auth.organization
+    ).select_related('user').order_by('-created_at')
+    data = []
+    for log in logs:
+        data.append({
+            'id': str(log.id),
+            'actor_id': str(log.user.id),
+            'actor_name': f"{log.user.first_name} {log.user.last_name}".strip() or log.user.email,
+            'action': log.action,
+            'target_type': '',
+            'target_id': None,
+            'target_name': None,
+            'ip_address': str(log.ip_address) if log.ip_address else None,
+            'created_at': log.created_at.isoformat(),
+        })
+    return 200, paginate_list(data, page, page_size)
+
+
+# ── Active Sessions ───────────────────────────────────────────────────────────
+@router.get("/workspace/sessions", response={200: list})
+def workspace_sessions(request: HttpRequest):
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
+    from django.utils import timezone
+    try:
+        tokens = OutstandingToken.objects.filter(
+            user__organization=request.auth.organization,
+            expires_at__gt=timezone.now()
+        ).select_related('user').order_by('-created_at')
+        data = []
+        for t in tokens:
+            data.append({
+                'id': str(t.id),
+                'user_id': str(t.user.id),
+                'user_name': f"{t.user.first_name} {t.user.last_name}".strip() or t.user.email,
+                'ip': '',
+                'location': None,
+                'user_agent': '',
+                'last_active_at': t.created_at.isoformat(),
+                'current': False,
+            })
+        return 200, data
+    except Exception:
+        return 200, []
+
+
+@router.delete("/workspace/sessions/{session_id}", response={204: None, 404: dict})
+def revoke_session(request: HttpRequest, session_id: str):
+    from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
+    try:
+        token = OutstandingToken.objects.get(id=session_id, user__organization=request.auth.organization)
+        BlacklistedToken.objects.get_or_create(token=token)
+        return 204, None
+    except OutstandingToken.DoesNotExist:
+        return 404, {"detail": "Session not found"}
+
+
+# ── Role Catalog ──────────────────────────────────────────────────────────────
+@router.get("/roles", response={200: list})
+def list_roles(request: HttpRequest):
+    return 200, [
+        {
+            "id": "admin",
+            "name": "Admin",
+            "description": "Full access. Can manage members and billing.",
+            "capabilities": ["call.view", "buyer.edit", "campaign.create", "campaign.edit",
+                           "campaign.delete", "buyer.create", "buyer.delete", "publisher.create",
+                           "publisher.delete", "billing.manage", "members.manage", "settings.manage"]
+        },
+        {
+            "id": "manager",
+            "name": "Manager",
+            "description": "Can manage campaigns, buyers and publishers.",
+            "capabilities": ["call.view", "buyer.edit", "campaign.create", "campaign.edit",
+                           "buyer.create", "publisher.create", "publisher.edit"]
+        },
+        {
+            "id": "agent",
+            "name": "Agent",
+            "description": "Can view and manage assigned campaigns.",
+            "capabilities": ["call.view", "campaign.view", "campaign.edit"]
+        },
+        {
+            "id": "buyer",
+            "name": "Buyer",
+            "description": "Can view buyer dashboard and stats.",
+            "capabilities": ["call.view", "buyer.view"]
+        },
+        {
+            "id": "publisher",
+            "name": "Publisher",
+            "description": "Can view publisher dashboard and stats.",
+            "capabilities": ["call.view", "publisher.view"]
+        },
+        {
+            "id": "viewer",
+            "name": "Viewer",
+            "description": "Read-only access to all resources.",
+            "capabilities": ["call.view"]
+        },
+    ]

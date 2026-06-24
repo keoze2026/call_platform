@@ -64,3 +64,5 @@ api.add_router("/analytics/reports/", scheduled_reports_router)
 api.add_router("/spam/shields/", shields_router)
 api.add_router("/destinations/", destinations_router)
 api.add_router("/referrals/", referrals_router)
+from integrations.api import router as integrations_router
+api.add_router("/integrations/", integrations_router)

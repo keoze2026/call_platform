@@ -32,19 +32,7 @@ def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
 def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
     pools = DNIService.list_pools(request.auth)
-    data = [
-        {
-            'id':                str(p.id),
-            'name':              p.name,
-            'status':            p.status,
-            'campaign_id':       str(p.campaign_id) if p.campaign_id else None,
-            'campaign_name':     p.campaign.name if p.campaign else '',
-            'total_numbers':     p.numbers.count(),
-            'available_numbers': p.numbers.filter(status='available').count(),
-            'created_at':        p.created_at.isoformat(),
-        }
-        for p in pools
-    ]
+    data = [DNIService.format_pool(p) for p in pools]
     return 200, paginate_list(data, page, page_size)
 
 

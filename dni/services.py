@@ -35,6 +35,12 @@ class DNIService:
             session_duration_minutes=data.session_duration_minutes or 30,
             fallback_number=data.fallback_number or '',
             allowed_domains=data.allowed_domains or [],
+            replacement_number=getattr(data, 'replacement_number', '') or '',
+            phone_number_format=getattr(data, 'phone_number_format', 'E164') or 'E164',
+            vendor_enabled=getattr(data, 'vendor_enabled', False) or False,
+            vendor_id=getattr(data, 'vendor_id', None),
+            traffic_sources_enabled=getattr(data, 'traffic_sources_enabled', False) or False,
+            traffic_sources=getattr(data, 'traffic_sources', []) or [],
         )
         return pool
 
@@ -68,6 +74,10 @@ class DNIService:
             pool.fallback_number = data.fallback_number
         if data.allowed_domains is not None:
             pool.allowed_domains = data.allowed_domains
+        for field in ['replacement_number', 'phone_number_format', 'vendor_enabled', 'vendor_id', 'traffic_sources_enabled', 'traffic_sources']:
+            val = getattr(data, field, None)
+            if val is not None:
+                setattr(pool, field, val)
         if data.status is not None:
             pool.status = data.status
 
@@ -271,6 +281,12 @@ class DNIService:
             'session_duration_minutes': pool.session_duration_minutes,
             'fallback_number':          pool.fallback_number,
             'allowed_domains':          pool.allowed_domains,
+            'replacement_number':       pool.replacement_number,
+            'phone_number_format':      pool.phone_number_format,
+            'vendor_enabled':           pool.vendor_enabled,
+            'vendor_id':                pool.vendor_id,
+            'traffic_sources_enabled':  pool.traffic_sources_enabled,
+            'traffic_sources':          pool.traffic_sources,
             'numbers': [
                 {'id': str(n.id), 'number': n.number, 'status': n.status}
                 for n in numbers

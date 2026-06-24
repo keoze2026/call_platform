@@ -37,6 +37,12 @@ class DNIPool(models.Model):
 
     # Which website domains are allowed to use this pool
     allowed_domains = models.JSONField(default=list, blank=True)
+    replacement_number = models.CharField(max_length=20, blank=True, default='')
+    phone_number_format = models.CharField(max_length=20, default='E164')
+    vendor_enabled = models.BooleanField(default=False)
+    vendor_id = models.CharField(max_length=255, blank=True, null=True, default=None)
+    traffic_sources_enabled = models.BooleanField(default=False)
+    traffic_sources = models.JSONField(default=list)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

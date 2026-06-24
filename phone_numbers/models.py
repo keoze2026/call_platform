@@ -43,6 +43,17 @@ class PhoneNumber(models.Model):
     label = models.CharField(max_length=255, blank=True, default='')
     cap_enabled = models.BooleanField(default=False)
     daily_cap = models.IntegerField(default=0)
+    monthly_cap = models.IntegerField(default=0)
+    concurrency_enabled = models.BooleanField(default=False)
+    concurrency_cap = models.IntegerField(default=0)
+    vendor_enabled = models.BooleanField(default=False)
+    payout_per_call = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    payout_type = models.CharField(max_length=20, default='amount')
+    payout_on = models.CharField(max_length=20, default='connected')
+    dupe_revenue = models.CharField(max_length=20, default='disabled')
+    dupe_revenue_days = models.IntegerField(default=0)
+    traffic_source_enabled = models.BooleanField(default=False)
+    traffic_source_id = models.CharField(max_length=255, blank=True, null=True, default=None)
     renews_at = models.DateTimeField(null=True, blank=True)
 
     # Assignment

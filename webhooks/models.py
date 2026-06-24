@@ -31,6 +31,7 @@ class Webhook(models.Model):
     name = models.CharField(max_length=255)
     url = models.URLField()
     secret = models.CharField(max_length=255, blank=True)
+    headers = models.JSONField(default=list, blank=True)
     events = models.JSONField(default=list)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 

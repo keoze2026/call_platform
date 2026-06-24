@@ -198,6 +198,12 @@ class PhoneNumberService:
         _daily_cap = getattr(data, 'daily_cap', None)
         if _daily_cap is not None:
             phone_number.daily_cap = _daily_cap
+        for field in ['monthly_cap', 'concurrency_enabled', 'concurrency_cap', 'vendor_enabled',
+                      'payout_per_call', 'payout_type', 'payout_on', 'dupe_revenue',
+                      'dupe_revenue_days', 'traffic_source_enabled', 'traffic_source_id']:
+            val = getattr(data, field, None)
+            if val is not None:
+                setattr(phone_number, field, val)
         # Handle campaign_id - detach if explicitly null, assign if uuid
         if getattr(data, '_detach_campaign', False):
             phone_number.campaign = None
@@ -227,6 +233,17 @@ class PhoneNumberService:
             'label': phone_number.label,
             'cap_enabled': phone_number.cap_enabled,
             'daily_cap': phone_number.daily_cap,
+            'monthly_cap': phone_number.monthly_cap,
+            'concurrency_enabled': phone_number.concurrency_enabled,
+            'concurrency_cap': phone_number.concurrency_cap,
+            'vendor_enabled': phone_number.vendor_enabled,
+            'payout_per_call': str(phone_number.payout_per_call),
+            'payout_type': phone_number.payout_type,
+            'payout_on': phone_number.payout_on,
+            'dupe_revenue': phone_number.dupe_revenue,
+            'dupe_revenue_days': phone_number.dupe_revenue_days,
+            'traffic_source_enabled': phone_number.traffic_source_enabled,
+            'traffic_source_id': phone_number.traffic_source_id,
             'renews_at': phone_number.renews_at.isoformat() if phone_number.renews_at else None,
             'voice_enabled': phone_number.voice_enabled,
             'sms_enabled': phone_number.sms_enabled,

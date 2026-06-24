@@ -65,6 +65,7 @@ class Campaign(models.Model):
 
     # Recording
     recording_enabled = models.BooleanField(default=True)
+    advanced_settings = models.JSONField(default=dict, blank=True)
     recording_storage = models.CharField(max_length=20, default='twilio')
     
     #bid floor 

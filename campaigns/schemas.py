@@ -111,6 +111,7 @@ class UpdateCampaignSchema(Schema):
     auto_sms_enabled: Optional[bool] = None
     auto_sms_message: Optional[str] = None
     recording_enabled: Optional[bool] = None
+    advanced_settings: Optional[dict] = None
     queue_enabled: Optional[bool] = None
     queue_max_size: Optional[int] = None
     queue_max_wait_seconds: Optional[int] = None
@@ -161,6 +162,7 @@ class CampaignOutSchema(Schema):
     auto_sms_enabled: bool = False
     auto_sms_message: str = ''
     recording_enabled: bool = True
+    advanced_settings: Optional[dict] = None
     created_at: str
     updated_at: str
 

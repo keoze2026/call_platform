@@ -100,7 +100,7 @@ class CampaignService:
             'greeting_enabled', 'greeting_message',
             'whisper_enabled', 'whisper_message',
             'auto_sms_enabled', 'auto_sms_message',
-            'recording_enabled'
+            'recording_enabled', 'advanced_settings'
         }
 
         for field, value in data.model_dump(exclude_none=True).items():
@@ -247,6 +247,7 @@ class CampaignService:
             'auto_sms_enabled': campaign.auto_sms_enabled,
             'auto_sms_message': campaign.auto_sms_message,
             'recording_enabled': campaign.recording_enabled,
+            'advanced_settings': campaign.advanced_settings,
             'bid_floor': str(campaign.bid_floor),
             'rtb_timeout_seconds': campaign.rtb_timeout_seconds,
         }
