@@ -200,7 +200,8 @@ class PhoneNumberService:
             phone_number.daily_cap = _daily_cap
         for field in ['monthly_cap', 'concurrency_enabled', 'concurrency_cap', 'vendor_enabled',
                       'payout_per_call', 'payout_type', 'payout_on', 'dupe_revenue',
-                      'dupe_revenue_days', 'traffic_source_enabled', 'traffic_source_id']:
+                      'dupe_revenue_days', 'traffic_source_enabled', 'traffic_source_id',
+                      'publisher_id']:
             val = getattr(data, field, None)
             if val is not None:
                 setattr(phone_number, field, val)

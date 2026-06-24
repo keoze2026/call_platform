@@ -53,6 +53,7 @@ class UpdateNumberSchema(Schema):
     dupe_revenue_days: Optional[int] = None
     traffic_source_enabled: Optional[bool] = None
     traffic_source_id: Optional[str] = None
+    publisher_id: Optional[str] = None
     campaign_id: Optional[str] = None
     detach_campaign: Optional[bool] = None
 

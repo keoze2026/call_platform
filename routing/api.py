@@ -157,3 +157,62 @@ def get_call(request: HttpRequest, call_id: str):
         return 200, RoutingService.format_call(call)
     except ValueError as e:
         return 404, {"detail": str(e)}
+
+@router.post("/rules/{rule_id}/simulate", response={200: dict, 404: dict})
+def simulate_caller(request, rule_id: str):
+    import json as _json
+    from routing.models import RoutingRule
+    try:
+        body = _json.loads(request.body)
+        caller_number = body.get('caller_number', '')
+        caller_state = body.get('caller_state', '')
+        caller_country = body.get('caller_country', '')
+
+        rule = RoutingRule.objects.get(id=rule_id, campaign__organization=request.auth.organization)
+
+        trace = []
+        matched_conditions = []
+
+        # Check conditions
+        conditions = rule.conditions.all()
+        all_matched = True
+        for cond in conditions:
+            matched = False
+            cond_data = cond.conditions or {}
+            if 'state' in cond_data:
+                matched = caller_state in cond_data['state']
+            elif 'country' in cond_data:
+                matched = caller_country in cond_data['country']
+            else:
+                matched = True
+            matched_conditions.append({'condition_id': str(cond.id), 'matched': matched})
+            if not matched:
+                all_matched = False
+            trace.append({'step': f'Condition {cond.id}', 'outcome': 'matched' if matched else 'not matched'})
+
+        # Select destination
+        selected_destination = None
+        if all_matched or not conditions.exists():
+            destinations = rule.destinations.all().order_by('priority', '-weight')
+            if destinations.exists():
+                dest = destinations.first()
+                selected_destination = {
+                    'id': str(dest.id),
+                    'name': dest.destination,
+                    'buyer_name': dest.buyer.name if dest.buyer else '',
+                    'weight': dest.weight,
+                    'priority': dest.priority,
+                }
+                trace.append({'step': 'Destination selected', 'outcome': dest.destination})
+            else:
+                trace.append({'step': 'Destination selection', 'outcome': 'no destinations configured'})
+        else:
+            trace.append({'step': 'Routing', 'outcome': 'conditions not met, call not routed'})
+
+        return 200, {
+            'matched_conditions': matched_conditions,
+            'selected_destination': selected_destination,
+            'trace': trace,
+        }
+    except RoutingRule.DoesNotExist:
+        return 404, {"detail": "Rule not found"}
