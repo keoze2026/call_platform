@@ -164,12 +164,13 @@ class PhoneNumberService:
     @staticmethod
     def release_number(number_id: str, user) -> None:
         phone_number = PhoneNumberService.get_number(number_id, user)
-        if phone_number.twilio_sid:
+        if phone_number.twilio_sid and not phone_number.twilio_sid.startswith('TFN-'):
             client = PhoneNumberService.get_twilio_client()
             try:
                 client.incoming_phone_numbers(phone_number.twilio_sid).delete()
             except Exception as e:
-                raise ValueError(f"Twilio error: {str(e)}")
+                # Log but don't block release if Twilio fails
+                print(f"Twilio release warning: {str(e)}")
         phone_number.status = PhoneNumber.Status.RELEASED
         phone_number.campaign = None
         phone_number.publisher = None
@@ -201,7 +202,7 @@ class PhoneNumberService:
         for field in ['monthly_cap', 'concurrency_enabled', 'concurrency_cap', 'vendor_enabled',
                       'payout_per_call', 'payout_type', 'payout_on', 'dupe_revenue',
                       'dupe_revenue_days', 'traffic_source_enabled', 'traffic_source_id',
-                      'publisher_id']:
+                      'publisher_id', 'status']:
             val = getattr(data, field, None)
             if val is not None:
                 setattr(phone_number, field, val)

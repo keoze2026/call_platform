@@ -37,6 +37,7 @@ class Buyer(models.Model):
     # Contact
     contact_name = models.CharField(max_length=255, blank=True, default='')
     contact_email = models.EmailField(blank=True, default='')
+    payout_model = models.CharField(max_length=20, default='flat')
 
     # Financial
     payout_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)

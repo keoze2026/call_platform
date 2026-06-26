@@ -47,6 +47,7 @@ class User(AbstractUser):
         default=Role.AGENT
     )
     phone_number = models.CharField(max_length=20, blank=True)
+    avatar = models.CharField(max_length=500, blank=True, default='')
     
     # Email verification
     is_email_verified = models.BooleanField(default=False)
@@ -175,3 +176,20 @@ from .kyc import KYCVerification
 from .access_requests import AccessRequest, SetupToken
 
 from .contact import ContactMessage
+
+
+class CustomRole(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='custom_roles')
+    name = models.CharField(max_length=100)
+    description = models.CharField(max_length=500, blank=True, default='')
+    capabilities = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'custom_roles'
+        unique_together = ('organization', 'name')
+
+
+# Avatar field added to existing User model via migration

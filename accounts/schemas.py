@@ -124,6 +124,7 @@ class UserOutSchema(Schema):
     is_email_verified: bool
     organization_id: Optional[str] = None
     organization_name: Optional[str] = None
+    avatar_url: Optional[str] = None
     created_at: str
 
 

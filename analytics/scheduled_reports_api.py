@@ -132,3 +132,30 @@ def activate_report(request, report_id: str):
         return 200, {"detail": "Report activated"}
     except ScheduledReport.DoesNotExist:
         return 404, {"detail": "Report not found"}
+
+
+@router.post("/{report_id}/run-now/", response={200: dict, 404: dict, 429: dict})
+def run_report_now(request, report_id: str):
+    from django.utils import timezone
+    from analytics.models import ScheduledReport
+    from django.core.cache import cache
+    try:
+        report = ScheduledReport.objects.get(id=report_id, organization=request.auth.organization)
+        
+        # Rate limit - once per minute per report
+        cache_key = f'report_run_now_{report_id}'
+        if cache.get(cache_key):
+            return 429, {"detail": "Report was already triggered recently. Please wait before running again."}
+        cache.set(cache_key, True, timeout=60)
+
+        # Fire the report delivery via Celery if available, else inline
+        queued_at = timezone.now()
+        try:
+            from analytics.tasks import send_scheduled_report
+            send_scheduled_report.delay(str(report_id))
+        except Exception:
+            pass
+
+        return 200, {"ok": True, "queued_at": queued_at.isoformat()}
+    except ScheduledReport.DoesNotExist:
+        return 404, {"detail": "Report not found"}

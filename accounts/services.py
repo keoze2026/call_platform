@@ -173,6 +173,7 @@ class ProfileService:
             'is_email_verified': user.is_email_verified,
             'organization_id': str(user.organization_id) if user.organization_id else None,
             'organization_name': user.organization.name if user.organization else None,
+            'avatar_url': f"https://avortyx.io/media/{user.avatar}" if user.avatar else None,
             'created_at': user.created_at.isoformat()
         }
     

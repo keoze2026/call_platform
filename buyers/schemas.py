@@ -29,6 +29,7 @@ class CreateBuyerSchema(Schema):
     quality_score: int = 50
     contact_name: Optional[str] = ''
     contact_email: Optional[str] = ''
+    payout_model: Optional[str] = 'flat'
     cap: Optional[BuyerCapSchema] = None
 
     @field_validator('name')
@@ -74,6 +75,7 @@ class UpdateBuyerSchema(Schema):
     quality_score: Optional[int] = None
     contact_name: Optional[str] = None
     contact_email: Optional[str] = None
+    payout_model: Optional[str] = None
 
 
 class AssignCampaignSchema(Schema):
@@ -118,6 +120,7 @@ class BuyerOutSchema(Schema):
     organization_name: str
     contact_name: str
     contact_email: str
+    payout_model: str
     created_by_id: Optional[str] = None
     cap: Optional[BuyerCapOutSchema] = None
     campaigns: List[CampaignAssignmentOutSchema] = []

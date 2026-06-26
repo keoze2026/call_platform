@@ -32,6 +32,42 @@ def list_webhooks(request: HttpRequest, page: int = 1, page_size: int = 50):
     return 200, paginate_list(data, page, page_size)
 
 
+
+
+@router.post("/test-url", response={200: dict})
+def test_webhook_url(request: HttpRequest):
+    import json as _json
+    import time
+    import hmac
+    import hashlib
+    try:
+        body = _json.loads(request.body)
+        url = body.get('url', '')
+        secret = body.get('secret', '')
+        headers = body.get('headers', [])
+        event = body.get('event', 'call.completed')
+        if not url:
+            return 200, {"ok": False, "latency_ms": 0, "status_code": 0, "error": "url is required"}
+        payload = _json.dumps({"event": event, "test": True})
+        req_headers = {"Content-Type": "application/json", "X-Avortyx-Event": event}
+        if secret:
+            sig = hmac.new(secret.encode(), payload.encode(), hashlib.sha256).hexdigest()
+            req_headers['X-Avortyx-Signature'] = f"sha256={sig}"
+        for h in headers:
+            if h.get('key'):
+                req_headers[h['key']] = h.get('value', '')
+        start = time.time()
+        try:
+            import requests as _requests
+            resp = _requests.post(url, data=payload, headers=req_headers, timeout=10)
+            latency_ms = int((time.time() - start) * 1000)
+            return 200, {"ok": resp.status_code < 400, "latency_ms": latency_ms, "status_code": resp.status_code, "error": None}
+        except Exception as e:
+            latency_ms = int((time.time() - start) * 1000)
+            return 200, {"ok": False, "latency_ms": latency_ms, "status_code": 0, "error": str(e)}
+    except Exception as e:
+        return 200, {"ok": False, "latency_ms": 0, "status_code": 0, "error": str(e)}
+
 @router.get("/{webhook_id}", response={200: WebhookOutSchema, 404: dict})
 def get_webhook(request: HttpRequest, webhook_id: str):
     try:

@@ -47,3 +47,125 @@ def disconnect_integration(request: HttpRequest, integration_id: str):
         return 200, {"connected": False}
     except OrganizationIntegration.DoesNotExist:
         return 404, {"detail": "Integration not connected"}
+
+
+@router.get("/{integration_id}/config", response={200: dict, 404: dict})
+def get_integration_config(request, integration_id: str):
+    from integrations.models import OrganizationIntegration
+    catalog_ids = [i["id"] for i in CATALOG]
+    if integration_id not in catalog_ids:
+        return 404, {"detail": "Integration not found"}
+    try:
+        oi = OrganizationIntegration.objects.get(
+            organization=request.auth.organization,
+            integration_id=integration_id
+        )
+        config = oi.config or {}
+        token = config.get('token', None)
+        if token:
+            token = token[:4] + '****' + token[-4:]
+        return 200, {
+            "token": token,
+            "base_url": config.get('base_url', None),
+            "events": config.get('events', []),
+            "scopes": config.get('scopes', []),
+            "status": config.get('status', 'active'),
+        }
+    except OrganizationIntegration.DoesNotExist:
+        return 404, {"detail": "Integration not connected"}
+
+
+@router.put("/{integration_id}/config", response={200: dict, 404: dict})
+def update_integration_config(request, integration_id: str):
+    import json as _json
+    from integrations.models import OrganizationIntegration
+    try:
+        body = _json.loads(request.body)
+        oi = OrganizationIntegration.objects.get(
+            organization=request.auth.organization,
+            integration_id=integration_id
+        )
+        config = oi.config or {}
+        for field in ['token', 'base_url', 'events', 'scopes', 'status']:
+            if field in body:
+                config[field] = body[field]
+        oi.config = config
+        oi.save()
+        token = config.get('token', None)
+        if token:
+            token = token[:4] + '****' + token[-4:]
+        return 200, {
+            "token": token,
+            "base_url": config.get('base_url', None),
+            "events": config.get('events', []),
+            "scopes": config.get('scopes', []),
+            "status": config.get('status', 'active'),
+        }
+    except OrganizationIntegration.DoesNotExist:
+        return 404, {"detail": "Integration not connected"}
+
+
+@router.post("/{integration_id}/test", response={200: dict, 404: dict})
+def test_integration(request, integration_id: str):
+    import time
+    from integrations.models import OrganizationIntegration
+    try:
+        oi = OrganizationIntegration.objects.get(
+            organization=request.auth.organization,
+            integration_id=integration_id
+        )
+        config = oi.config or {}
+        base_url = config.get('base_url', None)
+        start = time.time()
+        ok = True
+        error = None
+        if base_url:
+            try:
+                import requests as _requests
+                resp = _requests.get(base_url, timeout=5)
+                ok = resp.status_code < 500
+            except Exception as e:
+                ok = False
+                error = str(e)
+        latency_ms = int((time.time() - start) * 1000)
+        return 200, {"ok": ok, "latency_ms": latency_ms, "error": error}
+    except OrganizationIntegration.DoesNotExist:
+        return 404, {"detail": "Integration not connected"}
+
+
+@router.post("/{integration_id}/rotate-token", response={200: dict, 404: dict})
+def rotate_integration_token(request, integration_id: str):
+    import secrets as _secrets
+    from integrations.models import OrganizationIntegration
+    try:
+        oi = OrganizationIntegration.objects.get(
+            organization=request.auth.organization,
+            integration_id=integration_id
+        )
+        new_token = _secrets.token_urlsafe(32)
+        config = oi.config or {}
+        config['token'] = new_token
+        oi.config = config
+        oi.save()
+        return 200, {"token": new_token}
+    except OrganizationIntegration.DoesNotExist:
+        return 404, {"detail": "Integration not connected"}
+
+
+@router.get("/{integration_id}/activity", response={200: dict, 404: dict})
+def get_integration_activity(request, integration_id: str, page: int = 1, page_size: int = 50):
+    from config.pagination import paginate_list
+    from integrations.models import OrganizationIntegration, IntegrationActivity
+    try:
+        oi = OrganizationIntegration.objects.get(
+            organization=request.auth.organization,
+            integration_id=integration_id
+        )
+        try:
+            logs = IntegrationActivity.objects.filter(integration=oi).order_by('-at')
+            data = [{'id': str(l.id), 'kind': l.kind, 'label': l.label, 'detail': l.detail, 'status': l.status, 'at': l.at.isoformat()} for l in logs]
+        except Exception:
+            data = []
+        return 200, paginate_list(data, page, page_size)
+    except OrganizationIntegration.DoesNotExist:
+        return 404, {"detail": "Integration not connected"}

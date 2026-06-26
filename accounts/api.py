@@ -126,12 +126,21 @@ def upload_avatar(request: HttpRequest):
         file = request.FILES.get('avatar')
         if not file:
             return 400, {"detail": "No file provided"}
-        ext = file.name.split('.')[-1]
+        ext = file.name.split('.')[-1].lower()
+        if ext not in ['jpg', 'jpeg', 'png', 'gif', 'webp']:
+            return 400, {"detail": "Invalid file type"}
+        import os
         filename = f"avatars/{uuid.uuid4()}.{ext}"
+        save_path = os.path.join('/opt/call_platform/media', filename)
+        os.makedirs(os.path.dirname(save_path), exist_ok=True)
+        with open(save_path, 'wb') as f:
+            for chunk in file.chunks():
+                f.write(chunk)
         user = request.auth
         user.avatar = filename
         user.save()
-        return 200, {"avatar_url": filename, "message": "Avatar uploaded"}
+        avatar_url = f"https://avortyx.io/media/{filename}"
+        return 200, {"avatar_url": avatar_url, "message": "Avatar uploaded"}
     except Exception as e:
         return 400, {"detail": str(e)}
 
@@ -388,19 +397,22 @@ def update_member_role(request: HttpRequest, user_id: str):
         return 404, {"detail": "Member not found"}
 
 
-@router.get("/workspace/roles", response={200: dict})
+@router.get("/workspace/roles", response={200: list})
 def list_roles(request: HttpRequest):
-    from config.pagination import paginate_list
-    from accounts.models import User
-    roles = [
-        {"slug": "admin", "name": "Admin", "description": "Full access. Can manage members and billing.", "is_builtin": True, "permission_count": 55, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='admin').count()},
-        {"slug": "manager", "name": "Manager", "description": "Can manage campaigns, buyers and publishers.", "is_builtin": True, "permission_count": 40, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='manager').count()},
-        {"slug": "agent", "name": "Agent", "description": "Can view and manage assigned campaigns.", "is_builtin": True, "permission_count": 20, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='agent').count()},
-        {"slug": "buyer", "name": "Buyer", "description": "Can view buyer dashboard and stats.", "is_builtin": True, "permission_count": 10, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='buyer').count()},
-        {"slug": "publisher", "name": "Publisher", "description": "Can view publisher dashboard and stats.", "is_builtin": True, "permission_count": 10, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='publisher').count()},
-        {"slug": "viewer", "name": "Viewer", "description": "Read-only access to all resources.", "is_builtin": True, "permission_count": 5, "total_permissions": 55, "member_count": User.objects.filter(organization=request.auth.organization, role='viewer').count()},
+    from accounts.models import User, CustomRole
+    builtin = [
+        {"id": "admin", "slug": "admin", "name": "Admin", "description": "Full access. Can manage members and billing.", "is_builtin": True, "capabilities": ["call.view", "buyer.edit", "campaign.create", "campaign.edit", "campaign.delete", "buyer.create", "buyer.delete", "publisher.create", "publisher.delete", "billing.manage", "members.manage", "settings.manage"], "member_count": User.objects.filter(organization=request.auth.organization, role='admin').count()},
+        {"id": "manager", "slug": "manager", "name": "Manager", "description": "Can manage campaigns, buyers and publishers.", "is_builtin": True, "capabilities": ["call.view", "buyer.edit", "campaign.create", "campaign.edit", "buyer.create", "publisher.create", "publisher.edit"], "member_count": User.objects.filter(organization=request.auth.organization, role='manager').count()},
+        {"id": "agent", "slug": "agent", "name": "Agent", "description": "Can view and manage assigned campaigns.", "is_builtin": True, "capabilities": ["call.view", "campaign.view", "campaign.edit"], "member_count": User.objects.filter(organization=request.auth.organization, role='agent').count()},
+        {"id": "buyer", "slug": "buyer", "name": "Buyer", "description": "Can view buyer dashboard and stats.", "is_builtin": True, "capabilities": ["call.view", "buyer.view"], "member_count": User.objects.filter(organization=request.auth.organization, role='buyer').count()},
+        {"id": "publisher", "slug": "publisher", "name": "Publisher", "description": "Can view publisher dashboard and stats.", "is_builtin": True, "capabilities": ["call.view", "publisher.view"], "member_count": User.objects.filter(organization=request.auth.organization, role='publisher').count()},
+        {"id": "viewer", "slug": "viewer", "name": "Viewer", "description": "Read-only access to all resources.", "is_builtin": True, "capabilities": ["call.view"], "member_count": User.objects.filter(organization=request.auth.organization, role='viewer').count()},
     ]
-    return 200, {"items": roles}
+    custom = [
+        {"id": str(r.id), "slug": str(r.id), "name": r.name, "description": r.description, "capabilities": r.capabilities, "is_builtin": False, "member_count": 0}
+        for r in CustomRole.objects.filter(organization=request.auth.organization)
+    ]
+    return 200, builtin + custom
 
 
 # ── Workspace Activity Log ────────────────────────────────────────────────────
@@ -467,8 +479,9 @@ def revoke_session(request: HttpRequest, session_id: str):
 
 # ── Role Catalog ──────────────────────────────────────────────────────────────
 @router.get("/roles", response={200: list})
-def list_roles(request: HttpRequest):
-    return 200, [
+def list_roles_catalog(request: HttpRequest):
+    from accounts.models import CustomRole
+    builtin = [
         {
             "id": "admin",
             "name": "Admin",
@@ -509,3 +522,67 @@ def list_roles(request: HttpRequest):
             "capabilities": ["call.view"]
         },
     ]
+
+
+@router.post("/workspace/roles", response={201: dict, 400: dict})
+def create_role(request: HttpRequest):
+    import json as _json
+    from accounts.models import CustomRole
+    try:
+        body = _json.loads(request.body)
+        name = body.get('name', '').strip()
+        if not name:
+            return 400, {"detail": "name is required"}
+        role = CustomRole.objects.create(
+            organization=request.auth.organization,
+            name=name,
+            description=body.get('description', ''),
+            capabilities=body.get('capabilities', []),
+        )
+        return 201, {
+            'id': str(role.id),
+            'name': role.name,
+            'description': role.description,
+            'capabilities': role.capabilities,
+            'is_builtin': False,
+            'member_count': 0,
+        }
+    except Exception as e:
+        return 400, {"detail": str(e)}
+
+
+@router.patch("/workspace/roles/{role_id}", response={200: dict, 404: dict})
+def update_role(request: HttpRequest, role_id: str):
+    import json as _json
+    from accounts.models import CustomRole
+    try:
+        body = _json.loads(request.body)
+        role = CustomRole.objects.get(id=role_id, organization=request.auth.organization)
+        if 'name' in body:
+            role.name = body['name']
+        if 'description' in body:
+            role.description = body['description']
+        if 'capabilities' in body:
+            role.capabilities = body['capabilities']
+        role.save()
+        return 200, {
+            'id': str(role.id),
+            'name': role.name,
+            'description': role.description,
+            'capabilities': role.capabilities,
+            'is_builtin': False,
+            'member_count': 0,
+        }
+    except CustomRole.DoesNotExist:
+        return 404, {"detail": "Role not found"}
+
+
+@router.delete("/workspace/roles/{role_id}", response={204: None, 400: dict, 404: dict})
+def delete_role(request: HttpRequest, role_id: str):
+    from accounts.models import CustomRole
+    try:
+        role = CustomRole.objects.get(id=role_id, organization=request.auth.organization)
+        role.delete()
+        return 204, None
+    except CustomRole.DoesNotExist:
+        return 404, {"detail": "Role not found"}

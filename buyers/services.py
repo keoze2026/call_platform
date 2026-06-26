@@ -29,6 +29,7 @@ class BuyerService:
             quality_score=data.quality_score,
             contact_name=data.contact_name or '',
             contact_email=data.contact_email or '',
+            payout_model=getattr(data, 'payout_model', 'flat') or 'flat',
         )
 
         if data.cap:
@@ -74,7 +75,9 @@ class BuyerService:
         ALLOWED_FIELDS = {
             'name', 'description', 'routing_type',
             'phone_number', 'sip_endpoint', 'payout_amount',
-            'min_call_duration', 'max_concurrency'
+            'min_call_duration', 'max_concurrency',
+            'contact_name', 'contact_email', 'payout_model',
+            'dup_window_days', 'quality_score'
         }
 
         for field, value in data.model_dump(exclude_none=True).items():
@@ -236,6 +239,7 @@ class BuyerService:
             'organization_name': buyer.organization.name,
             'contact_name': buyer.contact_name,
             'contact_email': buyer.contact_email,
+            'payout_model': buyer.payout_model,
             'created_by_id': str(buyer.created_by_id) if buyer.created_by_id else None,
             'cap': cap,
             'campaigns': campaigns,

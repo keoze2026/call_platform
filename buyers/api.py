@@ -169,3 +169,35 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
         return 200, {"message": "Invite sent", "invite_link": invite_link, "success": True}
     except BuyerModel.DoesNotExist:
         return 404, {"detail": "Buyer not found"}
+
+
+@router.get("/{buyer_id}/reporting-config", response={200: dict, 404: dict})
+def get_reporting_config(request: HttpRequest, buyer_id: str):
+    from buyers.models import Buyer
+    from django.core.cache import cache
+    try:
+        buyer = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
+        key = f'buyer_reporting_config_{buyer_id}'
+        config = cache.get(key) or {'visible_columns': ['incoming', 'connected', 'qualified', 'converted', 'not_connected', 'acl', 'tcl', 'cost']}
+        return 200, config
+    except Buyer.DoesNotExist:
+        return 404, {"detail": "Buyer not found"}
+
+
+@router.put("/{buyer_id}/reporting-config", response={200: dict, 404: dict})
+def update_reporting_config(request: HttpRequest, buyer_id: str):
+    import json as _json
+    from buyers.models import Buyer
+    from django.core.cache import cache
+    VALID_COLUMNS = {'incoming', 'connected', 'qualified', 'converted', 'not_connected', 'acl', 'tcl', 'cost'}
+    try:
+        buyer = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
+        body = _json.loads(request.body)
+        columns = body.get('visible_columns', [])
+        columns = [c for c in columns if c in VALID_COLUMNS]
+        config = {'visible_columns': columns}
+        key = f'buyer_reporting_config_{buyer_id}'
+        cache.set(key, config, timeout=None)
+        return 200, config
+    except Buyer.DoesNotExist:
+        return 404, {"detail": "Buyer not found"}
