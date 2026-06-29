@@ -131,7 +131,7 @@ def update_kyc(request, payload: KYCIndividualSchema):
 def upload_kyc_document(request):
     import uuid, os
     from django.conf import settings
-    file = request.FILES.get('file')
+    file = request.FILES.get('document') or request.FILES.get('file') or (list(request.FILES.values())[0] if request.FILES else None)
     if not file:
         return 400, {"detail": "No file provided"}
     ext = file.name.split('.')[-1].lower()

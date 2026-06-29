@@ -169,9 +169,9 @@ def approve_access_request(request, request_id: str, payload: ApproveSchema):
         send_mail(
             subject="Welcome to Avortyx — Set Your Password",
             message=f"Hi {first_name},\n\nYour account has been approved. Click the link below to set your password and sign in:\n\n{setup_link}\n\nThis link expires in 48 hours.\n\nAvortyx Team",
-            from_email="support@avortyx.io",
+            from_email="support@keozx.com",
             recipient_list=[req.email],
-            fail_silently=True,
+            fail_silently=False,
         )
     except Exception:
         pass

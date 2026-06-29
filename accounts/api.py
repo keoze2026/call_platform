@@ -586,3 +586,41 @@ def delete_role(request: HttpRequest, role_id: str):
         return 204, None
     except CustomRole.DoesNotExist:
         return 404, {"detail": "Role not found"}
+
+
+@router.post("/set-password/", auth=None, response={200: dict, 400: dict})
+def set_password_alias(request: HttpRequest):
+    import json as _json
+    from accounts.access_requests import SetupToken
+    try:
+        body = _json.loads(request.body)
+        token_str = body.get('token', '')
+        password = body.get('password', '')
+        if not token_str or not password:
+            return 400, {"error": "missing_fields", "detail": "Token and password are required"}
+        try:
+            setup_token = SetupToken.objects.get(token=token_str)
+        except SetupToken.DoesNotExist:
+            return 400, {"error": "token_invalid", "detail": "Invalid token"}
+        if setup_token.is_used:
+            return 400, {"error": "token_used", "detail": "Token already used"}
+        from django.utils import timezone
+        if setup_token.expires_at < timezone.now():
+            return 400, {"error": "token_expired", "detail": "Token has expired"}
+        user = setup_token.user
+        user.set_password(password)
+        user.save()
+        setup_token.is_used = True
+        setup_token.save()
+        from rest_framework_simplejwt.tokens import RefreshToken
+        refresh = RefreshToken.for_user(user)
+        return 200, {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user_id": str(user.id),
+            "email": user.email,
+            "role": user.role,
+            "organization_id": str(user.organization_id) if user.organization_id else None,
+        }
+    except Exception as e:
+        return 400, {"error": "error", "detail": str(e)}
