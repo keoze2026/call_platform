@@ -256,10 +256,10 @@ Options discussed:
 Option **A** was implemented — see [CH-003](#ch-003).
 
 <a name="open-2"></a>
-## OPEN-2 — `TWILIO_TRUNK_SID` missing from `.env.example` — RESOLVED
+## OPEN-2 — `TWILIO_TRUNK_SID` missing from `.env.example` — CLOSED, NO CHANGE MADE
 
-**Priority:** Low — **resolved 2026-08-31**. Template only; the live server was already
-configured correctly.
+**Closed 2026-08-31, not actioned.** The live server is already configured. `.env.example`
+was left untouched.
 **Location:** `.env.example`, `# Twilio` section
 
 The setting exists in `config/settings.py` but the example env file does not mention it, so a
