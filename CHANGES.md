@@ -15,7 +15,6 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 
 | ID | Area | Summary | Priority |
 |----|------|---------|----------|
-| [OPEN-3](#open-3) | Analytics | `CallRecord` timestamps stamped at sync time, not call time | Medium |
 | [OPEN-4](#open-4) | Repo | `phone_numbers/services.py.bak_trunk` committed by mistake | Low |
 
 ---
@@ -267,9 +266,12 @@ The setting exists in `config/settings.py` but the example env file does not men
 fresh deploy will silently skip the trunk attach. Add `TWILIO_TRUNK_SID=your-trunk-sid`.
 
 <a name="open-3"></a>
-## OPEN-3 — `CallRecord` timestamps stamped at sync time, not call time
+## OPEN-3 — `CallRecord` timestamps stamped at sync time, not call time — CLOSED, NOT AN ISSUE
 
-**Priority:** Medium
+**Closed 2026-08-31.** The hourly chart was already fixed and confirmed working before this
+review. Kept here only as a note on `auto_now_add` behaviour if calls are ever bulk-backfilled.
+
+**Priority:** none
 **Location:** `routing/signals.py`, `analytics/models.py` line 67
 
 `routing/signals.py` mirrors `CallLog` into `analytics.CallRecord` (which the dashboard and
