@@ -48,4 +48,4 @@ class CapitalistService:
         sorted_values = [verify_params[k] for k in sorted(verify_params.keys())]
         raw = ':'.join(sorted_values)
         expected_sig = hmac.new(secret.encode('utf-8'), raw.encode('utf-8'), hashlib.md5).hexdigest()
-        return received_sig.lower() == expected_sig.lower()
+        return hmac.compare_digest(received_sig.lower(), expected_sig.lower())

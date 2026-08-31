@@ -202,6 +202,9 @@ def call_status(request: HttpRequest) -> HttpResponse:
     if request.method != 'POST':
         return HttpResponse(status=405)
 
+    if not validate_twilio_request(request):
+        return HttpResponse(status=403)
+
     call_sid = request.POST.get('CallSid', '')
     twilio_status = request.POST.get('CallStatus', '')
     call_duration = request.POST.get('CallDuration', 0)

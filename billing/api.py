@@ -1,5 +1,8 @@
 from ninja import Router
+import logging
+logger = logging.getLogger(__name__)
 from django.http import HttpRequest
+from django.db import transaction
 from typing import List
 from decimal import Decimal
 from billing.coingate import CoinGateService
@@ -249,21 +252,28 @@ def coingate_webhook(request):
     except (Transaction.DoesNotExist, ValueError):
         return 200, {"received": True}
 
-    # Verify with CoinGate (don't trust the webhook alone)
+    # Verify with CoinGate — never credit on an unverified callback
+    if not settings.COINGATE_API_KEY:
+        logger.error("CoinGate webhook hit but COINGATE_API_KEY is unset; refusing to credit txn %s", order_id)
+        return 200, {"received": True}
     try:
         verified = CoinGateService.get_order(coingate_order_id)
-        status = verified.get('status', status)
     except Exception:
-        pass
+        logger.exception("CoinGate verification failed for txn %s; refusing to credit", order_id)
+        return 200, {"received": True}
+    status = verified.get('status', '')
 
     if status in ('paid', 'confirmed') and txn.status != Transaction.Status.COMPLETED:
         # Credit the balance
-        account = txn.billing_account
-        account.balance = account.balance + txn.amount
-        account.save()
-        txn.balance_after = account.balance
-        txn.status = Transaction.Status.COMPLETED
-        txn.save()
+        with transaction.atomic():
+            locked = BillingAccount.objects.select_for_update().get(pk=txn.billing_account_id)
+            txn_locked = Transaction.objects.select_for_update().get(pk=txn.id)
+            if txn_locked.status != Transaction.Status.COMPLETED:
+                locked.balance = locked.balance + txn_locked.amount
+                locked.save()
+                txn_locked.balance_after = locked.balance
+                txn_locked.status = Transaction.Status.COMPLETED
+                txn_locked.save()
     elif status in ('invalid', 'expired', 'canceled'):
         txn.status = Transaction.Status.FAILED
         txn.save()
@@ -351,12 +361,15 @@ def capitalist_webhook(request):
         return 200, {"received": True}
 
     if status in ('paid', 'success', 'completed') and txn.status != Transaction.Status.COMPLETED:
-        account = txn.billing_account
-        account.balance = account.balance + txn.amount
-        account.save()
-        txn.balance_after = account.balance
-        txn.status = Transaction.Status.COMPLETED
-        txn.save()
+        with transaction.atomic():
+            locked = BillingAccount.objects.select_for_update().get(pk=txn.billing_account_id)
+            txn_locked = Transaction.objects.select_for_update().get(pk=txn.id)
+            if txn_locked.status != Transaction.Status.COMPLETED:
+                locked.balance = locked.balance + txn_locked.amount
+                locked.save()
+                txn_locked.balance_after = locked.balance
+                txn_locked.status = Transaction.Status.COMPLETED
+                txn_locked.save()
     elif status in ('failed', 'canceled', 'cancelled', 'rejected'):
         txn.status = Transaction.Status.FAILED
         txn.save()

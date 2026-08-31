@@ -444,3 +444,16 @@ MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = 'https://avortyx.io/media/'
 
 TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
+
+# Production security hardening
+SECURE_SSL_REDIRECT = False
+SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE = True
+SECURE_HSTS_SECONDS = 31536000
+SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_HSTS_PRELOAD = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+SUPPORT_WEBHOOK_SECRET = config('SUPPORT_WEBHOOK_SECRET', default='')
+
+# Asterisk calls these over local http — don't SSL-redirect them
+SECURE_REDIRECT_EXEMPT = [r'^api/twilio/asterisk/.*']

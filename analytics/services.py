@@ -26,10 +26,14 @@ class AnalyticsService:
 
         if filters.date_from:
             dt = parse_datetime(filters.date_from + 'T00:00:00') or datetime.fromisoformat(filters.date_from)
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__gte=dt)
 
         if filters.date_to:
             dt = parse_datetime(filters.date_to + 'T23:59:59') or datetime.fromisoformat(filters.date_to)
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__lte=dt)
 
         if filters.campaign_id:

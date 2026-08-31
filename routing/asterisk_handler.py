@@ -2,7 +2,10 @@
 
 Server-to-server calls (no JWT auth). Secured by a shared secret header.
 """
+import hmac
 import json
+import uuid
+from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
@@ -17,7 +20,7 @@ from routing.engine import RoutingEngine
 def _check_secret(request):
     secret = request.headers.get('X-Asterisk-Secret', '')
     expected = getattr(settings, 'ASTERISK_SHARED_SECRET', '')
-    return bool(secret and expected and secret == expected)
+    return bool(secret and expected and hmac.compare_digest(secret, expected))
 
 
 @csrf_exempt
@@ -49,14 +52,21 @@ def route_incoming_call(request):
     if not campaign or campaign.status != 'active':
         return JsonResponse({"action": "hangup", "reason": "campaign_inactive"})
 
-    call_log = CallLog.objects.create(
-        organization=campaign.organization,
-        campaign=campaign,
-        caller_number=caller,
-        called_number=called,
-        twilio_call_sid=asterisk_call_id or f"asterisk-{timezone.now().timestamp()}",
-        status=CallLog.Status.RINGING,
-    )
+    call_sid = asterisk_call_id or f"asterisk-{uuid.uuid4()}"
+    try:
+        call_log = CallLog.objects.create(
+            organization=campaign.organization,
+            campaign=campaign,
+            caller_number=caller,
+            called_number=called,
+            twilio_call_sid=call_sid,
+            status=CallLog.Status.RINGING,
+        )
+    except IntegrityError:
+        # Duplicate SID (carrier retry) — reuse the existing call log instead of crashing
+        call_log = CallLog.objects.filter(twilio_call_sid=call_sid).first()
+        if call_log is None:
+            return JsonResponse({"action": "hangup", "reason": "duplicate_call"})
 
     # IPQualityScore spam/VOIP check
     if getattr(campaign, 'ipqs_enabled', False):

@@ -1,4 +1,6 @@
 from ninja import Router, Schema
+import logging
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 router = Router(tags=["Support"])
@@ -121,9 +123,14 @@ def get_messages(request, session_id: str):
         return 404, {"detail": "Session not found"}
 
 
-@router.post("/chat/{session_id}/webhook", auth=None, response={200: dict})
+@router.post("/chat/{session_id}/webhook", auth=None, response={200: dict, 403: dict})
 def telegram_webhook(request, session_id: str):
     import json
+    from django.conf import settings
+    secret = settings.SUPPORT_WEBHOOK_SECRET
+    provided = request.headers.get('X-Support-Secret', '')
+    if not secret or not provided or provided != secret:
+        return 403, {"detail": "forbidden"}
     try:
         data = json.loads(request.body)
         reply_text = data.get('message', '')
@@ -135,5 +142,6 @@ def telegram_webhook(request, session_id: str):
             message=reply_text,
         )
         return 200, {"message": "Reply saved"}
-    except Exception as e:
-        return 200, {"message": str(e)}
+    except Exception:
+        logger.exception("support telegram_webhook failed")
+        return 200, {"message": "error"}
