@@ -188,6 +188,7 @@ from decouple import config
 
 TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
+TWILIO_TRUNK_SID = config('TWILIO_TRUNK_SID', default='')
 
 CELERY_BROKER_URL =  config('CELERY_BROKER_URL')
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND')

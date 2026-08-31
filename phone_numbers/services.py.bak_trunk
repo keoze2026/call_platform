@@ -51,17 +51,6 @@ class PhoneNumberService:
                 friendly_name=data.friendly_name or data.phone_number,
             )
 
-            # Attach the new number to the Elastic SIP Trunk so calls route to Asterisk
-            if settings.TWILIO_TRUNK_SID:
-                try:
-                    client.trunking.v1.trunks(settings.TWILIO_TRUNK_SID).phone_numbers.create(
-                        phone_number_sid=purchased.sid
-                    )
-                except Exception as trunk_error:
-                    raise ValueError(
-                        f"Number purchased ({purchased.phone_number}) but failed to attach to SIP trunk: {trunk_error}"
-                    )
-
             renews_at = None
             if getattr(data, 'renews_at', None):
                 from django.utils.dateparse import parse_datetime
