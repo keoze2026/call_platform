@@ -15,7 +15,6 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 
 | ID | Area | Summary | Priority |
 |----|------|---------|----------|
-| [OPEN-2](#open-2) | Phone Numbers | `TWILIO_TRUNK_SID` missing from `.env.example` | Low |
 | [OPEN-3](#open-3) | Analytics | `CallRecord` timestamps stamped at sync time, not call time | Medium |
 | [OPEN-4](#open-4) | Repo | `phone_numbers/services.py.bak_trunk` committed by mistake | Low |
 
@@ -258,9 +257,10 @@ Options discussed:
 Option **A** was implemented — see [CH-003](#ch-003).
 
 <a name="open-2"></a>
-## OPEN-2 — `TWILIO_TRUNK_SID` missing from `.env.example`
+## OPEN-2 — `TWILIO_TRUNK_SID` missing from `.env.example` — RESOLVED
 
-**Priority:** Low
+**Priority:** Low — **resolved 2026-08-31**. Template only; the live server was already
+configured correctly.
 **Location:** `.env.example`, `# Twilio` section
 
 The setting exists in `config/settings.py` but the example env file does not mention it, so a
