@@ -8,8 +8,8 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | ID | Date | Area | Summary | Status |
 |----|------|------|---------|--------|
 | [CH-001](#ch-001) | 2026-08-31 | Phone Numbers | Attach purchased numbers to Twilio SIP trunk | Done — commit `b6e602ce` |
-| [CH-002](#ch-002) | 2026-08-31 | Routing | Destination edit/delete/list API endpoints | Done — not yet committed |
-| [CH-003](#ch-003) | 2026-08-31 | Phone Numbers | Trunk-attach failure no longer aborts a paid-for purchase | Done — not yet committed |
+| [CH-002](#ch-002) | 2026-08-31 | Routing | Destination edit/delete/list API endpoints | Done — commit `76b76357` |
+| [CH-003](#ch-003) | 2026-08-31 | Phone Numbers | Trunk-attach failure no longer aborts a paid-for purchase | Done — commit `76b76357` |
 
 ## Open items (not done yet)
 
@@ -69,7 +69,7 @@ None — no request or response shape changed.
 ## CH-002 — Routing destination edit/delete/list API endpoints
 
 **Date:** 2026-08-31
-**Commit:** not yet committed
+**Commit:** `76b76357`
 **Made on:** local (`/home/hans/Desktop/call_platform`)
 
 ### Problem
@@ -165,8 +165,7 @@ Send `"buyer_id": null` explicitly to detach the buyer and leave a bare phone de
 
 ### Verification status
 - Syntax checked (`python3 -m py_compile`) — passes.
-- **Not** run against Django. No local venv on the dev machine; needs
-  `python3 manage.py check` on the server before deploy.
+- `python manage.py check` on the server (2026-08-31) — **0 issues**.
 - No migration needed — no model changes.
 
 ---
@@ -175,7 +174,7 @@ Send `"buyer_id": null` explicitly to detach the buyer and leave a bare phone de
 ## CH-003 — Trunk-attach failure no longer aborts a paid-for purchase
 
 **Date:** 2026-08-31
-**Commit:** not yet committed
+**Commit:** `76b76357`
 **Made on:** local (`/home/hans/Desktop/call_platform`)
 **Resolves:** [OPEN-1](#open-1) — implements **option A**
 
@@ -228,7 +227,7 @@ number looks bought but cannot take calls. Silently treating 201 as success hide
 
 ### Verification status
 - Syntax checked (`python3 -m py_compile`) — passes.
-- **Not** run against Django (no local venv). Run `python3 manage.py check` on the server.
+- `python manage.py check` on the server (2026-08-31) — **0 issues**.
 - No migration needed — `PENDING` is an existing choice, no model change.
 
 ### Still to do
