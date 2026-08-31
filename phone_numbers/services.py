@@ -51,15 +51,25 @@ class PhoneNumberService:
                 friendly_name=data.friendly_name or data.phone_number,
             )
 
-            # Attach the new number to the Elastic SIP Trunk so calls route to Asterisk
-            if settings.TWILIO_TRUNK_SID:
+            # Attach the new number to the Elastic SIP Trunk so calls route to Asterisk.
+            # Twilio has already charged for the number by this point, so a trunk failure
+            # must never abort the purchase — the number is saved either way, flagged
+            # 'pending' so it is visible in the UI and the attach can be retried.
+            trunk_warning = None
+            if not settings.TWILIO_TRUNK_SID:
+                trunk_warning = (
+                    "TWILIO_TRUNK_SID is not configured, so this number was not attached "
+                    "to the SIP trunk and will not receive calls."
+                )
+            else:
                 try:
                     client.trunking.v1.trunks(settings.TWILIO_TRUNK_SID).phone_numbers.create(
                         phone_number_sid=purchased.sid
                     )
                 except Exception as trunk_error:
-                    raise ValueError(
-                        f"Number purchased ({purchased.phone_number}) but failed to attach to SIP trunk: {trunk_error}"
+                    trunk_warning = (
+                        f"Number purchased but failed to attach to SIP trunk: {trunk_error}. "
+                        f"It will not receive calls until the attach succeeds."
                     )
 
             renews_at = None
@@ -81,8 +91,9 @@ class PhoneNumberService:
                 renews_at=renews_at,
                 voice_enabled=purchased.capabilities.get('voice', True),
                 sms_enabled=purchased.capabilities.get('SMS', False),
-                status=PhoneNumber.Status.ACTIVE
+                status=PhoneNumber.Status.PENDING if trunk_warning else PhoneNumber.Status.ACTIVE
             )
+            phone_number.trunk_warning = trunk_warning
 
             if getattr(data, 'campaign_id', None):
                 from campaigns.models import Campaign
@@ -267,4 +278,5 @@ class PhoneNumberService:
             'organization_id': str(phone_number.organization_id),
             'created_at': phone_number.created_at.isoformat(),
             'updated_at': phone_number.updated_at.isoformat(),
+            'trunk_warning': getattr(phone_number, 'trunk_warning', None),
         }

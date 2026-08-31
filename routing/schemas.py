@@ -31,6 +31,15 @@ class CreateDestinationSchema(Schema):
     weight: int = 100
 
 
+class UpdateDestinationSchema(Schema):
+    destination_type: Optional[str] = None
+    destination: Optional[str] = None
+    phone_number: Optional[str] = None
+    buyer_id: Optional[str] = None
+    priority: Optional[int] = None
+    weight: Optional[int] = None
+
+
 # ===== RESPONSE SCHEMAS =====
 
 class ConditionOutSchema(Schema):

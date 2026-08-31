@@ -106,6 +106,8 @@ class PhoneNumberOutSchema(Schema):
     organization_id: str
     created_at: str
     updated_at: str
+    # Set only on purchase, when the number was bought but not attached to the SIP trunk
+    trunk_warning: Optional[str] = None
 
 
 class PhoneNumberListSchema(Schema):

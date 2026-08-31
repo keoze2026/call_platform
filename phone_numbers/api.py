@@ -26,7 +26,10 @@ def search_numbers(request: HttpRequest, data: SearchNumberSchema):
 def purchase_number(request: HttpRequest, data: PurchaseNumberSchema):
     try:
         phone_number = PhoneNumberService.purchase_number(data, request.auth)
+        trunk_warning = getattr(phone_number, 'trunk_warning', None)
         phone_number = PhoneNumberService.get_number(str(phone_number.id), request.auth)
+        # get_number refetches from the DB, so carry the warning across
+        phone_number.trunk_warning = trunk_warning
         return 201, PhoneNumberService.format_number(phone_number)
     except ValueError as e:
         return 400, {"detail": str(e)}

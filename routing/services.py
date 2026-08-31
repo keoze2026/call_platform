@@ -45,8 +45,13 @@ class RoutingService:
 
     @staticmethod
     def list_rules(user: User, campaign_id: str = None):
+        from django.db.models import Count
+
         qs = RoutingRule.objects.select_related('campaign').filter(
             organization=user.organization
+        ).annotate(
+            destination_count=Count('destinations', distinct=True),
+            condition_count=Count('conditions', distinct=True),
         )
         if campaign_id:
             qs = qs.filter(campaign_id=campaign_id)
@@ -110,6 +115,75 @@ class RoutingService:
         )
 
         return destination
+
+    @staticmethod
+    def list_destinations(rule_id: str, user: User):
+        rule = RoutingService.get_rule(rule_id, user)
+        return rule.destinations.select_related('buyer').all()
+
+    @staticmethod
+    def get_destination(rule_id: str, destination_id: str, user: User) -> RuleDestination:
+        rule = RoutingService.get_rule(rule_id, user)
+        try:
+            return RuleDestination.objects.select_related('buyer').get(
+                id=destination_id,
+                rule=rule
+            )
+        except RuleDestination.DoesNotExist:
+            raise ValueError("Destination not found")
+
+    @staticmethod
+    def update_destination(rule_id: str, destination_id: str, data, user: User) -> RuleDestination:
+        destination = RoutingService.get_destination(rule_id, destination_id, user)
+
+        if data.destination_type is not None:
+            valid_types = [c[0] for c in RuleDestination.DestinationType.choices]
+            if data.destination_type not in valid_types:
+                raise ValueError(f"destination_type must be one of: {', '.join(valid_types)}")
+            destination.destination_type = data.destination_type
+
+        # 'destination' and 'phone_number' are aliases, matching add_destination
+        destination_value = data.destination or data.phone_number
+        if destination_value is not None:
+            destination.destination = destination_value
+
+        if getattr(data, '_detach_buyer', False):
+            destination.buyer = None
+        elif data.buyer_id is not None:
+            from buyers.models import Buyer
+            try:
+                destination.buyer = Buyer.objects.get(
+                    id=data.buyer_id,
+                    organization=user.organization
+                )
+            except Buyer.DoesNotExist:
+                raise ValueError("Buyer not found")
+
+        if data.priority is not None:
+            destination.priority = data.priority
+
+        if data.weight is not None:
+            destination.weight = data.weight
+
+        destination.save()
+        return destination
+
+    @staticmethod
+    def delete_destination(rule_id: str, destination_id: str, user: User):
+        destination = RoutingService.get_destination(rule_id, destination_id, user)
+        destination.delete()
+
+    @staticmethod
+    def format_destination(destination: RuleDestination) -> dict:
+        return {
+            'id': str(destination.id),
+            'destination_type': destination.destination_type,
+            'destination': destination.destination,
+            'priority': destination.priority,
+            'weight': destination.weight,
+            'buyer_id': str(destination.buyer_id) if destination.buyer_id else None,
+            'buyer_name': destination.buyer.name if destination.buyer else None,
+        }
 
     @staticmethod
     def list_calls(user: User, campaign_id: str = None):

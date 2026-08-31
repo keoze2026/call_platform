@@ -7,6 +7,7 @@ from .schemas import (
     CreateRoutingRuleSchema, UpdateRoutingRuleSchema,
     RoutingRuleOutSchema, RoutingRuleListSchema,
     CreateConditionSchema, CreateDestinationSchema,
+    UpdateDestinationSchema,
     CallLogOutSchema, CallLogListSchema,
     MessageResponseSchema
 )
@@ -37,6 +38,8 @@ def list_rules(request: HttpRequest, campaign_id: Optional[str] = None, page: in
             'status': r.status,
             'campaign_id': str(r.campaign_id),
             'campaign_name': r.campaign.name,
+            'destination_count': r.destination_count,
+            'condition_count': r.condition_count,
             'created_at': r.created_at.isoformat(),
         }
         for r in rules
@@ -87,17 +90,46 @@ def add_condition(request: HttpRequest, rule_id: str, data: CreateConditionSchem
 def add_destination(request: HttpRequest, rule_id: str, data: CreateDestinationSchema):
     try:
         destination = RoutingService.add_destination(rule_id, data, request.auth)
-        return 201, {
-            'id': str(destination.id),
-            'destination_type': destination.destination_type,
-            'destination': destination.destination,
-            'priority': destination.priority,
-            'weight': destination.weight,
-            'buyer_id': str(destination.buyer_id) if destination.buyer_id else None,
-            'buyer_name': destination.buyer.name if destination.buyer else None,
-        }
+        return 201, RoutingService.format_destination(destination)
     except ValueError as e:
         return 400, {"detail": str(e)}
+
+
+@router.get("/rules/{rule_id}/destinations", response={200: List[dict], 404: dict})
+def list_destinations(request: HttpRequest, rule_id: str):
+    try:
+        destinations = RoutingService.list_destinations(rule_id, request.auth)
+        return 200, [RoutingService.format_destination(d) for d in destinations]
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+
+
+@router.patch("/rules/{rule_id}/destinations/{destination_id}", response={200: dict, 400: dict, 404: dict})
+def update_destination(request: HttpRequest, rule_id: str, destination_id: str, data: UpdateDestinationSchema):
+    import json as _json
+    try:
+        body = _json.loads(request.body)
+    except Exception:
+        body = {}
+    # buyer_id explicitly sent as null means detach the buyer
+    data._detach_buyer = 'buyer_id' in body and body['buyer_id'] is None
+
+    try:
+        destination = RoutingService.update_destination(rule_id, destination_id, data, request.auth)
+        return 200, RoutingService.format_destination(destination)
+    except ValueError as e:
+        if 'not found' in str(e).lower():
+            return 404, {"detail": str(e)}
+        return 400, {"detail": str(e)}
+
+
+@router.delete("/rules/{rule_id}/destinations/{destination_id}", response={200: MessageResponseSchema, 404: dict})
+def delete_destination(request: HttpRequest, rule_id: str, destination_id: str):
+    try:
+        RoutingService.delete_destination(rule_id, destination_id, request.auth)
+        return 200, {"message": "Destination deleted successfully", "success": True}
+    except ValueError as e:
+        return 404, {"detail": str(e)}
 
 @router.get("/calls/live", response={200: List[CallLogListSchema]})
 def live_calls(request: HttpRequest):
