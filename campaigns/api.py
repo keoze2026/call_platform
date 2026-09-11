@@ -1,3 +1,4 @@
+from django.db.models import Count
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -25,19 +26,83 @@ def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
 @router.get("", response={200: dict})
 def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
-    campaigns = CampaignService.list_campaigns(request.auth).exclude(status='archived')
-    data = [
-        {
-            'id': str(c.id),
+    from django.utils import timezone
+    from datetime import timedelta
+    from routing.models import CallLog
+    from analytics.models import CallRecord
+    from campaigns.models import CampaignCap
+
+    org = request.auth.organization
+    campaigns = CampaignService.list_campaigns(request.auth).exclude(status='archived').select_related('cap')
+
+    now = timezone.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    hour_ago = now - timedelta(hours=1)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    # 1. Live calls grouped by campaign
+    live_qs = CallLog.objects.filter(
+        campaign__organization=org,
+        status__in=['in_progress', 'ringing', 'initiated']
+    ).values('campaign_id').annotate(total=Count('id'))
+    live_map = {str(item['campaign_id']): item['total'] for item in live_qs if item['campaign_id']}
+
+    # 2. Hourly calls grouped by campaign
+    hourly_qs = CallRecord.objects.filter(
+        organization=org,
+        created_at__gte=hour_ago
+    ).values('campaign_id').annotate(total=Count('id'))
+    hourly_map = {str(item['campaign_id']): item['total'] for item in hourly_qs if item['campaign_id']}
+
+    # 3. Daily calls grouped by campaign
+    daily_qs = CallRecord.objects.filter(
+        organization=org,
+        created_at__gte=today_start
+    ).values('campaign_id').annotate(total=Count('id'))
+    daily_map = {str(item['campaign_id']): item['total'] for item in daily_qs if item['campaign_id']}
+
+    # 4. Monthly calls grouped by campaign
+    monthly_qs = CallRecord.objects.filter(
+        organization=org,
+        created_at__gte=month_start
+    ).values('campaign_id').annotate(total=Count('id'))
+    monthly_map = {str(item['campaign_id']): item['total'] for item in monthly_qs if item['campaign_id']}
+
+    # 5. Global lifetime calls grouped by campaign
+    global_qs = CallRecord.objects.filter(
+        organization=org
+    ).values('campaign_id').annotate(total=Count('id'))
+    global_map = {str(item['campaign_id']): item['total'] for item in global_qs if item['campaign_id']}
+
+    data = []
+    for c in campaigns:
+        cid = str(c.id)
+        cap_obj = getattr(c, 'cap', None)
+        data.append({
+            'id': cid,
             'name': c.name,
             'status': c.status,
             'routing_type': c.routing_type,
             'payout_amount': str(c.payout_amount),
             'revenue_amount': str(c.revenue_amount),
             'created_at': c.created_at.isoformat(),
-        }
-        for c in campaigns
-    ]
+            'live_calls': live_map.get(cid, 0),
+            'hourly_calls': hourly_map.get(cid, 0),
+            'daily_calls': daily_map.get(cid, 0),
+            'monthly_calls': monthly_map.get(cid, 0),
+            'global_calls': global_map.get(cid, 0),
+            'max_concurrency': cap_obj.max_concurrency if cap_obj else 0,
+            'max_calls_daily': cap_obj.max_calls_daily if cap_obj else 0,
+            'max_calls_monthly': cap_obj.max_calls_monthly if cap_obj else 0,
+            'max_calls_global': cap_obj.max_calls_global if cap_obj else 0,
+            'cap': {
+                'max_concurrency': cap_obj.max_concurrency if cap_obj else 0,
+                'max_calls_daily': cap_obj.max_calls_daily if cap_obj else 0,
+                'max_calls_monthly': cap_obj.max_calls_monthly if cap_obj else 0,
+                'max_calls_global': cap_obj.max_calls_global if cap_obj else 0,
+            } if cap_obj else None
+        })
+
     return 200, paginate_list(data, page, page_size)
 
 

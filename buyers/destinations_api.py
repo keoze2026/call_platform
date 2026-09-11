@@ -2,6 +2,8 @@ from ninja import Router, Schema
 from typing import Optional, List, Union
 from accounts.api import JWTAuth
 from django.db.models import Sum, Count, Q
+from django.db.models.functions import Coalesce
+from decimal import Decimal
 
 router = Router(tags=["Destinations"], auth=JWTAuth())
 
@@ -48,6 +50,41 @@ class DestinationUpdateSchema(Schema):
 
 
 def format_destination(d):
+    from django.utils import timezone
+    from routing.models import CallLog
+    from analytics.models import CallRecord
+
+    org = d.organization
+    now = timezone.now()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    # 1. Real-time live calls for this destination
+    live_q = Q(status__in=['in_progress', 'ringing', 'initiated'])
+    if d.buyer_id and d.tfn:
+        live_q &= (Q(buyer_id=d.buyer_id) | Q(destination_number=d.tfn))
+    elif d.buyer_id:
+        live_q &= Q(buyer_id=d.buyer_id)
+    elif d.tfn:
+        live_q &= Q(destination_number=d.tfn)
+    else:
+        live_q &= Q(id__isnull=True)
+
+    live_count = CallLog.objects.filter(campaign__organization=org).filter(live_q).count()
+
+    # 2. Calls and revenue today for this destination
+    rec_q = Q(organization=org, created_at__gte=today_start)
+    if d.buyer_id:
+        rec_q &= Q(buyer_id=d.buyer_id)
+    elif d.tfn:
+        rec_q &= Q(called_number=d.tfn)
+
+    today_stats = CallRecord.objects.filter(rec_q).aggregate(
+        total_calls=Count('id'),
+        revenue=Coalesce(Sum('revenue'), Decimal('0.00'))
+    )
+    daily_count = today_stats['total_calls'] or 0
+    revenue_today = float(today_stats['revenue'] or 0)
+
     return {
         'id': str(d.id),
         'buyer_id': str(d.buyer_id) if d.buyer_id else None,
@@ -61,11 +98,12 @@ def format_destination(d):
         'daily_cap': d.daily_cap,
         'monthly_cap': d.monthly_cap,
         'global_cap': d.global_cap,
-        'live_calls': d.live_calls,
+        'live_calls': live_count,
         'hourly_calls': d.hourly_calls,
-        'daily_calls': d.daily_calls,
+        'daily_calls': daily_count,
         'monthly_calls': d.monthly_calls,
         'global_calls': d.global_calls,
+        'revenue_today': revenue_today,
         'ring_duration_sec': d.ring_duration_sec,
         'timezone': d.timezone,
         'filter_enabled': d.filter_enabled,
@@ -93,22 +131,28 @@ def list_destinations(request, page: int = 1, page_size: int = 50, buyer_id: Opt
 @router.get("/stats/", response={200: dict})
 def get_destination_stats(request):
     from buyers.destination import Destination
-    qs = Destination.objects.filter(organization=request.auth.organization)
+    from routing.models import CallLog
+    org = request.auth.organization
+    qs = Destination.objects.filter(organization=org)
+
+    total_live = CallLog.objects.filter(
+        campaign__organization=org,
+        status__in=['in_progress', 'ringing', 'initiated']
+    ).count()
+
     stats = qs.aggregate(
-        total_live=Sum('live_calls'),
         total_cc=Sum('concurrency_cap'),
         active_tfns=Count('id', filter=Q(enabled=True)),
-        active_live=Sum('live_calls', filter=Q(enabled=True)),
     )
-    total_live = stats['total_live'] or 0
     total_cc = stats['total_cc'] or 0
     return 200, {
-        'active_live': stats['active_live'] or 0,
+        'active_live': total_live,
         'total_live': total_live,
         'total_cc': total_cc,
         'active_tfns': stats['active_tfns'] or 0,
-        'vacant_cc': total_cc - total_live,
+        'vacant_cc': max(0, total_cc - total_live),
     }
+
 
 
 @router.post("/", response={201: dict, 400: dict})
@@ -161,6 +205,12 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
         for k, v in payload.dict(exclude_none=True).items():
             setattr(d, k, v)
         d.save()
+        try:
+            from routing.models import RuleDestination
+            if d.buyer_id:
+                RuleDestination.objects.filter(buyer_id=d.buyer_id).update(destination=d.tfn)
+        except Exception:
+            pass
         return 200, format_destination(d)
     except Destination.DoesNotExist:
         return 404, {"detail": "Destination not found"}
