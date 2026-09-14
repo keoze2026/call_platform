@@ -146,57 +146,23 @@ def call_ended(request):
     call_log_id = data.get('call_log_id', '')
     duration = int(data.get('duration', 0))
     answered = bool(data.get('answered', False))
-    recording_url = (
-    data.get('recording_url', '') or 
-    data.get('RecordingUrl', '') or 
-    data.get('recording', '') or 
-    data.get('media_url', '') or 
-    data.get('audio_url', '') or 
-    data.get('file_url', '') or 
-    data.get('url', '')
-)
+    recording_url = data.get('recording_url', '')
 
     if not call_log_id:
         return JsonResponse({"error": "Missing call_log_id"}, status=400)
 
     try:
-        call_log = CallLog.objects.select_related('campaign', 'buyer').get(id=call_log_id)
+        call_log = CallLog.objects.get(id=call_log_id)
     except CallLog.DoesNotExist:
         return JsonResponse({"error": "Call not found"}, status=404)
 
     call_log.duration = duration
     call_log.status = CallLog.Status.COMPLETED if answered else CallLog.Status.NO_ANSWER
     call_log.ended_at = timezone.now()
-    if answered and not call_log.answered_at:
-        call_log.answered_at = timezone.now() - timezone.timedelta(seconds=duration)
-
+    if answered:
+        call_log.answered_at = timezone.now()
     if recording_url:
         call_log.recording_url = recording_url
-
-    campaign = call_log.campaign
-    min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
-    converted = answered and (duration >= min_dur)
-    payout_val = (getattr(campaign, 'payout_amount', 0) or 0) if converted else 0
-
-    call_log.revenue = payout_val
-    call_log.publisher_payout = payout_val
     call_log.save()
 
-    # Sync to analytics CallRecord
-    try:
-        from analytics.models import CallRecord
-        cr = CallRecord.objects.filter(twilio_call_sid=call_log.twilio_call_sid).first()
-        if cr:
-            cr.status = 'completed' if answered else 'no_answer'
-            cr.duration_seconds = duration
-            cr.is_converted = converted
-            cr.revenue = payout_val
-            cr.payout = payout_val
-            cr.profit = 0
-            if recording_url:
-                cr.recording_url = recording_url
-            cr.save()
-    except Exception:
-        pass
-
-    return JsonResponse({"received": True, "call_log_id": str(call_log.id), "converted": converted})
+    return JsonResponse({"received": True, "call_log_id": str(call_log.id)})

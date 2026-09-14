@@ -53,6 +53,9 @@ def format_destination(d):
     from django.utils import timezone
     from routing.models import CallLog
     from analytics.models import CallRecord
+    from django.db.models import Q, Count, Sum
+    from django.db.models.functions import Coalesce
+    from decimal import Decimal
 
     org = d.organization
     now = timezone.now()
@@ -66,17 +69,15 @@ def format_destination(d):
         live_q &= Q(buyer_id=d.buyer_id)
     elif d.tfn:
         live_q &= Q(destination_number=d.tfn)
-    else:
-        live_q &= Q(id__isnull=True)
 
-    live_count = CallLog.objects.filter(campaign__organization=org).filter(live_q).count()
+    live_count = CallLog.objects.filter(organization=org).filter(live_q).count()
 
     # 2. Calls and revenue today for this destination
     rec_q = Q(organization=org, created_at__gte=today_start)
     if d.buyer_id:
         rec_q &= Q(buyer_id=d.buyer_id)
     elif d.tfn:
-        rec_q &= Q(called_number=d.tfn)
+        rec_q &= (Q(called_number=d.tfn) | Q(caller_number=d.tfn))
 
     today_stats = CallRecord.objects.filter(rec_q).aggregate(
         total_calls=Count('id'),
@@ -99,11 +100,22 @@ def format_destination(d):
         'monthly_cap': d.monthly_cap,
         'global_cap': d.global_cap,
         'live_calls': live_count,
+        'live': live_count,
         'hourly_calls': d.hourly_calls,
         'daily_calls': daily_count,
+        'calls_today': daily_count,
         'monthly_calls': d.monthly_calls,
         'global_calls': d.global_calls,
         'revenue_today': revenue_today,
+        'revenue': revenue_today,
+        'liveCalls': live_count,
+        'callsToday': daily_count,
+        'todayCalls': daily_count,
+        'dailyCalls': daily_count,
+        'revenueToday': revenue_today,
+        'todayRevenue': revenue_today,
+        'stats': {'live': live_count, 'live_calls': live_count, 'calls_today': daily_count, 'today_calls': daily_count, 'revenue_today': revenue_today, 'daily_calls': daily_count, 'cap_today': d.daily_cap, 'daily_cap': d.daily_cap},
+        'cap_today': d.daily_cap,
         'ring_duration_sec': d.ring_duration_sec,
         'timezone': d.timezone,
         'filter_enabled': d.filter_enabled,
@@ -136,7 +148,7 @@ def get_destination_stats(request):
     qs = Destination.objects.filter(organization=org)
 
     total_live = CallLog.objects.filter(
-        campaign__organization=org,
+        organization=org,
         status__in=['in_progress', 'ringing', 'initiated']
     ).count()
 

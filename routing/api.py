@@ -157,9 +157,9 @@ def live_calls(request: HttpRequest):
     ]
 
 @router.get("/calls", response={200: dict})
-def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, page: int = 1, page_size: int = 50):
+def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
-    calls = RoutingService.list_calls(request.auth, campaign_id)
+    calls = RoutingService.list_calls(request.auth, campaign_id, status)
     data = [
         {
             'id': str(c.id),

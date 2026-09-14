@@ -77,6 +77,7 @@ class UpdateProfileSchema(Schema):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     phone_number: Optional[str] = None
+    avatarUrl: Optional[str] = None
 
 
 class MFAVerifySchema(Schema):

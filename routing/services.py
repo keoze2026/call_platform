@@ -1,3 +1,4 @@
+from django.db.models import Q
 from .models import RoutingRule, RuleCondition, RuleDestination, CallLog
 from .schemas import CreateRoutingRuleSchema, UpdateRoutingRuleSchema
 from accounts.models import User
@@ -5,6 +6,33 @@ from accounts.models import User
 
 class RoutingService:
 
+    @staticmethod
+    def list_calls(user: User, campaign_id: str = None, status: str = None):
+        qs = CallLog.objects.select_related(
+            'campaign', 'buyer', 'publisher'
+        )
+        if hasattr(user, 'organization') and user.organization:
+            qs = qs.filter(organization=user.organization)
+
+        if campaign_id:
+            qs = qs.filter(campaign_id=campaign_id)
+
+        if status:
+            s_lower = status.lower()
+            if s_lower == 'connected':
+                qs = qs.filter(status__iexact='completed')
+            elif s_lower == 'qualified':
+                qs = qs.filter(status__in=['qualified', 'QUALIFIED'])
+            elif s_lower in ['not connected', 'not_connected']:
+                qs = qs.filter(status__in=['no_answer', 'failed', 'busy'])
+            elif s_lower == 'converted':
+                qs = qs.filter(status__in=['converted', 'CONVERTED'])
+            else:
+                qs = qs.filter(status__iexact=status)
+
+        return qs.order_by('-created_at')[:100]
+
+    
     @staticmethod
     def create_rule(data: CreateRoutingRuleSchema, user: User) -> RoutingRule:
         from campaigns.models import Campaign
@@ -186,16 +214,7 @@ class RoutingService:
         }
 
     @staticmethod
-    def list_calls(user: User, campaign_id: str = None):
-        qs = CallLog.objects.select_related(
-            'campaign', 'buyer', 'publisher'
-        ).filter(organization=user.organization)
-
-        if campaign_id:
-            qs = qs.filter(campaign_id=campaign_id)
-
-        return qs.order_by('-created_at')[:100]
-
+        
     @staticmethod
     def get_call(call_id: str, user: User) -> CallLog:
         try:

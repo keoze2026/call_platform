@@ -13,6 +13,7 @@ import csv
 import io
 
 from .models import CallRecord
+from routing.models import CallLog
 from accounts.models import User
 
 
@@ -77,7 +78,7 @@ class AnalyticsService:
         )
 
         calls_today = all_qs.filter(created_at__gte=today_start).count()
-        live_calls  = all_qs.filter(status='in_progress').count()
+        live_calls  = CallLog.objects.filter(campaign__organization=org, status__in=['in_progress', 'ringing', 'initiated']).count()
 
         total = agg['total_calls'] or 1
         return {
@@ -148,7 +149,7 @@ class AnalyticsService:
             .exclude(campaign_id=None)
             .values('campaign_id', 'campaign_name')
             .annotate(
-                total_calls=Count('id'),
+                total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
                 converted_calls=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('payout'), Decimal('0')),
@@ -187,7 +188,7 @@ class AnalyticsService:
             .exclude(buyer_id=None)
             .values('buyer_id', 'buyer_name')
             .annotate(
-                total_calls=Count('id'),
+                total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_payout=Coalesce(Sum('payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
@@ -222,7 +223,7 @@ class AnalyticsService:
             .exclude(publisher_id=None)
             .values('publisher_id', 'publisher_name')
             .annotate(
-                total_calls=Count('id'),
+                total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
@@ -248,25 +249,37 @@ class AnalyticsService:
 
     @staticmethod
     def get_call_log(user: User, filters) -> dict:
+        from routing.models import CallLog
         qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
         total = qs.count()
-        items = qs[filters.offset: filters.offset + filters.limit]
+        items = list(qs[filters.offset: filters.offset + filters.limit])
+
+        sids = [r.twilio_call_sid for r in items if r.twilio_call_sid]
+        dest_map = dict(
+            CallLog.objects.filter(twilio_call_sid__in=sids)
+            .values_list('twilio_call_sid', 'destination_number')
+        )
 
         return {
             'total':  total,
             'offset': filters.offset,
             'limit':  filters.limit,
-            'items':  [AnalyticsService._format_record(r) for r in items],
+            'items':  [AnalyticsService._format_record(r, dest_map.get(r.twilio_call_sid)) for r in items],
         }
 
     @staticmethod
-    def _format_record(r: CallRecord) -> dict:
+    def _format_record(r: CallRecord, destination_number: str = None) -> dict:
+        dest_num = destination_number or ''
+        dt_start = r.started_at or r.created_at
+        status_val = 'in-progress' if r.status in ['in_progress', 'in-progress'] else ('failed' if r.status in ['failed', 'no_answer', 'busy', 'canceled'] else r.status)
         return {
             'id':               str(r.id),
             'twilio_call_sid':  r.twilio_call_sid,
-            'caller_number':    r.caller_number,
+            'caller_number':    (lambda rc: (d:=''.join(filter(str.isdigit, rc or ''))) and (d[1:] if d.startswith('1') and len(d)==11 else d))(r.caller_number),
             'caller_state':     r.caller_state,
             'called_number':    r.called_number,
+            'destination_number': dest_num,
+            'destinationNumber':  dest_num,
             'campaign_id':      str(r.campaign_id) if r.campaign_id else None,
             'campaign_name':    r.campaign_name,
             'buyer_id':         str(r.buyer_id) if r.buyer_id else None,
@@ -283,7 +296,8 @@ class AnalyticsService:
             'profit':           r.profit,
             'winning_bid':      r.winning_bid,
             'recording_url':    r.recording_url,
-            'started_at':       r.started_at,
+            'started_at':       dt_start,
+            'startedAt':        int(dt_start.timestamp() * 1000) if dt_start else None,
             'ended_at':         r.ended_at,
             'created_at':       r.created_at,
         }
@@ -304,9 +318,13 @@ class AnalyticsService:
         ])
 
         for r in qs:
+            raw_caller = r.caller_number or ''
+            clean_caller = raw_caller.lstrip('+')
+            if clean_caller.startswith('1') and len(clean_caller) == 11:
+                clean_caller = clean_caller[1:]
             writer.writerow([
                 r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                r.caller_number, r.caller_state, r.called_number,
+                clean_caller, r.caller_state, r.called_number,
                 r.campaign_name, r.buyer_name, r.publisher_name,
                 r.status, r.duration_seconds, r.is_converted,
                 r.revenue, r.payout, r.profit, r.recording_url,
@@ -314,7 +332,6 @@ class AnalyticsService:
 
         return output.getvalue()
 
-    # ── record call (called by twilio webhook after call ends) ────────────────
 
     @staticmethod
     def record_call(data: dict, organization) -> CallRecord:
@@ -322,56 +339,46 @@ class AnalyticsService:
         Called from twilio/webhook after call-status update.
         data keys match Twilio's StatusCallback params.
         """
+        raw_from = data.get('From', '')
+        digits_only = ''.join(filter(str.isdigit, raw_from))
+        if digits_only.startswith('1') and len(digits_only) == 11:
+            clean_from = digits_only[1:]
+        else:
+            clean_from = digits_only or raw_from.lstrip('+')
+
         record, _ = CallRecord.objects.update_or_create(
             twilio_call_sid=data.get('CallSid', ''),
             organization=organization,
             defaults={
-                'caller_number':      data.get('From', ''),
-                'called_number':      data.get('To', ''),
-                'status':             _map_twilio_status(data.get('CallStatus', '')),
-                'duration_seconds':   int(data.get('CallDuration', 0) or 0),
-                'campaign_id':        data.get('campaign_id'),
-                'campaign_name':      data.get('campaign_name', ''),
-                'buyer_id':           data.get('buyer_id'),
-                'buyer_name':         data.get('buyer_name', ''),
-                'publisher_id':       data.get('publisher_id'),
-                'publisher_name':     data.get('publisher_name', ''),
-                'revenue':            Decimal(str(data.get('revenue', '0'))),
-                'payout':             Decimal(str(data.get('payout', '0'))),
-                'profit':             Decimal(str(data.get('profit', '0'))),
-                'winning_bid':        Decimal(str(data.get('winning_bid', '0'))) if data.get('winning_bid') else None,
-                'is_converted':       bool(data.get('is_converted', False)),
-                'is_duplicate':       bool(data.get('is_duplicate', False)),
-                'is_spam':            bool(data.get('is_spam', False)),
-                'recording_url':      data.get('RecordingUrl', ''),
-                'caller_state':       data.get('caller_state', ''),
-                'routing_type':       data.get('routing_type', ''),
-                'auction_id':         data.get('auction_id'),
+                'caller_number': clean_from,
+                'called_number': data.get('To', ''),
+                'status': _map_twilio_status(data.get('CallStatus', '')),
+                'duration_seconds': int(data.get('CallDuration', 0) or 0),
+                'campaign_id': data.get('campaign_id'),
+                'campaign_name': data.get('campaign_name', ''),
+                'buyer_id': data.get('buyer_id'),
+                'buyer_name': data.get('buyer_name', ''),
+            'publisher_id': data.get('publisher_id') or data.get('pub_id') or data.get('publisher') or data.get('affiliate_id'),
+            'publisher_name': data.get('publisher_name') or data.get('pub_name') or data.get('publisher_title') or data.get('affiliate_name') or '',
+                'revenue': Decimal(str(data.get('revenue', '0'))),
+                'payout': Decimal(str(data.get('payout', '0'))),
+                'profit': Decimal(str(data.get('profit', '0'))),
+                'winning_bid': Decimal(str(data.get('winning_bid', '0'))) if data.get('winning_bid') else None,
+                'is_converted': bool(data.get('is_converted', False)),
+                'is_duplicate': bool(data.get('is_duplicate', False)),
+                'is_spam': bool(data.get('is_spam', False)),
+                'recording_url': data.get('RecordingUrl', '') or data.get('recording_url', '') or data.get('Recording', '') or data.get('media_url', '') or data.get('audio_url', '') or data.get('recording_link', '') or data.get('file_url', '') or data.get('url', ''),
+                'caller_state': data.get('caller_state', ''),
+                'routing_type': data.get('routing_type', ''),
+                'auction_id': data.get('auction_id'),
             }
         )
-        # auto-compute profit
         if record.revenue and record.payout:
             record.profit = record.revenue - record.payout
             record.save(update_fields=['profit'])
 
         return record
 
-
-def _map_twilio_status(twilio_status: str) -> str:
-    mapping = {
-        'completed':  'completed',
-        'no-answer':  'no_answer',
-        'busy':       'busy',
-        'failed':     'failed',
-        'in-progress': 'in_progress',
-        'canceled':   'failed',
-    }
-    return mapping.get(twilio_status, 'completed')
-
-
-
-class CallerProfileService:
-    """Aggregated view of a caller across all calls."""
 
     @staticmethod
     def get_profile(organization_id: str, caller_number: str) -> dict:
@@ -384,13 +391,13 @@ class CallerProfileService:
         )
 
         total = calls.count()
+        total = calls.count()
         if total == 0:
             return {
                 'caller_number': caller_number,
                 'total_calls': 0,
                 'profile_exists': False,
             }
-
         stats = calls.aggregate(
             total_duration=Sum('duration'),
             avg_duration=Avg('duration'),
@@ -406,8 +413,6 @@ class CallerProfileService:
         caller_state = calls.exclude(caller_state='').values_list('caller_state', flat=True).first() or ''
 
         return {
-            'caller_number': caller_number,
-            'caller_state': caller_state,
             'profile_exists': True,
             'total_calls': total,
             'completed_calls': completed,

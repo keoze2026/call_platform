@@ -1,5 +1,5 @@
 from ninja import Schema
-from typing import Optional, List
+from typing import Optional, List, Union
 from decimal import Decimal
 from datetime import datetime
 import uuid
@@ -27,6 +27,10 @@ class CallRecordSchema(Schema):
     caller_number:    str
     caller_state:     str
     called_number:    str
+    destination_number: Optional[str] = None
+    destinationNumber: Optional[str] = None
+    destination_number: Optional[str] = None
+    destinationNumber: Optional[str] = None
     campaign_id:      Optional[str]
     campaign_name:    str
     buyer_id:         Optional[str]
@@ -44,6 +48,7 @@ class CallRecordSchema(Schema):
     winning_bid:      Optional[Decimal]
     recording_url:    str
     started_at:       Optional[datetime]
+    startedAt: Optional[Union[int, str]] = None
     ended_at:         Optional[datetime]
     created_at:       datetime
 

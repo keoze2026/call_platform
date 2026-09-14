@@ -180,8 +180,19 @@ class ProfileService:
     @staticmethod
     def update_profile(user: User, data) -> User:
         ALLOWED_FIELDS = {'first_name', 'last_name', 'phone_number'}
+        dump = data.model_dump(exclude_unset=True)
 
-        for field, value in data.model_dump(exclude_none=True).items():
+        if 'avatarUrl' in dump:
+            val = dump.pop('avatarUrl')
+            if val is None or val == '':
+                if user.avatar:
+                    import os
+                    old_path = os.path.join('/opt/call_platform/media', str(user.avatar))
+                    if os.path.exists(old_path):
+                        os.remove(old_path)
+                user.avatar = None
+
+        for field, value in dump.items():
             if field in ALLOWED_FIELDS:
                 setattr(user, field, value)
 

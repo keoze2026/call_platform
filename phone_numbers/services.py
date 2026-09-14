@@ -14,14 +14,18 @@ class PhoneNumberService:
     def search_available_numbers(data, user: User) -> list:
         client = PhoneNumberService.get_twilio_client()
         params = {'limit': data.limit, 'voice_enabled': True}
-        if data.area_code:
-            params['area_code'] = data.area_code
-        if data.contains:
-            params['contains'] = data.contains
         try:
             if data.number_type == 'toll_free':
+                if data.area_code:
+                    params['contains'] = f"{data.area_code}*"
+                elif data.contains:
+                    params['contains'] = data.contains
                 available = client.available_phone_numbers(data.country_code).toll_free.list(**params)
             else:
+                if data.area_code:
+                    params['area_code'] = data.area_code
+                if data.contains:
+                    params['contains'] = data.contains
                 available = client.available_phone_numbers(data.country_code).local.list(**params)
             return [
                 {
