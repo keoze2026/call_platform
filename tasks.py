@@ -229,6 +229,16 @@ def send_notification(event: str, organization_id: str, data: dict):
         return f"Organization {organization_id} not found"
 
 
+@app.task(name='tasks.mirror_call_record')
+def mirror_call_record(call_log_id):
+    """Mirror a terminal CallLog into the CallRecord analytics table."""
+    from routing.signals import mirror_call_log
+
+    if mirror_call_log(call_log_id):
+        return f"Mirrored call {call_log_id}"
+    return f"Skipped call {call_log_id} (missing or not terminal)"
+
+
 @shared_task
 def transcribe_call_recording(call_log_id):
     """Background task — transcribe a call recording and analyze sentiment."""

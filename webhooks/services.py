@@ -65,6 +65,12 @@ class WebhookService:
 
     @staticmethod
     def deliver(webhook: Webhook, event: str, payload: dict):
+        """Send synchronously and block until the response is known.
+
+        Kept synchronous on purpose: the POST /webhooks/{id}/test endpoint returns
+        response_code/response_body to the caller. Event traffic should use
+        enqueue()/dispatch() instead.
+        """
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
             event=event,
@@ -119,6 +125,27 @@ class WebhookService:
         delivery.save()
 
     @staticmethod
+    def enqueue(webhook: Webhook, event: str, payload: dict):
+        """Record the delivery and hand the HTTP call to a Celery worker.
+
+        Returns the WebhookDelivery immediately — the caller never waits on the
+        remote endpoint. If the broker is unreachable the send falls back to
+        running inline, so an event is never silently lost.
+        """
+        delivery = WebhookDelivery.objects.create(
+            webhook=webhook,
+            event=event,
+            payload=payload,
+            status=WebhookDelivery.Status.PENDING
+        )
+        try:
+            from tasks import send_webhook
+            send_webhook.delay(str(delivery.id))
+        except Exception:
+            WebhookService._send(delivery)
+        return delivery
+
+    @staticmethod
     def dispatch(organization_id: str, event: str, payload: dict):
         webhooks = Webhook.objects.filter(
             organization_id=organization_id,
@@ -126,7 +153,7 @@ class WebhookService:
         )
         for webhook in webhooks:
             if event in webhook.events or '*' in webhook.events:
-                WebhookService.deliver(webhook, event, payload)
+                WebhookService.enqueue(webhook, event, payload)
 
     @staticmethod
     def list_deliveries(webhook_id: str, user: User):

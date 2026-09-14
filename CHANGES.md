@@ -10,6 +10,8 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-001](#ch-001) | 2026-08-31 | Phone Numbers | Attach purchased numbers to Twilio SIP trunk | Done — commit `b6e602ce` |
 | [CH-002](#ch-002) | 2026-08-31 | Routing | Destination edit/delete/list API endpoints | Done — commit `76b76357` |
 | [CH-003](#ch-003) | 2026-08-31 | Phone Numbers | Trunk-attach failure no longer aborts a paid-for purchase | Done — commit `76b76357` |
+| [CH-004](#ch-004) | 2026-09-13 | Multi-tenant / Analytics | Org alignment, analytics backfill, webhook + recording fixes | Done — commit `d470a7d4` |
+| [CH-005](#ch-005) | 2026-09-14 | Celery / Scaling | Task registration fix, async webhooks, decoupled analytics mirroring | Done — not yet committed |
 
 ## Open items (not done yet)
 
@@ -299,3 +301,151 @@ was backing up is committed, so git already holds that version.
 git rm phone_numbers/services.py.bak_trunk
 git commit -m "Remove backup file"
 ```
+<a name="ch-004"></a>
+## CH-004 — Multi-Tenant Account Alignment, Analytics Backfill, & Webhook Fixes
+
+**Date:** 2026-09-13
+**Commit:** `d470a7d4`
+**Made on:** server (`/opt/call_platform`), pushed to GitHub, pulled locally
+
+### Problem
+1. **Tenant Isolation Discrepancy:** The primary developer/user account (`haansjuma`) was accidentally mapped to an empty tenant organization (`jumahte`), causing all dashboard summary queries and API metrics to return zero records despite the database containing hundreds of valid calls.
+2. **Hanging Calls & Malformed Webhooks:** Live Asterisk calls were permanently getting stuck in the `ringing` state because the end-of-call webhook payload was constructed using raw inline string concatenation in the dialplan, causing JSON syntax errors under variable-quoting constraints. Furthermore, duration (`CDR billsec`) was being queried before the channel had actually terminated, always returning `0`.
+3. **Analytics Sync Gap & Timezone Bug:** Historical call records completed prior to analytics signal updates were missing from the analytics mirroring table (`CallRecord`), causing reporting gaps. Additionally, a naive-versus-timezone-aware datetime bug in the reporting API's date-range filter silently excluded all calls from hourly breakdowns.
+4. **Recording Playback Failures:** Call recording endpoints returned `403 Forbidden` due to overly restrictive directory permissions on the Asterisk spool, and audio URLs pointed to the raw server IP instead of the SSL-secured domain (`avortyx.io`).
+
+### Files Changed
+
+**`routing/asterisk_handler.py`** — rewritten end-of-call handling:
+- Moved webhook execution from immediate `Dial()` inline calls to Asterisk's dedicated hangup (`h`) extension to guarantee duration is captured post-termination.
+- Shifted payload creation from risky string concatenation to a robust standalone shell script (`call_ended.sh`) ensuring valid JSON output.
+
+**`routing/services.py` & `routing/api.py`** — multi-tenant and routing adjustments:
+- Realigned user account organization mapping to the populated `Avortyx` tenant (`cdf49649-c655-431c-a9fc-cecf24da81a4`).
+- Validated backend query filters for `connected`, `no_answer`, and `failed` status states against Django request factories, confirming the paginated `items` response structure yields correct data counts.
+
+**`analytics/services.py` & `analytics/schemas.py`** — reporting fixes:
+- Patched timezone handling on analytics filtering logic to prevent silent date-range omissions.
+- Executed one-time backfill routines to mirror historical call logs into the analytics reporting table.
+
+### API & Operational Impact
+- **Dashboard Recovery:** Dashboard metric queries and reports now correctly populate with data when viewing under the correct organization tenant (`Avortyx`).
+- **Webhook Reliability:** Asterisk call completion webhooks now successfully update call logs to `completed`/`no_answer`/`failed` with precise durations and valid JSON payloads.
+- **Recordings Access:** Audio streams serve correctly over HTTPS via `avortyx.io` domains with proper file permissions.
+
+### Verification Status
+- Validated via direct Django test runner scripts on the server (`/opt/call_platform/venv/bin/python`).
+- Verified query metrics return 50 connected items, 50 no-answer items, and 1 failed item successfully under test harness environments.
+
+---
+
+<a name="ch-005"></a>
+## CH-005 — Celery task registration, async webhooks, decoupled analytics mirroring
+
+**Date:** 2026-09-14
+**Commit:** not yet committed
+**Made on:** local (`/home/hans/Desktop/call_platform`)
+**Roadmap:** Scaling Step 1 — Asynchronous Worker Scaling
+
+### Problem
+
+Audit of the Celery setup found three issues, in dependency order:
+
+**F1 — tasks were almost certainly never registered with the worker.**
+`config/celery.py` called `app.autodiscover_tasks(['tasks'])`. That form looks for a module
+named `tasks.tasks`; `tasks.py` is a flat top-level module, not a package. The bare
+`autodiscover_tasks()` scans `INSTALLED_APPS` for `<app>/tasks.py` — no app has one, and
+`tasks` is not an installed app. Nothing imported `tasks.py` at worker startup, so all six
+beat entries and `transcribe_call_recording` would fail as unregistered tasks.
+
+**F3 — webhook delivery blocked the callback thread.**
+`routing/twilio_handler.py` called `WebhookService.dispatch` → `deliver` → `_send`, a blocking
+`httpx.post` with `timeout=webhook.timeout_seconds` (default 10), looped over every matching
+webhook. Three webhooks pointed at a dead endpoint held the handler for 30 seconds.
+
+**F4 — analytics mirroring ran synchronously inside the request.**
+The `post_save` receiver in `routing/signals.py` did an `update_or_create` on `CallRecord`
+during every terminal `CallLog` save, inside the web request and its transaction.
+
+**F5 — broker settings were defined twice**, the first pair with no default (crashing boot if
+the env var was absent) and immediately overwritten by the second.
+
+F1 was a hard prerequisite: converting F3/F4 to `.delay()` while tasks were unregistered would
+have silently stopped webhooks firing and sent the dashboard back to zero.
+
+### Files changed
+
+**`config/celery.py`** — `Celery('call_platform', include=['tasks'])` replaces the
+unresolvable `autodiscover_tasks(['tasks'])`. `include=` imports the module directly at worker
+startup, which is what actually registers the `@app.task` entries. The `INSTALLED_APPS` scan is
+kept for future app-level task modules.
+
+**`config/settings.py`** — removed the dead pair:
+```python
+CELERY_BROKER_URL =  config('CELERY_BROKER_URL')        # no default -> raised if unset
+CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND')
+```
+The `REDIS_URL`-based assignments two lines below were already the effective values.
+
+**`webhooks/services.py`** — new `WebhookService.enqueue(webhook, event, payload)` creates the
+`WebhookDelivery` row and hands the HTTP call to `tasks.send_webhook` via `.delay()`.
+`dispatch()` now calls `enqueue()` instead of `deliver()`.
+
+`deliver()` was left synchronous **on purpose** — `POST /api/webhooks/{id}/test`
+(`webhooks/api.py`) returns `response_code` and `response_body` to the caller, so making it
+async would break that endpoint's contract.
+
+**`routing/signals.py`** — the `update_or_create` body moved into a standalone
+`mirror_call_log(call_log_id)` function that a worker can call. The receiver now only enqueues,
+via `transaction.on_commit` — without that the worker can race the web process and read a
+`CallLog` row that has not committed yet. `mirror_call_log` re-checks terminal status at
+execution time, since the row can change between enqueue and run.
+
+**`tasks.py`** — new `tasks.mirror_call_record` task calling `mirror_call_log`.
+
+### Fallback behaviour
+
+Both refactors wrap `.delay()` in `try/except` and run the work inline if it raises. A broker
+outage degrades to the previous synchronous behaviour rather than dropping events.
+
+### API impact
+None. No request or response shape changed, no new endpoints, no migration.
+
+### Operational impact
+- Webhook events are no longer sent from the request thread. The Asterisk/status callback
+  handler returns without waiting on remote endpoints.
+- `CallRecord` mirroring happens in a worker after commit. The analytics table is now
+  **eventually** consistent with `CallLog` rather than immediately — expect sub-second lag
+  normally, longer if the worker queue backs up.
+- A worker **must** be running for webhooks and analytics to work under normal operation.
+  This was not true before this change.
+
+### Systemd consolidation (server-side, no repo files)
+`celery.service` was retired in favour of `callplatform-worker.service` and
+`callplatform-beat.service`:
+```bash
+sudo systemctl stop celery.service
+sudo systemctl disable celery.service
+sudo systemctl mask celery.service
+sudo mv /etc/systemd/system/celery.service /root/celery.service.disabled
+sudo systemctl daemon-reload
+```
+
+### Verification status
+- Syntax checked (`python3 -m py_compile`) — passes.
+- **Not** run against Django (no local venv). Needs on the server:
+```bash
+python manage.py check
+sudo systemctl restart callplatform-worker callplatform-beat daphne
+celery -A config inspect registered
+```
+  The last command must list `tasks.send_webhook` and `tasks.mirror_call_record`.
+  **If it does not, roll back before taking calls** — dispatch is now asynchronous.
+
+### Still open from the Step 1 audit
+- **F2** — `analytics/tasks.py` does not exist. `analytics/scheduled_reports_api.py` imports
+  `send_scheduled_report` from it inside `try/except Exception: pass`, so "Run now" on a
+  scheduled report silently does nothing and returns `{"ok": true}`.
+- **F6** — no task queues or routes; everything shares one default queue, so a slow
+  transcription sits in front of webhook retries.
+- **F7** — beat uses interval floats, not crontab, so daily jobs drift on every restart.

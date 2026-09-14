@@ -9,7 +9,12 @@ CallLog is populated correctly by the Asterisk webhook.
 
 This listens for CallLog saves and mirrors completed/terminal-status calls
 into CallRecord. It does not modify CallLog or anything upstream of it.
+
+The mirroring itself runs in a Celery worker, not in the request thread — the
+receiver only enqueues. Enqueueing happens on transaction commit so the worker
+can never read a CallLog row that has not been written yet.
 """
+from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 
@@ -33,12 +38,22 @@ STATUS_MAP = {
 }
 
 
-@receiver(post_save, sender=CallLog)
-def sync_call_record(sender, instance: CallLog, created, **kwargs):
-    call = instance
+def mirror_call_log(call_log_id) -> bool:
+    """Mirror one CallLog into CallRecord. Safe to call from a Celery worker.
+
+    Returns True if a CallRecord was written, False if the call is gone or is
+    not in a terminal status (re-checked here because the row may have changed
+    between enqueue and execution).
+    """
+    try:
+        call = CallLog.objects.select_related(
+            'organization', 'campaign', 'buyer', 'publisher'
+        ).get(id=call_log_id)
+    except CallLog.DoesNotExist:
+        return False
 
     if call.status not in TERMINAL_STATUSES:
-        return
+        return False
 
     CallRecord.objects.update_or_create(
         id=call.id,
@@ -65,3 +80,22 @@ def sync_call_record(sender, instance: CallLog, created, **kwargs):
             'ended_at': call.ended_at,
         },
     )
+    return True
+
+
+@receiver(post_save, sender=CallLog)
+def sync_call_record(sender, instance: CallLog, created, **kwargs):
+    if instance.status not in TERMINAL_STATUSES:
+        return
+
+    call_log_id = str(instance.id)
+
+    def _enqueue():
+        try:
+            from tasks import mirror_call_record
+            mirror_call_record.delay(call_log_id)
+        except Exception:
+            # Broker unreachable — mirror inline rather than lose the record
+            mirror_call_log(call_log_id)
+
+    transaction.on_commit(_enqueue)
