@@ -11,7 +11,7 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-002](#ch-002) | 2026-08-31 | Routing | Destination edit/delete/list API endpoints | Done — commit `76b76357` |
 | [CH-003](#ch-003) | 2026-08-31 | Phone Numbers | Trunk-attach failure no longer aborts a paid-for purchase | Done — commit `76b76357` |
 | [CH-004](#ch-004) | 2026-09-13 | Multi-tenant / Analytics | Org alignment, analytics backfill, webhook + recording fixes | Done — commit `d470a7d4` |
-| [CH-005](#ch-005) | 2026-09-14 | Celery / Scaling | Task registration fix, async webhooks, decoupled analytics mirroring | Done — not yet committed |
+| [CH-005](#ch-005) | 2026-09-14 | Celery / Scaling | Task registration fix, async webhooks, decoupled analytics mirroring | Done — commit `e8e5a888` |
 
 ## Open items (not done yet)
 
@@ -343,7 +343,7 @@ git commit -m "Remove backup file"
 ## CH-005 — Celery task registration, async webhooks, decoupled analytics mirroring
 
 **Date:** 2026-09-14
-**Commit:** not yet committed
+**Commit:** `e8e5a888`
 **Made on:** local (`/home/hans/Desktop/call_platform`)
 **Roadmap:** Scaling Step 1 — Asynchronous Worker Scaling
 
@@ -421,26 +421,70 @@ None. No request or response shape changed, no new endpoints, no migration.
   This was not true before this change.
 
 ### Systemd consolidation (server-side, no repo files)
-`celery.service` was retired in favour of `callplatform-worker.service` and
-`callplatform-beat.service`:
+
+`celery.service` retired in favour of `callplatform-worker.service` and
+`callplatform-beat.service`. Commands as run:
 ```bash
 sudo systemctl stop celery.service
 sudo systemctl disable celery.service
-sudo systemctl mask celery.service
 sudo mv /etc/systemd/system/celery.service /root/celery.service.disabled
 sudo systemctl daemon-reload
+sudo systemctl restart callplatform-worker
 ```
+`systemctl mask` was skipped — it failed with *"File ... already exists"* because the
+unit file was still in place, and moving the file away made masking unnecessary. The
+unit is preserved at `/root/celery.service.disabled` if it is ever needed.
 
-### Verification status
-- Syntax checked (`python3 -m py_compile`) — passes.
-- **Not** run against Django (no local venv). Needs on the server:
-```bash
-python manage.py check
-sudo systemctl restart callplatform-worker callplatform-beat daphne
-celery -A config inspect registered
-```
-  The last command must list `tasks.send_webhook` and `tasks.mirror_call_record`.
-  **If it does not, roll back before taking calls** — dispatch is now asynchronous.
+**Still open:** `callplatform-worker.service` has no `-n` flag, so it uses the default
+node name `celery@vmi3333575`. Harmless with one worker, but the moment a second is
+added the collision returns. Add `-n callplatform@%h` to `ExecStart` before scaling out.
+
+Also noted: the worker runs as **root** (`uid=0`), which Celery warns against on every
+start. Not addressed here.
+
+### Other applications on this host
+
+`ps` shows a second, unrelated Celery fleet as uid `10001` from
+`/usr/local/bin/python3.12`, also invoked `-A config`, on queues `pacer`, `events`,
+`dispatch`, `telemetry`, `maintenance`, and one consuming the default `celery` queue
+alongside `payments`, `fiscal`, `claims`, `interop`.
+
+A shared broker would let that fleet consume this platform's messages and discard them
+as unregistered. It does **not** share one: the worker log reports `mingle: all alone`
+on `redis://127.0.0.1:6379/0`, so no other node is on that broker. No action needed,
+recorded because the process list looks alarming at a glance.
+
+### Verification status — deployed and verified 2026-09-14
+
+- `python manage.py check` on the server — **0 issues**.
+- `celery -A config inspect registered` lists **`tasks.mirror_call_record`** and
+  **`tasks.send_webhook`**. One node (`celery@vmi3333575`), `mingle: all alone`.
+- Broker confirmed `redis://127.0.0.1:6379/0`, worker running from
+  `/opt/call_platform/venv`.
+- **Not yet exercised end to end.** No call had come through since deploy (newest
+  `CallLog` was 2026-09-11), so the `.delay()` path has not run against live traffic.
+  The first real call confirms it: if `CallRecord` does not gain a row after a call
+  reaches a terminal status, the mirroring task is not firing.
+
+### Correction to the F1 diagnosis
+
+The audit claimed tasks were never registered with the worker. That was wrong —
+`celery -A config inspect registered` on the *pre-change* code already listed
+`tasks.send_webhook`, so something was importing `tasks.py` at worker startup. The
+`include=['tasks']` change is correct and makes registration explicit rather than
+incidental, but it was not repairing a live breakage.
+
+### What actually went wrong on deploy
+
+The first post-deploy `inspect registered` did not list `tasks.mirror_call_record`,
+which looked like a failed rollout. The real cause was the duplicate service:
+
+- `celery.service` was still running, started **2026-09-11**, on code three days old.
+- Neither it nor `callplatform-worker.service` passes `-n`, so **both claimed the node
+  name `celery@vmi3333575`**. `inspect` got its reply from the stale process.
+
+Retiring `celery.service` and restarting the worker resolved it. This is the
+duplicate-node symptom the consolidation step was meant to fix.
 
 ### Still open from the Step 1 audit
 - **F2** — `analytics/tasks.py` does not exist. `analytics/scheduled_reports_api.py` imports
