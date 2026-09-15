@@ -61,8 +61,13 @@ def format_destination(d):
     now = timezone.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    from datetime import timedelta
     # 1. Real-time live calls for this destination
-    live_q = Q(status__in=['in_progress', 'ringing', 'initiated'])
+    live_q = Q(
+        status__in=['in_progress', 'ringing'],
+        ended_at__isnull=True,
+        created_at__gte=now - timedelta(hours=4)
+    )
     if d.buyer_id and d.tfn:
         live_q &= (Q(buyer_id=d.buyer_id) | Q(destination_number=d.tfn))
     elif d.buyer_id:
@@ -147,9 +152,13 @@ def get_destination_stats(request):
     org = request.auth.organization
     qs = Destination.objects.filter(organization=org)
 
+    from datetime import timedelta
+    from django.utils import timezone
     total_live = CallLog.objects.filter(
         organization=org,
-        status__in=['in_progress', 'ringing', 'initiated']
+        status__in=['in_progress', 'ringing'],
+        ended_at__isnull=True,
+        created_at__gte=timezone.now() - timedelta(hours=4)
     ).count()
 
     stats = qs.aggregate(

@@ -172,12 +172,38 @@ class RoutingEngine:
         return True
 
     @staticmethod
-    def check_buyer_concurrency(buyer) -> bool:
+    def check_buyer_concurrency(buyer, destination_number: str = None) -> bool:
+        from datetime import timedelta
+        
+        # 1. Check destination-specific cap first if provided
+        if destination_number:
+            from buyers.destination import Destination
+            try:
+                buyer_dest = Destination.objects.filter(
+                    buyer=buyer,
+                    tfn=destination_number
+                ).first()
+                if buyer_dest and buyer_dest.concurrency_cap > 0:
+                    dest_active = CallLog.objects.filter(
+                        buyer=buyer,
+                        destination_number=destination_number,
+                        status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
+                        ended_at__isnull=True,
+                        created_at__gte=timezone.now() - timedelta(hours=4)
+                    ).count()
+                    if dest_active >= buyer_dest.concurrency_cap:
+                        return False
+            except Exception:
+                pass
+
         if buyer.max_concurrency == 0:
             return True
+            
         active_calls = CallLog.objects.filter(
             buyer=buyer,
-            status=CallLog.Status.IN_PROGRESS
+            status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
+            ended_at__isnull=True,
+            created_at__gte=timezone.now() - timedelta(hours=4)
         ).count()
         return active_calls < buyer.max_concurrency
 
@@ -277,7 +303,7 @@ class RoutingEngine:
                     continue
                 if not RoutingEngine.check_buyer_caps(buyer):
                     continue
-                if not RoutingEngine.check_buyer_concurrency(buyer):
+                if not RoutingEngine.check_buyer_concurrency(buyer, destination_number=destination.destination):
                     continue
             return destination
         return None
