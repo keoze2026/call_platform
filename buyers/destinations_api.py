@@ -63,11 +63,12 @@ def format_destination(d):
 
     from datetime import timedelta
     # 1. Real-time live calls for this destination
-    live_q = Q(
-        status__in=['in_progress', 'ringing'],
-        ended_at__isnull=True,
-        created_at__gte=now - timedelta(hours=4)
+    base_live_q = (
+        Q(status__in=['in_progress', 'ringing'], ended_at__isnull=True) |
+        Q(created_at__gte=now - timedelta(seconds=30))
     )
+    live_q = base_live_q & Q(created_at__gte=now - timedelta(hours=4))
+
     if d.tfn:
         live_q &= Q(destination_number=d.tfn)
     else:
