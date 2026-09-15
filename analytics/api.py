@@ -61,8 +61,9 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
 @router.get("/calls/export", auth=JWTAuth(), response=None)
 def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Download full call log as CSV."""
-    csv_data = AnalyticsService.export_csv(request.auth, filters)
-    response = HttpResponse(csv_data, content_type='text/csv')
+    from django.http import StreamingHttpResponse
+    csv_generator = AnalyticsService.export_csv(request.auth, filters)
+    response = StreamingHttpResponse(csv_generator, content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="call_log.csv"'
     return response
 

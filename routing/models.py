@@ -157,6 +157,8 @@ class CallLog(models.Model):
             models.Index(fields=['organization', 'created_at']),
             models.Index(fields=['campaign', 'created_at']),
             models.Index(fields=['twilio_call_sid']),
+            models.Index(fields=['called_number', 'status']),
+            models.Index(fields=['status']),
         ]
 
     def __str__(self):

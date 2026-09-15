@@ -48,8 +48,19 @@ def import_number(request: HttpRequest, data: PurchaseNumberSchema):
 @router.get("", response={200: dict})
 def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
+    from routing.models import CallLog
+    from django.db.models import Count
+    
     numbers = PhoneNumberService.list_numbers(request.auth)
-    data = [PhoneNumberService.format_number(n) for n in numbers]
+    
+    # Pre-calculate live calls for the organization to prevent N+1 queries
+    live_calls_qs = CallLog.objects.filter(
+        organization=request.auth.organization,
+        status__in=['in_progress', 'ringing', 'initiated']
+    ).values('called_number').annotate(count=Count('id'))
+    live_calls_map = {item['called_number']: item['count'] for item in live_calls_qs}
+
+    data = [PhoneNumberService.format_number(n, live_calls_count=live_calls_map.get(n.number, 0)) for n in numbers]
     return 200, paginate_list(data, page, page_size)
 
 

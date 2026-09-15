@@ -41,6 +41,9 @@ class PhoneNumberService:
                 for n in available
             ]
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Twilio error during number search")
             raise ValueError(f"Twilio error: {str(e)}")
 
     @staticmethod
@@ -111,6 +114,9 @@ class PhoneNumberService:
 
             return phone_number
         except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception("Twilio error during number purchase")
             raise ValueError(f"Twilio error: {str(e)}")
 
     @staticmethod
@@ -247,11 +253,12 @@ class PhoneNumberService:
         return phone_number
 
     @staticmethod
-    def format_number(phone_number: PhoneNumber) -> dict:
-        live_calls_count = CallLog.objects.filter(
-            called_number=phone_number.number,
-            status__in=['in-progress', 'ringing', 'initiated']
-        ).count()
+    def format_number(phone_number: PhoneNumber, live_calls_count: int = None) -> dict:
+        if live_calls_count is None:
+            live_calls_count = CallLog.objects.filter(
+                called_number=phone_number.number,
+                status__in=['in_progress', 'ringing', 'initiated']
+            ).count()
         return {
             'live': live_calls_count,
             'id': str(phone_number.id),

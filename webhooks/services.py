@@ -129,8 +129,8 @@ class WebhookService:
         """Record the delivery and hand the HTTP call to a Celery worker.
 
         Returns the WebhookDelivery immediately — the caller never waits on the
-        remote endpoint. If the broker is unreachable the send falls back to
-        running inline, so an event is never silently lost.
+        remote endpoint. If the broker is unreachable, we log an error instead
+        of falling back to synchronous execution to prevent blocking the web thread.
         """
         delivery = WebhookDelivery.objects.create(
             webhook=webhook,
@@ -141,8 +141,10 @@ class WebhookService:
         try:
             from tasks import send_webhook
             send_webhook.delay(str(delivery.id))
-        except Exception:
-            WebhookService._send(delivery)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.exception(f"Failed to enqueue webhook delivery {delivery.id} for event {event}")
         return delivery
 
     @staticmethod

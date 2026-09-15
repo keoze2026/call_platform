@@ -305,32 +305,33 @@ class AnalyticsService:
     # ── CSV export ───────────────────────────────────────────────────────────
 
     @staticmethod
-    def export_csv(user: User, filters) -> str:
+    def export_csv(user: User, filters):
+        class PseudoBuffer:
+            def write(self, value):
+                return value
+                
         qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
-
-        output = io.StringIO()
-        writer = csv.writer(output)
-        writer.writerow([
+        writer = csv.writer(PseudoBuffer())
+        
+        yield writer.writerow([
             'Date', 'Caller', 'State', 'Called Number',
             'Campaign', 'Buyer', 'Publisher',
             'Status', 'Duration (s)', 'Converted',
             'Revenue', 'Payout', 'Profit', 'Recording'
         ])
 
-        for r in qs:
+        for r in qs.iterator(chunk_size=2000):
             raw_caller = r.caller_number or ''
             clean_caller = raw_caller.lstrip('+')
             if clean_caller.startswith('1') and len(clean_caller) == 11:
                 clean_caller = clean_caller[1:]
-            writer.writerow([
+            yield writer.writerow([
                 r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
                 clean_caller, r.caller_state, r.called_number,
                 r.campaign_name, r.buyer_name, r.publisher_name,
                 r.status, r.duration_seconds, r.is_converted,
                 r.revenue, r.payout, r.profit, r.recording_url,
             ])
-
-        return output.getvalue()
 
 
     @staticmethod

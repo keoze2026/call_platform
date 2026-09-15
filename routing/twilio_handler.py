@@ -175,6 +175,9 @@ def incoming_call(request: HttpRequest) -> HttpResponse:
         response.hangup()
 
     except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception("Unhandled error in incoming_call routing")
         response.say("We are experiencing technical difficulties. Please try again later.")
         response.hangup()
 

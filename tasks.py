@@ -159,8 +159,6 @@ def generate_monthly_invoices():
 def check_auto_recharge():
     """Check balances and trigger auto recharge if needed"""
     from billing.models import BillingAccount
-    from billing.services import BillingService
-    from decimal import Decimal
 
     accounts = BillingAccount.objects.filter(
         auto_recharge=True,
@@ -172,33 +170,50 @@ def check_auto_recharge():
         try:
             if account.balance <= account.auto_recharge_threshold:
                 if account.stripe_customer_id and account.stripe_payment_method_id:
-                    import stripe
-                    from django.conf import settings
-                    stripe.api_key = settings.STRIPE_SECRET_KEY
-
-                    intent = stripe.PaymentIntent.create(
-                        amount=int(account.auto_recharge_amount * 100),
-                        currency='usd',
-                        customer=account.stripe_customer_id,
-                        payment_method=account.stripe_payment_method_id,
-                        confirm=True,
-                        off_session=True,
-                    )
-
-                    if intent.status == 'succeeded':
-                        user = account.organization.members.filter(role='admin').first()
-                        if user:
-                            BillingService.deposit(
-                                account.auto_recharge_amount,
-                                user,
-                                stripe_payment_intent_id=intent.id
-                            )
-                            count += 1
-
+                    process_auto_recharge.delay(str(account.id))
+                    count += 1
         except Exception as e:
             print(f"Auto recharge error for {account.organization}: {e}")
 
-    return f"Auto recharged {count} accounts"
+    return f"Triggered auto recharge for {count} accounts"
+
+
+@app.task(name='tasks.process_auto_recharge')
+def process_auto_recharge(account_id: str):
+    from billing.models import BillingAccount
+    from billing.services import BillingService
+    import stripe
+    from django.conf import settings
+    stripe.api_key = settings.STRIPE_SECRET_KEY
+
+    try:
+        account = BillingAccount.objects.get(id=account_id)
+        if account.balance > account.auto_recharge_threshold:
+            return "Skipped - balance above threshold"
+
+        intent = stripe.PaymentIntent.create(
+            amount=int(account.auto_recharge_amount * 100),
+            currency='usd',
+            customer=account.stripe_customer_id,
+            payment_method=account.stripe_payment_method_id,
+            confirm=True,
+            off_session=True,
+        )
+
+        if intent.status == 'succeeded':
+            user = account.organization.members.filter(role='admin').first()
+            if user:
+                BillingService.deposit(
+                    account.auto_recharge_amount,
+                    user,
+                    stripe_payment_intent_id=intent.id
+                )
+                return f"Auto recharged {account_id}"
+    except Exception as e:
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.exception(f"Error processing auto recharge for {account_id}")
+        return str(e)
 
 
 @app.task(name='tasks.send_webhook')
@@ -253,11 +268,10 @@ def transcribe_call_recording(call_log_id):
     TranscriptionService.transcribe_call(call_log)
     return f"Transcription done for call {call_log_id}: {call_log.transcription_status}"
 
-@app.task(name='tasks.send_telegram')
-def send_telegram(bot_token, chat_id, message):
+@app.task(name='tasks.send_telegram', bind=True)
+def send_telegram(self, bot_token, chat_id, message):
     try:
-        import requests, time
-        time.sleep(2)
+        import requests
         r = requests.post(
             f'https://api.telegram.org/bot{bot_token}/sendMessage',
             json={'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True},
