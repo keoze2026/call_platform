@@ -1,3 +1,4 @@
+from routing.models import CallLog
 from django.conf import settings
 from twilio.rest import Client
 from .models import PhoneNumber
@@ -247,7 +248,12 @@ class PhoneNumberService:
 
     @staticmethod
     def format_number(phone_number: PhoneNumber) -> dict:
+        live_calls_count = CallLog.objects.filter(
+            called_number=phone_number.number,
+            status__in=['in-progress', 'ringing', 'initiated']
+        ).count()
         return {
+            'live': live_calls_count,
             'id': str(phone_number.id),
             'number': phone_number.number,
             'friendly_name': phone_number.friendly_name,

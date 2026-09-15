@@ -42,7 +42,7 @@ def route_incoming_call(request):
         return JsonResponse({"error": "Missing fields"}, status=400)
 
     try:
-        phone = PhoneNumber.objects.select_related('campaign').get(
+        phone = PhoneNumber.objects.select_related('campaign', 'publisher').get(
             number=called, status='active'
         )
     except PhoneNumber.DoesNotExist:
@@ -57,6 +57,8 @@ def route_incoming_call(request):
         call_log = CallLog.objects.create(
             organization=campaign.organization,
             campaign=campaign,
+            publisher=phone.publisher,
+            publisher_payout=phone.publisher.payout_amount if phone.publisher else 0,
             caller_number=caller,
             called_number=called,
             twilio_call_sid=call_sid,

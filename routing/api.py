@@ -138,45 +138,13 @@ def live_calls(request: HttpRequest):
         status=CallLog.Status.IN_PROGRESS
     ).select_related('campaign', 'buyer', 'publisher').order_by('-created_at')
 
-    return 200, [
-        {
-            'id': str(c.id),
-            'caller_number': c.caller_number,
-            'called_number': c.called_number,
-            'destination_number': c.destination_number,
-            'status': c.status,
-            'duration': c.duration,
-            'campaign_id': str(c.campaign_id) if c.campaign_id else None,
-            'campaign_name': c.campaign.name if c.campaign else None,
-            'buyer_id': str(c.buyer_id) if c.buyer_id else None,
-            'buyer_name': c.buyer.name if c.buyer else None,
-            'revenue': str(c.revenue),
-            'created_at': c.created_at.isoformat(),
-        }
-        for c in calls
-    ]
+    return 200, [RoutingService.format_call(c) for c in calls]
 
 @router.get("/calls", response={200: dict})
 def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, page_size: int = 50):
     from config.pagination import paginate_list
     calls = RoutingService.list_calls(request.auth, campaign_id, status)
-    data = [
-        {
-            'id': str(c.id),
-            'caller_number': c.caller_number,
-            'called_number': c.called_number,
-            'destination_number': c.destination_number,
-            'status': c.status,
-            'duration': c.duration,
-            'campaign_id': str(c.campaign_id) if c.campaign_id else None,
-            'campaign_name': c.campaign.name if c.campaign else None,
-            'buyer_id': str(c.buyer_id) if c.buyer_id else None,
-            'buyer_name': c.buyer.name if c.buyer else None,
-            'revenue': str(c.revenue),
-            'created_at': c.created_at.isoformat(),
-        }
-        for c in calls
-    ]
+    data = [RoutingService.format_call(c) for c in calls]
     return 200, paginate_list(data, page, page_size)
 
 
