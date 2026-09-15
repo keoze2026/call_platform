@@ -29,6 +29,9 @@ class DestinationSchema(Schema):
     filter_groups: list = []
     business_hours_enabled: bool = False
     business_hour_slots: list = []
+    live: int = 0
+    live_calls: int = 0
+    liveCalls: int = 0
 
 
 class DestinationUpdateSchema(Schema):
@@ -64,7 +67,7 @@ def format_destination(d):
     from datetime import timedelta
     # 1. Real-time live calls for this destination
     base_live_q = (
-        Q(status__in=['in_progress', 'ringing'], ended_at__isnull=True) |
+        Q(status__in=['in_progress', 'ringing', 'queued'], ended_at__isnull=True) |
         Q(created_at__gte=now - timedelta(seconds=30))
     )
     live_q = base_live_q & Q(created_at__gte=now - timedelta(hours=4))
