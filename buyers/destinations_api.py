@@ -68,21 +68,20 @@ def format_destination(d):
         ended_at__isnull=True,
         created_at__gte=now - timedelta(hours=4)
     )
-    if d.buyer_id and d.tfn:
-        live_q &= (Q(buyer_id=d.buyer_id) | Q(destination_number=d.tfn))
-    elif d.buyer_id:
-        live_q &= Q(buyer_id=d.buyer_id)
-    elif d.tfn:
+    if d.tfn:
         live_q &= Q(destination_number=d.tfn)
+    else:
+        # Fallback if somehow there's no TFN (though unlikely for valid destinations)
+        live_q &= Q(id__isnull=True) # returns empty
 
     live_count = CallLog.objects.filter(organization=org).filter(live_q).count()
 
     # 2. Calls and revenue today for this destination
     rec_q = Q(organization=org, created_at__gte=today_start)
-    if d.buyer_id:
-        rec_q &= Q(buyer_id=d.buyer_id)
-    elif d.tfn:
+    if d.tfn:
         rec_q &= (Q(called_number=d.tfn) | Q(caller_number=d.tfn))
+    else:
+        rec_q &= Q(id__isnull=True)
 
     today_stats = CallRecord.objects.filter(rec_q).aggregate(
         total_calls=Count('id'),
