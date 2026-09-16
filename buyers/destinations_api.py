@@ -96,11 +96,11 @@ def format_destination(d, start_date=None, end_date=None):
         if timezone.is_naive(dt): dt = timezone.make_aware(dt)
         rec_q &= Q(created_at__lte=dt)
     if d.tfn:
-        rec_q &= (Q(called_number=d.tfn) | Q(caller_number=d.tfn))
+        rec_q &= Q(destination_number=d.tfn)
     else:
         rec_q &= Q(id__isnull=True)
 
-    today_stats = CallRecord.objects.filter(rec_q).aggregate(
+    today_stats = CallLog.objects.filter(rec_q).aggregate(
         total_calls=Count('id'),
         revenue=Coalesce(Sum('revenue'), Decimal('0.00'))
     )
@@ -111,9 +111,9 @@ def format_destination(d, start_date=None, end_date=None):
     hour_ago = now - timedelta(hours=1)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     
-    hourly_count = CallRecord.objects.filter(rec_q, created_at__gte=hour_ago).count()
-    monthly_count = CallRecord.objects.filter(rec_q, created_at__gte=month_start).count()
-    global_count = CallRecord.objects.filter(rec_q).count()
+    hourly_count = CallLog.objects.filter(rec_q, created_at__gte=hour_ago).count()
+    monthly_count = CallLog.objects.filter(rec_q, created_at__gte=month_start).count()
+    global_count = CallLog.objects.filter(rec_q).count()
 
     return {
         'id': str(d.id),
