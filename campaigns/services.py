@@ -43,20 +43,20 @@ class CampaignService:
         # Create cap
         if data.cap:
             CampaignCap.objects.create(
-                campaign=campaign,
+                campaign_id=campaign.id,
                 max_calls_daily=data.cap.max_calls_daily,
                 max_calls_monthly=data.cap.max_calls_monthly,
                 max_calls_global=data.cap.max_calls_global,
                 max_concurrency=data.cap.max_concurrency
             )
         else:
-            CampaignCap.objects.create(campaign=campaign)
+            CampaignCap.objects.create(campaign_id=campaign.id)
 
         # Create schedules
         if data.schedules:
             for s in data.schedules:
                 CampaignSchedule.objects.create(
-                    campaign=campaign,
+                    campaign_id=campaign.id,
                     day_of_week=s.day_of_week,
                     open_time=s.open_time,
                     close_time=s.close_time,
@@ -146,7 +146,7 @@ class CampaignService:
         """Update campaign caps"""
         campaign = CampaignService.get_campaign(campaign_id, user)
 
-        cap, created = CampaignCap.objects.get_or_create(campaign=campaign)
+        cap, created = CampaignCap.objects.get_or_create(campaign_id=campaign.id)
 
         for field, value in cap_data.model_dump(exclude_none=True).items():
             setattr(cap, field, value)
@@ -159,12 +159,12 @@ class CampaignService:
         """Replace all campaign schedules"""
         campaign = CampaignService.get_campaign(campaign_id, user)
 
-        CampaignSchedule.objects.filter(campaign=campaign).delete()
+        CampaignSchedule.objects.filter(campaign_id=campaign.id).delete()
 
         created = []
         for s in schedules_data:
             schedule = CampaignSchedule.objects.create(
-                campaign=campaign,
+                campaign_id=campaign.id,
                 day_of_week=s.day_of_week,
                 open_time=s.open_time,
                 close_time=s.close_time,
@@ -203,11 +203,11 @@ class CampaignService:
         from datetime import timedelta
         
         now = timezone.now()
-        live_calls = CallLog.objects.filter(campaign=campaign, status__in=['in_progress', 'ringing', 'initiated']).count()
-        calls_hour = CallRecord.objects.filter(campaign=campaign, created_at__gte=now - timedelta(hours=1)).count()
-        calls_today = CallRecord.objects.filter(campaign=campaign, created_at__date=now.date()).count()
-        calls_month = CallRecord.objects.filter(campaign=campaign, created_at__month=now.month, created_at__year=now.year).count()
-        calls_global = CallRecord.objects.filter(campaign=campaign).count()
+        live_calls = CallLog.objects.filter(campaign_id=campaign.id, status__in=['in_progress', 'ringing', 'initiated']).count()
+        calls_hour = CallRecord.objects.filter(campaign_id=campaign.id, created_at__gte=now - timedelta(hours=1)).count()
+        calls_today = CallRecord.objects.filter(campaign_id=campaign.id, created_at__date=now.date()).count()
+        calls_month = CallRecord.objects.filter(campaign_id=campaign.id, created_at__month=now.month, created_at__year=now.year).count()
+        calls_global = CallRecord.objects.filter(campaign_id=campaign.id).count()
 
         cap = None
         if hasattr(campaign, 'cap'):

@@ -3,7 +3,7 @@ from django.test import TestCase
 from accounts.models import Organization, User
 from campaigns.models import Campaign
 from routing.models import CallLog
-from .services import CallerProfileService
+from .services import AnalyticsService
 
 
 class CallerProfileTests(TestCase):
@@ -15,7 +15,7 @@ class CallerProfileTests(TestCase):
         )
 
     def test_returns_empty_profile_for_unknown_caller(self):
-        profile = CallerProfileService.get_profile(
+        profile = AnalyticsService.get_profile(
             organization_id=str(self.org.id),
             caller_number='+15550000000',
         )
@@ -35,7 +35,7 @@ class CallerProfileTests(TestCase):
                 revenue=Decimal('10.00'),
             )
 
-        profile = CallerProfileService.get_profile(
+        profile = AnalyticsService.get_profile(
             organization_id=str(self.org.id),
             caller_number='+15551234567',
         )
@@ -69,7 +69,7 @@ class CallerProfileTests(TestCase):
             duration=0,
         )
 
-        profile = CallerProfileService.get_profile(
+        profile = AnalyticsService.get_profile(
             organization_id=str(self.org.id),
             caller_number='+15552223333',
         )

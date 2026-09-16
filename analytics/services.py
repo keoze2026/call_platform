@@ -17,6 +17,11 @@ from routing.models import CallLog
 from accounts.models import User
 
 
+def _map_twilio_status(status_str):
+    mapping = {'completed': 'completed', 'busy': 'busy', 'no-answer': 'no_answer', 'failed': 'failed', 'canceled': 'cancelled'}
+    return mapping.get((status_str or '').lower(), 'completed')
+
+
 class AnalyticsService:
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -361,6 +366,17 @@ class AnalyticsService:
         else:
             clean_from = digits_only or raw_from.lstrip('+')
 
+                # Resolve payout with fallback to buyer configuration if missing or zero
+        _p_val = data.get('payout') or data.get('buyer_payout')
+        if not _p_val or float(_p_val) == 0:
+            from buyers.models import Buyer
+            _b_id = data.get('buyer_id')
+            if _b_id:
+                _buyer_obj = Buyer.objects.filter(id=_b_id).first()
+                if _buyer_obj and _buyer_obj.payout_amount:
+                    _p_val = _buyer_obj.payout_amount
+        final_payout = Decimal(str(_p_val or '0'))
+
         record, _ = CallRecord.objects.update_or_create(
             twilio_call_sid=data.get('CallSid', ''),
             organization=organization,
@@ -376,7 +392,7 @@ class AnalyticsService:
             'publisher_id': data.get('publisher_id') or data.get('pub_id') or data.get('publisher') or data.get('affiliate_id'),
             'publisher_name': data.get('publisher_name') or data.get('pub_name') or data.get('publisher_title') or data.get('affiliate_name') or '',
                 'revenue': Decimal(str(data.get('revenue', '0'))),
-                'payout': Decimal(str(data.get('payout', '0'))),
+                'payout': final_payout,
                 'profit': Decimal(str(data.get('profit', '0'))),
                 'winning_bid': Decimal(str(data.get('winning_bid', '0'))) if data.get('winning_bid') else None,
                 'is_converted': bool(data.get('is_converted', False)),

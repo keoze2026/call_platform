@@ -1,0 +1,205 @@
+[1mdiff --git a/CHANGES.md b/CHANGES.md[m
+[1mindex 56704b5d..4b9adb28 100644[m
+[1m--- a/CHANGES.md[m
+[1m+++ b/CHANGES.md[m
+[36m@@ -11,7 +11,7 @@[m [mNewest at the bottom. Each change has an ID — quote the ID when discussing one[m
+ | [CH-002](#ch-002) | 2026-08-31 | Routing | Destination edit/delete/list API endpoints | Done — commit `76b76357` |[m
+ | [CH-003](#ch-003) | 2026-08-31 | Phone Numbers | Trunk-attach failure no longer aborts a paid-for purchase | Done — commit `76b76357` |[m
+ | [CH-004](#ch-004) | 2026-09-13 | Multi-tenant / Analytics | Org alignment, analytics backfill, webhook + recording fixes | Done — commit `d470a7d4` |[m
+[31m-| [CH-005](#ch-005) | 2026-09-14 | Celery / Scaling | Task registration fix, async webhooks, decoupled analytics mirroring | Done — not yet committed |[m
+[32m+[m[32m| [CH-005](#ch-005) | 2026-09-14 | Celery / Scaling | Task registration fix, async webhooks, decoupled analytics mirroring | Done — commit `e8e5a888` |[m
+ [m
+ ## Open items (not done yet)[m
+ [m
+[36m@@ -343,7 +343,7 @@[m [mgit commit -m "Remove backup file"[m
+ ## CH-005 — Celery task registration, async webhooks, decoupled analytics mirroring[m
+ [m
+ **Date:** 2026-09-14[m
+[31m-**Commit:** not yet committed[m
+[32m+[m[32m**Commit:** `e8e5a888`[m
+ **Made on:** local (`/home/hans/Desktop/call_platform`)[m
+ **Roadmap:** Scaling Step 1 — Asynchronous Worker Scaling[m
+ [m
+[36m@@ -421,26 +421,70 @@[m [mNone. No request or response shape changed, no new endpoints, no migration.[m
+   This was not true before this change.[m
+ [m
+ ### Systemd consolidation (server-side, no repo files)[m
+[31m-`celery.service` was retired in favour of `callplatform-worker.service` and[m
+[31m-`callplatform-beat.service`:[m
+[32m+[m
+[32m+[m[32m`celery.service` retired in favour of `callplatform-worker.service` and[m
+[32m+[m[32m`callplatform-beat.service`. Commands as run:[m
+ ```bash[m
+ sudo systemctl stop celery.service[m
+ sudo systemctl disable celery.service[m
+[31m-sudo systemctl mask celery.service[m
+ sudo mv /etc/systemd/system/celery.service /root/celery.service.disabled[m
+ sudo systemctl daemon-reload[m
+[32m+[m[32msudo systemctl restart callplatform-worker[m
+ ```[m
+[32m+[m[32m`systemctl mask` was skipped — it failed with *"File ... already exists"* because the[m
+[32m+[m[32munit file was still in place, and moving the file away made masking unnecessary. The[m
+[32m+[m[32munit is preserved at `/root/celery.service.disabled` if it is ever needed.[m
+ [m
+[31m-### Verification status[m
+[31m-- Syntax checked (`python3 -m py_compile`) — passes.[m
+[31m-- **Not** run against Django (no local venv). Needs on the server:[m
+[31m-```bash[m
+[31m-python manage.py check[m
+[31m-sudo systemctl restart callplatform-worker callplatform-beat daphne[m
+[31m-celery -A config inspect registered[m
+[31m-```[m
+[31m-  The last command must list `tasks.send_webhook` and `tasks.mirror_call_record`.[m
+[31m-  **If it does not, roll back before taking calls** — dispatch is now asynchronous.[m
+[32m+[m[32m**Still open:** `callplatform-worker.service` has no `-n` flag, so it uses the default[m
+[32m+[m[32mnode name `celery@vmi3333575`. Harmless with one worker, but the moment a second is[m
+[32m+[m[32madded the collision returns. Add `-n callplatform@%h` to `ExecStart` before scaling out.[m
+[32m+[m
+[32m+[m[32mAlso noted: the worker runs as **root** (`uid=0`), which Celery warns against on every[m
+[32m+[m[32mstart. Not addressed here.[m
+[32m+[m
+[32m+[m[32m### Other applications on this host[m
+[32m+[m
+[32m+[m[32m`ps` shows a second, unrelated Celery fleet as uid `10001` from[m
+[32m+[m[32m`/usr/local/bin/python3.12`, also invoked `-A config`, on queues `pacer`, `events`,[m
+[32m+[m[32m`dispatch`, `telemetry`, `maintenance`, and one consuming the default `celery` queue[m
+[32m+[m[32malongside `payments`, `fiscal`, `claims`, `interop`.[m
+[32m+[m
+[32m+[m[32mA shared broker would let that fleet consume this platform's messages and discard them[m
+[32m+[m[32mas unregistered. It does **not** share one: the worker log reports `mingle: all alone`[m
+[32m+[m[32mon `redis://127.0.0.1:6379/0`, so no other node is on that broker. No action needed,[m
+[32m+[m[32mrecorded because the process list looks alarming at a glance.[m
+[32m+[m
+[32m+[m[32m### Verification status — deployed and verified 2026-09-14[m
+[32m+[m
+[32m+[m[32m- `python manage.py check` on the server — **0 issues**.[m
+[32m+[m[32m- `celery -A config inspect registered` lists **`tasks.mirror_call_record`** and[m
+[32m+[m[32m  **`tasks.send_webhook`**. One node (`celery@vmi3333575`), `mingle: all alone`.[m
+[32m+[m[32m- Broker confirmed `redis://127.0.0.1:6379/0`, worker running from[m
+[32m+[m[32m  `/opt/call_platform/venv`.[m
+[32m+[m[32m- **Not yet exercised end to end.** No call had come through since deploy (newest[m
+[32m+[m[32m  `CallLog` was 2026-09-11), so the `.delay()` path has not run against live traffic.[m
+[32m+[m[32m  The first real call confirms it: if `CallRecord` does not gain a row after a call[m
+[32m+[m[32m  reaches a terminal status, the mirroring task is not firing.[m
+[32m+[m
+[32m+[m[32m### Correction to the F1 diagnosis[m
+[32m+[m
+[32m+[m[32mThe audit claimed tasks were never registered with the worker. That was wrong —[m
+[32m+[m[32m`celery -A config inspect registered` on the *pre-change* code already listed[m
+[32m+[m[32m`tasks.send_webhook`, so something was importing `tasks.py` at worker startup. The[m
+[32m+[m[32m`include=['tasks']` change is correct and makes registration explicit rather than[m
+[32m+[m[32mincidental, but it was not repairing a live breakage.[m
+[32m+[m
+[32m+[m[32m### What actually went wrong on deploy[m
+[32m+[m
+[32m+[m[32mThe first post-deploy `inspect registered` did not list `tasks.mirror_call_record`,[m
+[32m+[m[32mwhich looked like a failed rollout. The real cause was the duplicate service:[m
+[32m+[m
+[32m+[m[32m- `celery.service` was still running, started **2026-09-11**, on code three days old.[m
+[32m+[m[32m- Neither it nor `callplatform-worker.service` passes `-n`, so **both claimed the node[m
+[32m+[m[32m  name `celery@vmi3333575`**. `inspect` got its reply from the stale process.[m
+[32m+[m
+[32m+[m[32mRetiring `celery.service` and restarting the worker resolved it. This is the[m
+[32m+[m[32mduplicate-node symptom the consolidation step was meant to fix.[m
+ [m
+ ### Still open from the Step 1 audit[m
+ - **F2** — `analytics/tasks.py` does not exist. `analytics/scheduled_reports_api.py` imports[m
+[1mdiff --git a/live b/live[m
+[1mdeleted file mode 100644[m
+[1mindex e69de29b..00000000[m
+[1mdiff --git a/phone_numbers/services.py b/phone_numbers/services.py[m
+[1mindex 38cd8fa4..f2cd31f0 100644[m
+[1m--- a/phone_numbers/services.py[m
+[1m+++ b/phone_numbers/services.py[m
+[36m@@ -1,4 +1,3 @@[m
+[31m-from routing.models import CallLog[m
+ from django.conf import settings[m
+ from twilio.rest import Client[m
+ from .models import PhoneNumber[m
+[36m@@ -248,12 +247,7 @@[m [mclass PhoneNumberService:[m
+ [m
+     @staticmethod[m
+     def format_number(phone_number: PhoneNumber) -> dict:[m
+[31m-        live_calls_count = CallLog.objects.filter([m
+[31m-            called_number=phone_number.number,[m
+[31m-            status__in=['in-progress', 'ringing', 'initiated'][m
+[31m-        ).count()[m
+         return {[m
+[31m-            'live': live_calls_count,[m
+             'id': str(phone_number.id),[m
+             'number': phone_number.number,[m
+             'friendly_name': phone_number.friendly_name,[m
+[1mdiff --git a/routing/api.py b/routing/api.py[m
+[1mindex d94e1e3a..25664dd4 100644[m
+[1m--- a/routing/api.py[m
+[1m+++ b/routing/api.py[m
+[36m@@ -138,13 +138,45 @@[m [mdef live_calls(request: HttpRequest):[m
+         status=CallLog.Status.IN_PROGRESS[m
+     ).select_related('campaign', 'buyer', 'publisher').order_by('-created_at')[m
+ [m
+[31m-    return 200, [RoutingService.format_call(c) for c in calls][m
+[32m+[m[32m    return 200, [[m
+[32m+[m[32m        {[m
+[32m+[m[32m            'id': str(c.id),[m
+[32m+[m[32m            'caller_number': c.caller_number,[m
+[32m+[m[32m            'called_number': c.called_number,[m
+[32m+[m[32m            'destination_number': c.destination_number,[m
+[32m+[m[32m            'status': c.status,[m
+[32m+[m[32m            'duration': c.duration,[m
+[32m+[m[32m            'campaign_id': str(c.campaign_id) if c.campaign_id else None,[m
+[32m+[m[32m            'campaign_name': c.campaign.name if c.campaign else None,[m
+[32m+[m[32m            'buyer_id': str(c.buyer_id) if c.buyer_id else None,[m
+[32m+[m[32m            'buyer_name': c.buyer.name if c.buyer else None,[m
+[32m+[m[32m            'revenue': str(c.revenue),[m
+[32m+[m[32m            'created_at': c.created_at.isoformat(),[m
+[32m+[m[32m        }[m
+[32m+[m[32m        for c in calls[m
+[32m+[m[32m    ][m
+ [m
+ @router.get("/calls", response={200: dict})[m
+ def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, page_size: int = 50):[m
+     from config.pagination import paginate_list[m
+     calls = RoutingService.list_calls(request.auth, campaign_id, status)[m
+[31m-    data = [RoutingService.format_call(c) for c in calls][m
+[32m+[m[32m    data = [[m
+[32m+[m[32m        {[m
+[32m+[m[32m            'id': str(c.id),[m
+[32m+[m[32m            'caller_number': c.caller_number,[m
+[32m+[m[32m            'called_number': c.called_number,[m
+[32m+[m[32m            'destination_number': c.destination_number,[m
+[32m+[m[32m            'status': c.status,[m
+[32m+[m[32m            'duration': c.duration,[m
+[32m+[m[32m            'campaign_id': str(c.campaign_id) if c.campaign_id else None,[m
+[32m+[m[32m            'campaign_name': c.campaign.name if c.campaign else None,[m
+[32m+[m[32m            'buyer_id': str(c.buyer_id) if c.buyer_id else None,[m
+[32m+[m[32m            'buyer_name': c.buyer.name if c.buyer else None,[m
+[32m+[m[32m            'revenue': str(c.revenue),[m
+[32m+[m[32m            'created_at': c.created_at.isoformat(),[m
+[32m+[m[32m        }[m
+[32m+[m[32m        for c in calls[m
+[32m+[m[32m    ][m
+     return 200, paginate_list(data, page, page_size)[m
+ [m
+ [m
+[1mdiff --git a/routing/asterisk_handler.py b/routing/asterisk_handler.py[m
+[1mindex 4ada4b52..4a233c26 100644[m
+[1m--- a/routing/asterisk_handler.py[m
+[1m+++ b/routing/asterisk_handler.py[m
+[36m@@ -42,7 +42,7 @@[m [mdef route_incoming_call(request):[m
+         return JsonResponse({"error": "Missing fields"}, status=400)[m
+ [m
+     try:[m
+[31m-        phone = PhoneNumber.objects.select_related('campaign', 'publisher').get([m
+[32m+[m[32m        phone = PhoneNumber.objects.select_related('campaign').get([m
+             number=called, status='active'[m
+         )[m
+     except PhoneNumber.DoesNotExist:[m
+[36m@@ -57,8 +57,6 @@[m [mdef route_incoming_call(request):[m
+         call_log = CallLog.objects.create([m
+             organization=campaign.organization,[m
+             campaign=campaign,[m
+[31m-            publisher=phone.publisher,[m
+[31m-            publisher_payout=phone.publisher.payout_amount if phone.publisher else 0,[m
+             caller_number=caller,[m
+             called_number=called,[m
+             twilio_call_sid=call_sid,[m
