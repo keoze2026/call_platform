@@ -7,7 +7,7 @@ class IVRNodeConfigSchema(Schema):
     message: Optional[str] = ''
     voice: Optional[str] = 'alice'
     language: Optional[str] = 'en-US'
-    timeout: Optional[int] = 5
+    timeout: Optional[int] = 10
     num_digits: Optional[int] = 1
     destination: Optional[str] = ''
     record: Optional[bool] = False

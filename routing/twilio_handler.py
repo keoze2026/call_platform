@@ -262,7 +262,8 @@ def call_status(request: HttpRequest) -> HttpResponse:
     try:
         call_log = CallLog.objects.get(twilio_call_sid=call_sid)
 
-        call_log.status = status_map.get(twilio_status, CallLog.Status.FAILED) 
+        actual_status = dial_status if dial_status in status_map else twilio_status
+        call_log.status = status_map.get(actual_status, CallLog.Status.FAILED) 
         call_log.duration = int(call_duration) if call_duration else 0
         call_log.ended_at = timezone.now()
 

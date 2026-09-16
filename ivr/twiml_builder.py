@@ -17,7 +17,7 @@ class TwiMLBuilder:
             return f'<Say voice="{voice}" language="{language}">{message}</Say>'
 
         elif node_type == 'gather':
-            timeout = config.get('timeout', 5)
+            timeout = config.get('timeout', 10)
             num_digits = config.get('num_digits', 1)
             message = config.get('message', '')
             voice = config.get('voice', 'alice')
