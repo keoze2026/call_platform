@@ -188,19 +188,23 @@ class BuyerService:
         from django.db.models import Sum, Count, Q
         from django.db.models.functions import Coalesce
         from decimal import Decimal
+        from datetime import timedelta
 
         buyer = BuyerService.get_buyer(buyer_id, user)
         now = timezone.now()
+        hour_ago = now - timedelta(hours=1)
         today = now.replace(hour=0, minute=0, second=0, microsecond=0)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
         # Base query for this buyer
-        qs = CallRecord.objects.filter(buyer=buyer)
+        qs = CallRecord.objects.filter(buyer_id=buyer.id)
 
         # Aggregate stats
         stats = qs.aggregate(
+            calls_hourly=Count('id', filter=Q(created_at__gte=hour_ago)),
             calls_today=Count('id', filter=Q(created_at__gte=today)),
             calls_month=Count('id', filter=Q(created_at__gte=month_start)),
+            spend_hourly=Coalesce(Sum('buyer_payout', filter=Q(created_at__gte=hour_ago)), Decimal('0.00')),
             spend_today=Coalesce(Sum('buyer_payout', filter=Q(created_at__gte=today)), Decimal('0.00')),
             spend_month=Coalesce(Sum('buyer_payout', filter=Q(created_at__gte=month_start)), Decimal('0.00')),
             lifetime_spend=Coalesce(Sum('buyer_payout'), Decimal('0.00')),
@@ -216,11 +220,14 @@ class BuyerService:
         return {
             'buyer_id': str(buyer.id),
             'buyer_name': buyer.name,
+            'hourly_calls': stats['calls_hourly'],
+            'hourly_spend': str(stats['spend_hourly']),
             'calls_today': stats['calls_today'],
-            'calls_month': stats['calls_month'],
             'spend_today': str(stats['spend_today']),
+            'calls_month': stats['calls_month'],
             'spend_month': str(stats['spend_month']),
-            'lifetime_spend': str(stats['lifetime_spend']),
+            'global_calls': stats['total_calls'],
+            'global_spend': str(stats['lifetime_spend']),
             'accept_rate': f"{accept_rate:.2f}%",
             'conversion_rate': f"{conversion_rate:.2f}%",
         }

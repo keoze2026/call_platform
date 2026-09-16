@@ -158,11 +158,12 @@ class AnalyticsService:
             .values('campaign_id', 'campaign_name')
             .annotate(
                 total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
+                qualified_calls=Count('id', filter=Q(is_qualified=True)),
                 converted_calls=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('payout'), Decimal('0')),
                 total_profit=Coalesce(Sum('profit'), Decimal('0')),
-                avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
             )
             .order_by('-total_calls')
@@ -175,6 +176,7 @@ class AnalyticsService:
                 'campaign_id':     str(r['campaign_id']),
                 'campaign_name':   r['campaign_name'],
                 'total_calls':     r['total_calls'],
+                'qualified_calls': r['qualified_calls'],
                 'converted_calls': r['converted_calls'],
                 'conversion_rate': round((r['converted_calls'] / total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
@@ -232,9 +234,11 @@ class AnalyticsService:
             .values('publisher_id', 'publisher_name')
             .annotate(
                 total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
+                qualified_calls=Count('id', filter=Q(is_qualified=True)),
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
             .order_by('-total_calls')
         )
@@ -246,10 +250,12 @@ class AnalyticsService:
                 'publisher_id':    str(r['publisher_id']),
                 'publisher_name':  r['publisher_name'],
                 'total_calls':     r['total_calls'],
+                'qualified_calls': r['qualified_calls'],
                 'converted_calls': r['converted'],
                 'conversion_rate': round((r['converted'] / total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
                 'spam_rate':       round((r['spam_count'] / total) * 100, 2),
+                'avg_duration':    round(r['avg_duration'] or 0, 1),
             })
         return result
 
@@ -374,6 +380,7 @@ class AnalyticsService:
                 'profit': Decimal(str(data.get('profit', '0'))),
                 'winning_bid': Decimal(str(data.get('winning_bid', '0'))) if data.get('winning_bid') else None,
                 'is_converted': bool(data.get('is_converted', False)),
+                'is_qualified': bool(data.get('is_qualified', False)),
                 'is_duplicate': bool(data.get('is_duplicate', False)),
                 'is_spam': bool(data.get('is_spam', False)),
                 'recording_url': data.get('RecordingUrl', '') or data.get('recording_url', '') or data.get('Recording', '') or data.get('media_url', '') or data.get('audio_url', '') or data.get('recording_link', '') or data.get('file_url', '') or data.get('url', ''),

@@ -48,6 +48,7 @@ class CallRecord(models.Model):
     duration_seconds = models.IntegerField(default=0)
     billable_seconds = models.IntegerField(default=0)
     is_converted    = models.BooleanField(default=False)
+    is_qualified    = models.BooleanField(default=False)
     is_duplicate    = models.BooleanField(default=False)
     is_spam         = models.BooleanField(default=False)
     recording_url   = models.URLField(blank=True)

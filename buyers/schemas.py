@@ -141,11 +141,14 @@ class BuyerListOutSchema(Schema):
 class BuyerStatsSchema(Schema):
     buyer_id: str
     buyer_name: str
+    hourly_calls: int
+    hourly_spend: str
     calls_today: int
-    calls_month: int
     spend_today: str
+    calls_month: int
     spend_month: str
-    lifetime_spend: str
+    global_calls: int
+    global_spend: str
     accept_rate: str
     conversion_rate: str
 
