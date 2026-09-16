@@ -197,6 +197,18 @@ class CampaignService:
     @staticmethod
     def format_campaign(campaign: Campaign) -> dict:
         """Format campaign object to dict for response"""
+        from django.utils import timezone
+        from routing.models import CallLog
+        from analytics.models import CallRecord
+        from datetime import timedelta
+        
+        now = timezone.now()
+        live_calls = CallLog.objects.filter(campaign=campaign, status__in=['in_progress', 'ringing', 'initiated']).count()
+        calls_hour = CallRecord.objects.filter(campaign=campaign, created_at__gte=now - timedelta(hours=1)).count()
+        calls_today = CallRecord.objects.filter(campaign=campaign, created_at__date=now.date()).count()
+        calls_month = CallRecord.objects.filter(campaign=campaign, created_at__month=now.month, created_at__year=now.year).count()
+        calls_global = CallRecord.objects.filter(campaign=campaign).count()
+
         cap = None
         if hasattr(campaign, 'cap'):
             try:
@@ -250,4 +262,9 @@ class CampaignService:
             'advanced_settings': campaign.advanced_settings,
             'bid_floor': str(campaign.bid_floor),
             'rtb_timeout_seconds': campaign.rtb_timeout_seconds,
+            'live_calls': live_calls,
+            'calls_hour': calls_hour,
+            'calls_today': calls_today,
+            'calls_month': calls_month,
+            'calls_global': calls_global,
         }

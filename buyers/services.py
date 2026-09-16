@@ -184,16 +184,45 @@ class BuyerService:
     @staticmethod
     def get_stats(buyer_id: str, user: User) -> dict:
         """Get buyer statistics"""
+        from analytics.models import CallRecord
+        from django.db.models import Sum, Count, Q
+        from django.db.models.functions import Coalesce
+        from decimal import Decimal
+
         buyer = BuyerService.get_buyer(buyer_id, user)
+        now = timezone.now()
+        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        # Base query for this buyer
+        qs = CallRecord.objects.filter(buyer=buyer)
+
+        # Aggregate stats
+        stats = qs.aggregate(
+            calls_today=Count('id', filter=Q(created_at__gte=today)),
+            calls_month=Count('id', filter=Q(created_at__gte=month_start)),
+            spend_today=Coalesce(Sum('buyer_payout', filter=Q(created_at__gte=today)), Decimal('0.00')),
+            spend_month=Coalesce(Sum('buyer_payout', filter=Q(created_at__gte=month_start)), Decimal('0.00')),
+            lifetime_spend=Coalesce(Sum('buyer_payout'), Decimal('0.00')),
+            total_calls=Count('id'),
+            connected_calls=Count('id', filter=Q(status='completed')),
+            converted_calls=Count('id', filter=Q(revenue__gt=0))
+        )
+
+        total = stats['total_calls'] or 1
+        accept_rate = (stats['connected_calls'] / total) * 100
+        conversion_rate = (stats['converted_calls'] / total) * 100
 
         return {
             'buyer_id': str(buyer.id),
             'buyer_name': buyer.name,
-            'total_calls': 0,
-            'calls_today': 0,
-            'calls_this_month': 0,
-            'payout_today': '0.00',
-            'payout_this_month': '0.00',
+            'calls_today': stats['calls_today'],
+            'calls_month': stats['calls_month'],
+            'spend_today': str(stats['spend_today']),
+            'spend_month': str(stats['spend_month']),
+            'lifetime_spend': str(stats['lifetime_spend']),
+            'accept_rate': f"{accept_rate:.2f}%",
+            'conversion_rate': f"{conversion_rate:.2f}%",
         }
 
     @staticmethod

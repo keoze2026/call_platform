@@ -94,6 +94,14 @@ def format_destination(d):
     daily_count = today_stats['total_calls'] or 0
     revenue_today = float(today_stats['revenue'] or 0)
 
+    # 3. Hourly, Monthly, Global counts
+    hour_ago = now - timedelta(hours=1)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    hourly_count = CallRecord.objects.filter(rec_q, created_at__gte=hour_ago).count()
+    monthly_count = CallRecord.objects.filter(rec_q, created_at__gte=month_start).count()
+    global_count = CallRecord.objects.filter(rec_q).count()
+
     return {
         'id': str(d.id),
         'buyer_id': str(d.buyer_id) if d.buyer_id else None,
@@ -109,11 +117,11 @@ def format_destination(d):
         'global_cap': d.global_cap,
         'live_calls': live_count,
         'live': live_count,
-        'hourly_calls': d.hourly_calls,
+        'hourly_calls': hourly_count,
         'daily_calls': daily_count,
         'calls_today': daily_count,
-        'monthly_calls': d.monthly_calls,
-        'global_calls': d.global_calls,
+        'monthly_calls': monthly_count,
+        'global_calls': global_count,
         'revenue_today': revenue_today,
         'revenue': revenue_today,
         'liveCalls': live_count,

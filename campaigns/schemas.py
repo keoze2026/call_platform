@@ -165,6 +165,15 @@ class CampaignOutSchema(Schema):
     advanced_settings: Optional[dict] = None
     created_at: str
     updated_at: str
+    live_calls: int = 0
+    calls_hour: int = 0
+    calls_today: int = 0
+    calls_month: int = 0
+    calls_global: int = 0
+    max_calls_daily: int = 0
+    max_calls_monthly: int = 0
+    max_calls_global: int = 0
+    max_concurrency: int = 0
 
     queue_enabled: bool = False
     queue_max_size: int = 10
@@ -181,6 +190,15 @@ class CampaignListOutSchema(Schema):
     payout_amount: str
     revenue_amount: str
     created_at: str
+    live_calls: int = 0
+    calls_hour: int = 0
+    calls_today: int = 0
+    calls_month: int = 0
+    calls_global: int = 0
+    max_calls_daily: int = 0
+    max_calls_monthly: int = 0
+    max_calls_global: int = 0
+    max_concurrency: int = 0
 
 
 class CampaignStatsSchema(Schema):
