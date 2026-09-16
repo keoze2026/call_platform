@@ -319,6 +319,7 @@ class AnalyticsService:
             'startedAt':        int(dt_start.timestamp() * 1000) if dt_start else None,
             'ended_at':         r.ended_at,
             'created_at':       r.created_at,
+            'ipqs_line_type':   r.ipqs_line_type,
         }
 
     # ── CSV export ───────────────────────────────────────────────────────────

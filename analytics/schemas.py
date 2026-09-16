@@ -55,6 +55,7 @@ class CallRecordSchema(Schema):
     startedAt: Optional[Union[int, str]] = None
     ended_at:         Optional[datetime]
     created_at:       datetime
+    ipqs_line_type:   Optional[str] = None
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────
