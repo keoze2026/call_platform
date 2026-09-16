@@ -52,6 +52,7 @@ class CallRecord(models.Model):
     is_duplicate    = models.BooleanField(default=False)
     is_spam         = models.BooleanField(default=False)
     recording_url   = models.URLField(blank=True)
+    ipqs_line_type  = models.CharField(max_length=50, blank=True)
 
     # Financial
     revenue = models.DecimalField(max_digits=10, decimal_places=4, default=0)

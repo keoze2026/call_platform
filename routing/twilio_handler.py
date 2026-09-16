@@ -66,6 +66,16 @@ def incoming_call(request: HttpRequest) -> HttpResponse:
 
         routing_result = RoutingEngine.route_call(str(campaign.id), call_data)
 
+        ipqs_line_type = ''
+        if getattr(campaign, 'ipqs_enabled', False):
+            try:
+                from spam_protection.ipqs import IPQSService
+                # Fire strictly for logging metadata, ignoring timeouts/errors
+                ipqs_result = IPQSService.check_phone(caller_number)
+                ipqs_line_type = ipqs_result.get('line_type') or 'Unknown'
+            except Exception:
+                ipqs_line_type = 'Unknown'
+
         call_log = CallLog.objects.create(
             organization=campaign.organization,
             campaign=campaign,
@@ -82,6 +92,8 @@ def incoming_call(request: HttpRequest) -> HttpResponse:
             buyer_payout=campaign.payout_amount,
             revenue=campaign.revenue_amount,
             publisher_payout=phone_number.publisher.payout_amount if phone_number.publisher else 0,
+            ipqs_line_type=ipqs_line_type,
+            ipqs_checked=bool(ipqs_line_type),
         )
 
         # Broadcast new call to dashboard
