@@ -52,7 +52,7 @@ class DestinationUpdateSchema(Schema):
     business_hour_slots: Optional[list] = None
 
 
-def format_destination(d):
+def format_destination(d, start_date=None, end_date=None):
     from django.utils import timezone
     from routing.models import CallLog
     from analytics.models import CallRecord
@@ -81,7 +81,20 @@ def format_destination(d):
     live_count = CallLog.objects.filter(organization=org).filter(live_q).count()
 
     # 2. Calls and revenue today for this destination
-    rec_q = Q(organization=org, created_at__gte=today_start)
+    from django.utils.dateparse import parse_datetime
+    rec_q = Q(organization=org)
+    
+    if start_date:
+        dt = parse_datetime(start_date + 'T00:00:00') or timezone.datetime.fromisoformat(start_date)
+        if timezone.is_naive(dt): dt = timezone.make_aware(dt)
+        rec_q &= Q(created_at__gte=dt)
+    else:
+        rec_q &= Q(created_at__gte=today_start)
+
+    if end_date:
+        dt = parse_datetime(end_date + 'T23:59:59') or timezone.datetime.fromisoformat(end_date)
+        if timezone.is_naive(dt): dt = timezone.make_aware(dt)
+        rec_q &= Q(created_at__lte=dt)
     if d.tfn:
         rec_q &= (Q(called_number=d.tfn) | Q(caller_number=d.tfn))
     else:
@@ -144,7 +157,17 @@ def format_destination(d):
 
 
 @router.get("/", response={200: dict})
-def list_destinations(request, page: int = 1, page_size: int = 50, buyer_id: Optional[str] = None, enabled: Optional[bool] = None):
+def list_destinations(
+    request, 
+    page: int = 1, 
+    page_size: int = 50, 
+    buyer_id: Optional[str] = None, 
+    enabled: Optional[bool] = None,
+    created_at__gte: Optional[str] = None,
+    created_at__lte: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None
+):
     from config.pagination import paginate_list
     from buyers.destination import Destination
     qs = Destination.objects.filter(organization=request.auth.organization).select_related('buyer')
@@ -152,7 +175,11 @@ def list_destinations(request, page: int = 1, page_size: int = 50, buyer_id: Opt
         qs = qs.filter(buyer_id=buyer_id)
     if enabled is not None:
         qs = qs.filter(enabled=enabled)
-    data = [format_destination(d) for d in qs]
+        
+    val_from = start_date or created_at__gte
+    val_to = end_date or created_at__lte
+    
+    data = [format_destination(d, val_from, val_to) for d in qs]
     return 200, paginate_list(data, page, page_size)
 
 

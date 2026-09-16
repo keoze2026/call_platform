@@ -10,6 +10,10 @@ import uuid
 class AnalyticsFilterSchema(Schema):
     date_from:    Optional[str] = None
     date_to:      Optional[str] = None
+    created_at__gte: Optional[str] = None
+    created_at__lte: Optional[str] = None
+    start_date:   Optional[str] = None
+    end_date:     Optional[str] = None
     campaign_id:  Optional[str] = None
     buyer_id:     Optional[str] = None
     publisher_id: Optional[str] = None

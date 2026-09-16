@@ -25,14 +25,16 @@ class AnalyticsService:
     def _base_qs(user: User, filters):
         qs = CallRecord.objects.filter(organization=user.organization)
 
-        if filters.date_from:
-            dt = parse_datetime(filters.date_from + 'T00:00:00') or datetime.fromisoformat(filters.date_from)
+        val_from = filters.date_from or filters.start_date or filters.created_at__gte
+        if val_from:
+            dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__gte=dt)
 
-        if filters.date_to:
-            dt = parse_datetime(filters.date_to + 'T23:59:59') or datetime.fromisoformat(filters.date_to)
+        val_to = filters.date_to or filters.end_date or filters.created_at__lte
+        if val_to:
+            dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__lte=dt)
@@ -58,12 +60,15 @@ class AnalyticsService:
     # ── dashboard ─────────────────────────────────────────────────────────────
 
     @staticmethod
-    def get_dashboard(user: User) -> dict:
+    def get_dashboard(user: User, filters=None) -> dict:
         org = user.organization
         now = timezone.now()
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
 
-        all_qs = CallRecord.objects.filter(organization=org)
+        if filters:
+            all_qs = AnalyticsService._base_qs(user, filters)
+        else:
+            all_qs = CallRecord.objects.filter(organization=org)
 
         agg = all_qs.aggregate(
             total_calls=Count('id'),
@@ -77,7 +82,10 @@ class AnalyticsService:
             avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
         )
 
-        calls_today = all_qs.filter(created_at__gte=today_start).count()
+        if filters and any([filters.date_from, filters.date_to, filters.created_at__gte, filters.created_at__lte, getattr(filters, 'start_date', None), getattr(filters, 'end_date', None)]):
+            calls_today = agg['total_calls'] or 0
+        else:
+            calls_today = all_qs.filter(created_at__gte=today_start).count()
         live_calls  = CallLog.objects.filter(campaign__organization=org, status__in=['in_progress', 'ringing', 'initiated']).count()
 
         total = agg['total_calls'] or 1

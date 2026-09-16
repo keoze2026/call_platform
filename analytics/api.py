@@ -17,9 +17,9 @@ router = Router(tags=["Analytics"], auth=JWTAuth())
 
 
 @router.get("/dashboard", response={200: DashboardSchema})
-def dashboard(request: HttpRequest):
+def dashboard(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Real-time dashboard — total calls, live calls, revenue, conversion rate."""
-    data = AnalyticsService.get_dashboard(request.auth)
+    data = AnalyticsService.get_dashboard(request.auth, filters)
     return 200, data
 
 
