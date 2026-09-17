@@ -51,19 +51,37 @@ class CallRecord(models.Model):
 
     @property
     def dynamic_revenue(self):
+        if hasattr(self, '_dynamic_revenue'):
+            return self._dynamic_revenue
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.revenue_amount
         return self.revenue
 
+    @dynamic_revenue.setter
+    def dynamic_revenue(self, value):
+        self._dynamic_revenue = value
+
     @property
     def dynamic_payout(self):
+        if hasattr(self, '_dynamic_payout'):
+            return self._dynamic_payout
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.payout_amount
         return self.payout
 
+    @dynamic_payout.setter
+    def dynamic_payout(self, value):
+        self._dynamic_payout = value
+
     @property
     def dynamic_profit(self):
+        if hasattr(self, '_dynamic_profit'):
+            return self._dynamic_profit
         return self.dynamic_revenue - self.dynamic_payout
+
+    @dynamic_profit.setter
+    def dynamic_profit(self, value):
+        self._dynamic_profit = value
 
     # Call outcome
     status          = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
