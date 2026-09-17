@@ -58,7 +58,7 @@ def route_incoming_call(request):
             organization=campaign.organization,
             campaign=campaign,
             publisher=phone.publisher,
-            publisher_payout=phone.publisher.payout_amount if phone.publisher else 0,
+            publisher_payout=0,
             caller_number=caller,
             called_number=called,
             twilio_call_sid=call_sid,

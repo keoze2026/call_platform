@@ -91,7 +91,7 @@ def incoming_call(request: HttpRequest) -> HttpResponse:
             caller_country=caller_country,
             buyer_payout=campaign.payout_amount,
             revenue=campaign.revenue_amount,
-            publisher_payout=phone_number.publisher.payout_amount if phone_number.publisher else 0,
+            publisher_payout=0,
             ipqs_line_type=ipqs_line_type,
             ipqs_checked=bool(ipqs_line_type),
         )
@@ -278,6 +278,11 @@ def call_status(request: HttpRequest) -> HttpResponse:
         call_log.status = status_map.get(actual_status, CallLog.Status.FAILED) 
         call_log.duration = int(call_duration) if call_duration else 0
         call_log.ended_at = timezone.now()
+
+        if call_log.status == CallLog.Status.COMPLETED and call_log.publisher:
+            call_log.publisher_payout = call_log.publisher.payout_amount
+        else:
+            call_log.publisher_payout = 0
 
         if recording_url:
             call_log.recording_url = recording_url

@@ -92,11 +92,12 @@ class AnalyticsService:
         else:
             calls_today = all_qs.filter(created_at__gte=today_start).count()
         live_calls  = CallLog.objects.filter(campaign__organization=org, status__in=['in_progress', 'ringing', 'initiated']).count()
+        actual_total_calls = (agg['total_calls'] or 0) + live_calls
 
-        total = agg['total_calls'] or 1
+        total = actual_total_calls or 1
         return {
-            'total_calls':       agg['total_calls'],
-            'calls_today':       calls_today,
+            'total_calls':       actual_total_calls,
+            'calls_today':       calls_today + live_calls,
             'live_calls':        live_calls,
             'completed_calls':   agg['completed'],
             'converted_calls':   agg['converted'],
