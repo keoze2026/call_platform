@@ -71,6 +71,12 @@ def mirror_call_log(call_log_id) -> bool:
             'publisher_name': call.publisher.name if call.publisher_id else '',
             'status': STATUS_MAP.get(call.status, CallRecord.Status.FAILED),
             'duration_seconds': call.duration or 0,
+            'is_converted': (
+                call.status == CallLog.Status.COMPLETED
+                and (call.duration or 0) >= (
+                    getattr(call.campaign, 'min_call_duration', 0) if call.campaign_id else 0
+                )
+            ),
             'billable_seconds': call.duration or 0,
             'recording_url': call.recording_url or '',
             'carrier_name': call.carrier_name or '',
