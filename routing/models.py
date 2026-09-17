@@ -117,6 +117,10 @@ class CallLog(models.Model):
     ipqs_is_voip = models.BooleanField(default=False)
     ipqs_line_type = models.CharField(max_length=50, blank=True)
     ipqs_block_reason = models.CharField(max_length=100, blank=True)
+
+    # Why the call was not routed, for non-IPQS reasons (insufficient_balance,
+    # campaign cap, no destination). Blank on calls that routed normally.
+    block_reason = models.CharField(max_length=100, blank=True)
     
     # Tracking
     caller_area_code = models.CharField(max_length=5, blank=True)

@@ -1,8 +1,13 @@
+import logging
 import random
 from datetime import datetime
+from decimal import Decimal
+from django.conf import settings
 from django.utils import timezone
 from django.core.cache import cache
 from .models import RoutingRule, RuleCondition, RuleDestination, CallLog
+
+logger = logging.getLogger(__name__)
 
 
 
@@ -351,6 +356,46 @@ class RoutingEngine:
         return None
 
     @staticmethod
+    @staticmethod
+    def required_call_balance(campaign) -> Decimal:
+        """Credit an organization must hold before this campaign's calls dispatch.
+
+        Campaign pricing is the source of truth: a campaign with a payout_amount
+        set uses it, so per-campaign economics keep working untouched. The
+        MINIMUM_CALL_BALANCE setting ($0.45) is only the fallback for campaigns
+        that have not been priced.
+        """
+        payout = getattr(campaign, 'payout_amount', None) or Decimal('0')
+        if payout > 0:
+            return Decimal(payout)
+        return Decimal(getattr(settings, 'MINIMUM_CALL_BALANCE', Decimal('0.45')))
+
+    @staticmethod
+    def check_balance(campaign) -> bool:
+        """False when the campaign's organization cannot fund one more call.
+
+        Disabled wholesale by ENFORCE_CALL_BALANCE=False, which restores the
+        previous always-route behaviour without a deploy.
+        """
+        if not getattr(settings, 'ENFORCE_CALL_BALANCE', True):
+            return True
+
+        from billing.services import BillingService
+
+        required = RoutingEngine.required_call_balance(campaign)
+        if BillingService.has_sufficient_balance(campaign.organization, required):
+            return True
+
+        logger.warning(
+            "insufficient_balance: campaign=%s org=%s required=%s balance=%s",
+            campaign.id,
+            campaign.organization_id,
+            required,
+            BillingService.get_balance(campaign.organization),
+        )
+        return False
+
+    @staticmethod
     def route_call(campaign_id: str, call_data: dict) -> dict:
         from campaigns.models import Campaign
 
@@ -373,6 +418,11 @@ class RoutingEngine:
 
         if not RoutingEngine.check_campaign_caps(campaign):
             return {'destination': None, 'rule': None, 'error': 'Campaign cap reached'}
+
+        # Funds check runs last of the guardrails — it is the most expensive, and
+        # there is no point pricing a call the other rules would have dropped.
+        if not RoutingEngine.check_balance(campaign):
+            return {'destination': None, 'rule': None, 'error': 'insufficient_balance'}
 
         rules = campaign.routing_rules.filter(
             status=RoutingRule.Status.ACTIVE

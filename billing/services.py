@@ -72,6 +72,71 @@ class BillingService:
         return tx
 
     @staticmethod
+    def get_balance(organization) -> Decimal:
+        """Current credit for an organization. Missing account reads as zero."""
+        try:
+            account = BillingAccount.objects.only('balance').get(organization=organization)
+        except BillingAccount.DoesNotExist:
+            return Decimal('0.00')
+        return account.balance
+
+    @staticmethod
+    def has_sufficient_balance(organization, amount: Decimal) -> bool:
+        """True when the organization can cover `amount`, credit limit included.
+
+        An organization with no BillingAccount has no credit and returns False.
+        """
+        try:
+            account = BillingAccount.objects.only(
+                'balance', 'credit_limit', 'status'
+            ).get(organization=organization)
+        except BillingAccount.DoesNotExist:
+            return False
+
+        if account.status != BillingAccount.Status.ACTIVE:
+            return False
+
+        return (account.balance + account.credit_limit) >= amount
+
+    @staticmethod
+    @transaction.atomic
+    def add_funds(organization, amount: Decimal, description: str = '',
+                  reference_id: str = '', created_by: User = None) -> Transaction:
+        """Manually credit an organization — no payment provider involved.
+
+        Used by the `add_funds` management command and any admin-side top-up.
+        Unlike deposit(), this keys off an Organization rather than a User, so it
+        can run without a request context. Creates the BillingAccount if absent.
+        """
+        if amount <= 0:
+            raise ValueError("Amount must be greater than zero")
+
+        account, _ = BillingAccount.objects.select_for_update().get_or_create(
+            organization=organization,
+            defaults={
+                'created_by': created_by,
+                'status': BillingAccount.Status.ACTIVE,
+            }
+        )
+
+        balance_before = account.balance
+        account.balance += amount
+        account.save(update_fields=['balance', 'updated_at'])
+
+        return Transaction.objects.create(
+            organization=organization,
+            billing_account=account,
+            transaction_type=Transaction.Type.DEPOSIT,
+            amount=amount,
+            balance_before=balance_before,
+            balance_after=account.balance,
+            description=description or f"Manual credit of ${amount}",
+            reference_id=reference_id or '',
+            provider='manual',
+            status=Transaction.Status.COMPLETED,
+        )
+
+    @staticmethod
     @transaction.atomic
     def charge_call(organization, campaign, buyer, publisher, amount: Decimal, call_sid: str = '') -> Transaction:
         try:

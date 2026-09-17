@@ -94,12 +94,14 @@ def route_incoming_call(request):
     })
 
     if not decision or decision.get('error') or not decision.get('destination'):
+        reason = decision.get('error', 'no_destination') if decision else 'no_decision'
         call_log.status = CallLog.Status.FAILED
+        call_log.block_reason = reason[:100]
         call_log.ended_at = timezone.now()
-        return JsonResponse({
-            "action": "hangup",
-            "reason": decision.get('error', 'no_destination') if decision else 'no_decision'
-        })
+        # The earlier IPQS branch returns without saving; persist here so the
+        # reason survives on the record rather than being lost with the request.
+        call_log.save()
+        return JsonResponse({"action": "hangup", "reason": reason})
 
     buyer = decision.get('buyer')
     dest_number = decision.get('destination')

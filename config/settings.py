@@ -2,6 +2,7 @@
 # config/settings.py
 
 from pathlib import Path
+from decimal import Decimal
 from decouple import config, AutoConfig
 config = AutoConfig(search_path='/opt/call_platform')
 from datetime import timedelta
@@ -190,6 +191,16 @@ from decouple import config
 TWILIO_ACCOUNT_SID = config('TWILIO_ACCOUNT_SID', default='')
 TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
 TWILIO_TRUNK_SID = config('TWILIO_TRUNK_SID', default='')
+
+# ── Call balance guardrail ────────────────────────────────────────────────────
+# An organization must hold at least this much credit before a call is routed to
+# a destination. Used only when the campaign has no payout_amount of its own —
+# campaign pricing stays the source of truth (see RoutingEngine.check_balance).
+MINIMUM_CALL_BALANCE = Decimal(config('MINIMUM_CALL_BALANCE', default='0.45'))
+
+# Kill switch. Set ENFORCE_CALL_BALANCE=False to stop dropping calls on low
+# balance without a deploy — routing reverts to its previous behaviour.
+ENFORCE_CALL_BALANCE = config('ENFORCE_CALL_BALANCE', default=True, cast=bool)
 
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
