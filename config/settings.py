@@ -6,6 +6,7 @@ from decouple import config, AutoConfig
 config = AutoConfig(search_path='/opt/call_platform')
 from datetime import timedelta
 import dj_database_url
+import os
 
 import sentry_sdk
 from sentry_sdk.integrations.django import DjangoIntegration
@@ -74,7 +75,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [config('REDIS_URL', default='redis://127.0.0.1:6379/0')],
+            'hosts': [config('REDIS_URL', default='redis://redis:6379/0')],
         },
     },
 }
@@ -455,3 +456,5 @@ SUPPORT_WEBHOOK_SECRET = config('SUPPORT_WEBHOOK_SECRET', default='')
 
 # Asterisk calls these over local http — don't SSL-redirect them
 SECURE_REDIRECT_EXEMPT = [r'^api/twilio/asterisk/.*']
+TELNYX_API_KEY = os.environ.get('TELNYX_API_KEY', '')
+TELNYX_API_KEY = config('TELNYX_API_KEY', default='')
