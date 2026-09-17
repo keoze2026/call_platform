@@ -73,24 +73,21 @@ def route_incoming_call(request):
         if call_log is None:
             return JsonResponse({"action": "hangup", "reason": "duplicate_call"})
 
-    # IPQualityScore spam/VOIP check
-    if getattr(campaign, 'ipqs_enabled', False):
+    # Telnyx number lookup — enrichment only. It records the caller's carrier and
+    # line type for reporting and NEVER drops a call: a lookup that is slow,
+    # failing, or flags the number must not cost a real call. Wrapped so an API
+    # outage cannot break routing.
+    try:
         from spam_protection.telnyx import TelnyxLookupService
         telnyx_result = TelnyxLookupService.check_phone(caller)
         call_log.ipqs_checked = True
         call_log.ipqs_fraud_score = telnyx_result.get('fraud_score', 0) or 0
         call_log.ipqs_is_voip = telnyx_result.get('VOIP', False) or False
         call_log.ipqs_line_type = telnyx_result.get('line_type', '') or ''
-        # Telnyx returns the carrier; it was previously discarded, leaving the
-        # reporting carrier breakdown with nothing to group by.
         call_log.carrier_name = (telnyx_result.get('carrier_name', '') or '')[:100]
-        
-        should_block, reason = TelnyxLookupService.should_block(telnyx_result, campaign)
-        if should_block:
-            call_log.ipqs_block_reason = reason
-            call_log.status = CallLog.Status.FAILED
-            call_log.ended_at = timezone.now()
-            return JsonResponse({"action": "hangup", "reason": reason})
+    except Exception:
+        logger.exception("telnyx_lookup_failed: call_log=%s caller=%s", call_log.id, caller)
+
     call_log.status = CallLog.Status.IN_PROGRESS
     call_log.save()
 
