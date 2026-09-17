@@ -181,17 +181,27 @@ def call_ended(request):
     # Sync to analytics CallRecord
     try:
         from analytics.models import CallRecord
-        cr = CallRecord.objects.filter(twilio_call_sid=call_log.twilio_call_sid).first()
-        if cr:
-            cr.status = 'completed' if answered else 'no_answer'
-            cr.duration_seconds = duration
-            cr.is_converted = converted
-            cr.revenue = payout_val
-            cr.payout = payout_val
-            cr.profit = 0
-            if recording_url:
-                cr.recording_url = recording_url
-            cr.save()
+        cr, created = CallRecord.objects.update_or_create(
+            twilio_call_sid=call_log.twilio_call_sid,
+            organization=call_log.organization,
+            defaults={
+                'caller_number': call_log.caller_number,
+                'called_number': call_log.called_number,
+                'status': 'completed' if answered else 'no_answer',
+                'duration_seconds': duration,
+                'is_converted': converted,
+                'revenue': payout_val,
+                'payout': payout_val,
+                'profit': 0,
+                'campaign_id': call_log.campaign_id,
+                'campaign_name': call_log.campaign.name if call_log.campaign else '',
+                'buyer_id': call_log.buyer_id,
+                'buyer_name': call_log.buyer.name if call_log.buyer else '',
+                'publisher_id': call_log.publisher_id,
+                'publisher_name': call_log.publisher.name if call_log.publisher else '',
+                'recording_url': recording_url if recording_url else '',
+            }
+        )
     except Exception:
         pass
 
