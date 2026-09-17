@@ -139,6 +139,18 @@ class BillingService:
     @staticmethod
     @transaction.atomic
     def charge_call(organization, campaign, buyer, publisher, amount: Decimal, call_sid: str = '') -> Transaction:
+        # Carriers retry end-of-call webhooks. Without this guard a retry would
+        # charge the same call twice.
+        if call_sid:
+            existing = Transaction.objects.filter(
+                organization=organization,
+                call_sid=call_sid,
+                transaction_type=Transaction.Type.CHARGE,
+                status=Transaction.Status.COMPLETED,
+            ).first()
+            if existing:
+                return existing
+
         try:
             account = BillingAccount.objects.select_for_update().get(
                 organization=organization

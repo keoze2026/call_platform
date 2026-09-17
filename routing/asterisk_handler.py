@@ -4,6 +4,7 @@ Server-to-server calls (no JWT auth). Secured by a shared secret header.
 """
 import hmac
 import json
+import logging
 import uuid
 from django.db import IntegrityError
 from django.http import JsonResponse
@@ -15,6 +16,8 @@ from django.utils import timezone
 from phone_numbers.models import PhoneNumber
 from routing.models import CallLog
 from routing.engine import RoutingEngine
+
+logger = logging.getLogger(__name__)
 
 
 def _check_secret(request):
@@ -209,5 +212,40 @@ def call_ended(request):
         )
     except Exception:
         pass
+
+    # Deduct the call's cost from the organization's balance. Charged only on a
+    # converted call, at the same rate RoutingEngine checked before dispatch, so
+    # a call that was allowed through is always affordable. charge_call is
+    # idempotent on call_sid, so a carrier webhook retry will not double-charge.
+    if converted and getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
+        try:
+            from billing.services import BillingService
+            from phone_numbers.models import PhoneNumber
+
+            phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
+            amount = RoutingEngine.required_call_balance(campaign, phone)
+
+            if amount > 0:
+                charge = BillingService.charge_call(
+                    organization=call_log.organization,
+                    campaign=campaign,
+                    buyer=call_log.buyer,
+                    publisher=call_log.publisher,
+                    amount=amount,
+                    call_sid=call_log.twilio_call_sid,
+                )
+                if charge is None:
+                    # Balance ran out between dispatch and hangup (concurrent
+                    # calls draining the same account). The call already
+                    # happened; record it so it can be reconciled.
+                    logger.warning(
+                        "call_charge_failed: call_log=%s org=%s amount=%s balance=%s",
+                        call_log.id,
+                        call_log.organization_id,
+                        amount,
+                        BillingService.get_balance(call_log.organization),
+                    )
+        except Exception:
+            logger.exception("call_charge_error: call_log=%s", call_log.id)
 
     return JsonResponse({"received": True, "call_log_id": str(call_log.id), "converted": converted})

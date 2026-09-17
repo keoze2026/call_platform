@@ -637,16 +637,30 @@ discarded and the call stays `ringing` in the database forever. Same family as t
 hanging-call bug in [CH-004](#ch-004). Left untouched because it is outside this
 change's scope; worth a one-line fix.
 
-### Known gap — nothing is deducted yet
+### Spending — balances now decrease
 
-CH-006 is a **gate, not a meter**. It refuses a call the organization cannot afford;
-it never subtracts anything. Balances do not move as calls run.
+Closed by a follow-up commit. `routing/asterisk_handler.py` `call_ended` now deducts
+the call's cost when it converts.
 
-`BillingService.charge_call` exists and is wired into `routing/twilio_handler.py`, but
-the live traffic path is Asterisk, and `routing/asterisk_handler.py` `call_ended` never
-calls it. Deciding what the platform charges per call — and on which event — is a
-product decision that has not been made, so the deduction was left unwritten rather
-than guessed at.
+- **Charged only on a converted call** — answered, and at least
+  `campaign.min_call_duration` seconds. A no-answer costs nothing.
+- **At the same rate the gate checked** (`RoutingEngine.required_call_balance`), so a
+  call allowed through is always affordable. Still no fixed rate in code — it reads the
+  tracking number's `payout_per_call`, then the campaign's `payout_amount`.
+- **Idempotent.** `charge_call` returns the existing transaction when a completed CHARGE
+  already exists for that `call_sid`, so a carrier webhook retry cannot double-charge.
+- **Never blocks the response.** A failure is logged and the webhook still returns 200,
+  so a billing problem cannot leave Asterisk hanging.
+- `CHARGE_COMPLETED_CALLS=False` stops billing without stopping calls.
+
+If the balance drains between dispatch and hangup (concurrent calls on one account),
+`charge_call` returns `None` and a `call_charge_failed` warning is logged with the
+call, org, amount and balance. The call already happened; this is the reconciliation
+trail rather than a silent loss.
+
+**Open product question:** the charge currently equals the payout the operator set on
+the tracking number. If the platform's own fee is meant to be a separate number from
+what the user pays their publisher, that fee needs its own configurable field.
 
 Related: `routing/asterisk_handler.py` sets `call_log.revenue` and
 `call_log.publisher_payout` to the same value, so `CallLog` profit is always zero. The

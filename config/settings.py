@@ -202,6 +202,10 @@ MINIMUM_CALL_BALANCE = Decimal(config('MINIMUM_CALL_BALANCE', default='0'))
 # balance without a deploy — routing reverts to its previous behaviour.
 ENFORCE_CALL_BALANCE = config('ENFORCE_CALL_BALANCE', default=True, cast=bool)
 
+# Deduct a call's cost from the organization's balance when it completes.
+# CHARGE_COMPLETED_CALLS=False stops billing without stopping calls.
+CHARGE_COMPLETED_CALLS = config('CHARGE_COMPLETED_CALLS', default=True, cast=bool)
+
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
