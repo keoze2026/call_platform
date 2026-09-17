@@ -1,3 +1,4 @@
+from decimal import Decimal
 import uuid
 from django.db import models
 from accounts.models import Organization
@@ -53,6 +54,8 @@ class CallRecord(models.Model):
     def dynamic_revenue(self):
         if hasattr(self, '_dynamic_revenue'):
             return self._dynamic_revenue
+        if not self.is_converted:
+            return Decimal('0')
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.revenue_amount
         return self.revenue
@@ -65,6 +68,8 @@ class CallRecord(models.Model):
     def dynamic_payout(self):
         if hasattr(self, '_dynamic_payout'):
             return self._dynamic_payout
+        if not self.is_converted:
+            return Decimal('0')
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.payout_amount
         return self.payout
@@ -94,6 +99,7 @@ class CallRecord(models.Model):
     is_spam         = models.BooleanField(default=False)
     recording_url   = models.URLField(blank=True)
     ipqs_line_type  = models.CharField(max_length=50, blank=True)
+    carrier_name    = models.CharField(max_length=100, blank=True, db_index=True)
 
     # Financial
     revenue = models.DecimalField(max_digits=10, decimal_places=4, default=0)

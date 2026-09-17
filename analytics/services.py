@@ -1,5 +1,5 @@
 from django.db.models import (
-    Count, Sum, Avg, Q, F,
+    Count, Sum, Avg, Q, F, Case, When, Value,
     FloatField, DecimalField
 )
 from django.db.models.functions import (
@@ -60,14 +60,20 @@ class AnalyticsService:
         if getattr(filters, 'status', None):
             qs = qs.filter(status=filters.status)
             
-        # Dynamically compute revenue/payout/profit from Campaign on the fly
+        # Revenue and payout are earned per *converted* call, so an unconverted
+        # call contributes zero. Applying campaign pricing to every row credited
+        # calls that never connected — 83 incoming were billed as 83 conversions.
+        zero = Value(Decimal('0'), output_field=DecimalField(max_digits=10, decimal_places=4))
+
         qs = qs.annotate(
             dynamic_revenue=Case(
+                When(is_converted=False, then=zero),
                 When(campaign__isnull=False, then=F('campaign__revenue_amount')),
                 default=F('revenue'),
                 output_field=DecimalField(max_digits=10, decimal_places=4)
             ),
             dynamic_payout=Case(
+                When(is_converted=False, then=zero),
                 When(campaign__isnull=False, then=F('campaign__payout_amount')),
                 default=F('payout'),
                 output_field=DecimalField(max_digits=10, decimal_places=4)
@@ -502,6 +508,7 @@ class AnalyticsService:
             'profit':           r.dynamic_profit,
             'winning_bid':      r.winning_bid,
             'recording_url':    r.recording_url,
+            'carrier_name':     r.carrier_name,
             'started_at':       dt_start,
             'startedAt':        int(dt_start.timestamp() * 1000) if dt_start else None,
             'ended_at':         r.ended_at,

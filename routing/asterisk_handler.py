@@ -81,6 +81,9 @@ def route_incoming_call(request):
         call_log.ipqs_fraud_score = telnyx_result.get('fraud_score', 0) or 0
         call_log.ipqs_is_voip = telnyx_result.get('VOIP', False) or False
         call_log.ipqs_line_type = telnyx_result.get('line_type', '') or ''
+        # Telnyx returns the carrier; it was previously discarded, leaving the
+        # reporting carrier breakdown with nothing to group by.
+        call_log.carrier_name = (telnyx_result.get('carrier_name', '') or '')[:100]
         
         should_block, reason = TelnyxLookupService.should_block(telnyx_result, campaign)
         if should_block:
@@ -214,6 +217,7 @@ def call_ended(request):
                 'publisher_id': call_log.publisher_id,
                 'publisher_name': call_log.publisher.name if call_log.publisher else '',
                 'recording_url': recording_url if recording_url else '',
+                'carrier_name': call_log.carrier_name or '',
             }
         )
     except Exception:

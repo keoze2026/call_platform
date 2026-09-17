@@ -73,6 +73,7 @@ def mirror_call_log(call_log_id) -> bool:
             'duration_seconds': call.duration or 0,
             'billable_seconds': call.duration or 0,
             'recording_url': call.recording_url or '',
+            'carrier_name': call.carrier_name or '',
             'ipqs_line_type': call.ipqs_line_type or '',
                 'revenue': (call.campaign.revenue_amount if call.campaign_id and call.campaign else 0) or call.revenue or 0,
     'payout': (call.campaign.payout_amount if call.campaign_id and call.campaign else 0) or call.buyer_payout or 0,

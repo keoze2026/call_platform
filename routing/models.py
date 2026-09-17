@@ -118,6 +118,10 @@ class CallLog(models.Model):
     ipqs_line_type = models.CharField(max_length=50, blank=True)
     ipqs_block_reason = models.CharField(max_length=100, blank=True)
 
+    # Caller's carrier, from the Telnyx number lookup. Blank when the lookup is
+    # disabled on the campaign or the API call failed.
+    carrier_name = models.CharField(max_length=100, blank=True)
+
     # Why the call was not routed, for non-IPQS reasons (insufficient_balance,
     # campaign cap, no destination). Blank on calls that routed normally.
     block_reason = models.CharField(max_length=100, blank=True)
