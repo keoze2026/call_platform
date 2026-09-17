@@ -278,7 +278,7 @@ class PhoneNumberService:
             'concurrency_enabled': phone_number.concurrency_enabled,
             'concurrency_cap': phone_number.concurrency_cap,
             'vendor_enabled': phone_number.vendor_enabled,
-            'payout_per_call': str(phone_number.payout_per_call),
+            'payout_per_call': str(phone_number.campaign.payout_amount if (not phone_number.payout_per_call or phone_number.payout_per_call == 0) and phone_number.campaign else phone_number.payout_per_call),
             'payout_type': phone_number.payout_type,
             'payout_on': phone_number.payout_on,
             'dupe_revenue': phone_number.dupe_revenue,
