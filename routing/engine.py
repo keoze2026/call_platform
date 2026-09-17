@@ -357,22 +357,32 @@ class RoutingEngine:
 
     @staticmethod
     @staticmethod
-    def required_call_balance(campaign) -> Decimal:
-        """Credit an organization must hold before this campaign's calls dispatch.
+    def required_call_balance(campaign, phone_number=None) -> Decimal:
+        """Credit needed to dispatch one call, read from configured pricing.
 
-        Campaign pricing is the source of truth: a campaign with a payout_amount
-        set uses it, so per-campaign economics keep working untouched. The
-        MINIMUM_CALL_BALANCE setting ($0.45) is only the fallback for campaigns
-        that have not been priced.
+        Nothing here is a fixed rate. The number comes from what the operator set
+        in the UI, following the same precedence the numbers page displays:
+
+          1. the tracking number's own payout_per_call
+          2. the parent campaign's payout_amount
+
+        Zero means the campaign has not been priced, so no minimum is enforced.
+        MINIMUM_CALL_BALANCE is an optional floor, off (0) unless configured.
         """
-        payout = getattr(campaign, 'payout_amount', None) or Decimal('0')
-        if payout > 0:
-            return Decimal(payout)
-        return Decimal(getattr(settings, 'MINIMUM_CALL_BALANCE', Decimal('0.45')))
+        if phone_number is not None:
+            per_number = getattr(phone_number, 'payout_per_call', None) or Decimal('0')
+            if per_number > 0:
+                return Decimal(per_number)
+
+        campaign_payout = getattr(campaign, 'payout_amount', None) or Decimal('0')
+        if campaign_payout > 0:
+            return Decimal(campaign_payout)
+
+        return Decimal(getattr(settings, 'MINIMUM_CALL_BALANCE', Decimal('0')))
 
     @staticmethod
-    def check_balance(campaign) -> bool:
-        """False when the campaign's organization cannot fund one more call.
+    def check_balance(campaign, phone_number=None) -> bool:
+        """False when the organization cannot fund one more call.
 
         Disabled wholesale by ENFORCE_CALL_BALANCE=False, which restores the
         previous always-route behaviour without a deploy.
@@ -380,9 +390,13 @@ class RoutingEngine:
         if not getattr(settings, 'ENFORCE_CALL_BALANCE', True):
             return True
 
+        required = RoutingEngine.required_call_balance(campaign, phone_number)
+        if required <= 0:
+            # Unpriced campaign — nothing configured to charge against.
+            return True
+
         from billing.services import BillingService
 
-        required = RoutingEngine.required_call_balance(campaign)
         if BillingService.has_sufficient_balance(campaign.organization, required):
             return True
 
@@ -421,7 +435,7 @@ class RoutingEngine:
 
         # Funds check runs last of the guardrails — it is the most expensive, and
         # there is no point pricing a call the other rules would have dropped.
-        if not RoutingEngine.check_balance(campaign):
+        if not RoutingEngine.check_balance(campaign, call_data.get('phone_number')):
             return {'destination': None, 'rule': None, 'error': 'insufficient_balance'}
 
         rules = campaign.routing_rules.filter(

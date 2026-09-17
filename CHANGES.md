@@ -551,10 +551,12 @@ manual top-up meant editing the database by hand.
 
 **`config/settings.py`** — two new settings:
 ```python
-MINIMUM_CALL_BALANCE = Decimal(config('MINIMUM_CALL_BALANCE', default='0.45'))
+MINIMUM_CALL_BALANCE = Decimal(config('MINIMUM_CALL_BALANCE', default='0'))
 ENFORCE_CALL_BALANCE = config('ENFORCE_CALL_BALANCE', default=True, cast=bool)
 ```
 `ENFORCE_CALL_BALANCE=False` disables the guardrail with a restart, no deploy.
+`MINIMUM_CALL_BALANCE` defaults to **0 — no hardcoded rate**. It is only a floor
+for campaigns with no pricing configured at all.
 
 **`billing/services.py`** — three additions to `BillingService`:
 
@@ -581,10 +583,17 @@ with the candidate list rather than guessing. `--list` shows every organization 
 its balance, and `no account` where none exists.
 
 **`routing/engine.py`** — the guardrail:
-- `required_call_balance(campaign)` returns `campaign.payout_amount` when set, falling
-  back to `MINIMUM_CALL_BALANCE`. Campaign pricing stays the source of truth.
-- `check_balance(campaign)` consults `BillingService`, logs a `WARNING` naming campaign,
-  org, required amount and actual balance, and returns `False`.
+- `required_call_balance(campaign, phone_number)` reads the rate the operator
+  configured in the UI, in the same precedence the numbers page shows:
+  **1.** the tracking number's `payout_per_call`, **2.** the campaign's
+  `payout_amount`, **3.** `MINIMUM_CALL_BALANCE` (0 by default). No fixed rate
+  appears anywhere in the code.
+- `check_balance(campaign, phone_number)` consults `BillingService`, logs a `WARNING`
+  naming campaign, org, required amount and actual balance, and returns `False`.
+  A required amount of 0 (unpriced campaign) passes — there is nothing to charge
+  against, so inventing a minimum would drop calls for no stated reason.
+- `routing/asterisk_handler.py` passes the resolved `PhoneNumber` into `route_call`
+  via `call_data`, so per-number pricing beats the campaign default.
 - `route_call` calls it after the campaign-cap check, returning
   `{'error': 'insufficient_balance'}` — matching the existing guardrail style.
 
@@ -627,3 +636,19 @@ and `status = FAILED`, then returns **without calling `.save()`**. The block rea
 discarded and the call stays `ringing` in the database forever. Same family as the
 hanging-call bug in [CH-004](#ch-004). Left untouched because it is outside this
 change's scope; worth a one-line fix.
+
+### Known gap — nothing is deducted yet
+
+CH-006 is a **gate, not a meter**. It refuses a call the organization cannot afford;
+it never subtracts anything. Balances do not move as calls run.
+
+`BillingService.charge_call` exists and is wired into `routing/twilio_handler.py`, but
+the live traffic path is Asterisk, and `routing/asterisk_handler.py` `call_ended` never
+calls it. Deciding what the platform charges per call — and on which event — is a
+product decision that has not been made, so the deduction was left unwritten rather
+than guessed at.
+
+Related: `routing/asterisk_handler.py` sets `call_log.revenue` and
+`call_log.publisher_payout` to the same value, so `CallLog` profit is always zero. The
+Reporting page looks correct only because it reads `CallRecord`'s dynamic properties
+off the campaign instead of these fields.

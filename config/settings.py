@@ -193,10 +193,10 @@ TWILIO_AUTH_TOKEN = config('TWILIO_AUTH_TOKEN', default='')
 TWILIO_TRUNK_SID = config('TWILIO_TRUNK_SID', default='')
 
 # ── Call balance guardrail ────────────────────────────────────────────────────
-# An organization must hold at least this much credit before a call is routed to
-# a destination. Used only when the campaign has no payout_amount of its own —
-# campaign pricing stays the source of truth (see RoutingEngine.check_balance).
-MINIMUM_CALL_BALANCE = Decimal(config('MINIMUM_CALL_BALANCE', default='0.45'))
+# Optional floor, applied only when neither the tracking number nor the campaign
+# has a payout configured. Default 0 means no floor — the required amount always
+# comes from the pricing the operator set in the UI.
+MINIMUM_CALL_BALANCE = Decimal(config('MINIMUM_CALL_BALANCE', default='0'))
 
 # Kill switch. Set ENFORCE_CALL_BALANCE=False to stop dropping calls on low
 # balance without a deploy — routing reverts to its previous behaviour.

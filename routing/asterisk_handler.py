@@ -91,6 +91,9 @@ def route_incoming_call(request):
     decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,
         'twilio_call_sid': call_log.twilio_call_sid,
+        # Carries the tracking number's own payout_per_call into the balance
+        # check, so per-number pricing is honoured over the campaign default.
+        'phone_number': phone,
     })
 
     if not decision or decision.get('error') or not decision.get('destination'):
