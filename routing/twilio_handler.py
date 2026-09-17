@@ -69,10 +69,10 @@ def incoming_call(request: HttpRequest) -> HttpResponse:
         ipqs_line_type = ''
         if getattr(campaign, 'ipqs_enabled', False):
             try:
-                from spam_protection.ipqs import IPQSService
+                from spam_protection.telnyx import TelnyxLookupService
                 # Fire strictly for logging metadata, ignoring timeouts/errors
-                ipqs_result = IPQSService.check_phone(caller_number)
-                ipqs_line_type = ipqs_result.get('line_type') or 'Unknown'
+                telnyx_result = TelnyxLookupService.check_phone(caller_number)
+                ipqs_line_type = telnyx_result.get('line_type') or 'Unknown'
             except Exception:
                 ipqs_line_type = 'Unknown'
 

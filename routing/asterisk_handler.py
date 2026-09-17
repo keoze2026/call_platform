@@ -72,25 +72,19 @@ def route_incoming_call(request):
 
     # IPQualityScore spam/VOIP check
     if getattr(campaign, 'ipqs_enabled', False):
-        from spam_protection.ipqs import IPQSService
-        ipqs_result = IPQSService.check_phone(caller)
+        from spam_protection.telnyx import TelnyxLookupService
+        telnyx_result = TelnyxLookupService.check_phone(caller)
         call_log.ipqs_checked = True
-        call_log.ipqs_fraud_score = ipqs_result.get('fraud_score', 0) or 0
-        call_log.ipqs_is_voip = ipqs_result.get('VOIP', False) or False
-        call_log.ipqs_line_type = ipqs_result.get('line_type', '') or ''
-        if not ipqs_result.get('success', True) or not ipqs_result.get('valid', True):
-            if getattr(campaign, 'block_invalid_numbers', False):
-                call_log.ipqs_block_reason = 'invalid_number'
-                call_log.status = CallLog.Status.FAILED
-                call_log.ended_at = timezone.now()
-                return JsonResponse({"action": "hangup", "reason": "invalid_number"})
-        else:
-            should_block, reason = IPQSService.should_block(ipqs_result, campaign)
-            if should_block:
-                call_log.ipqs_block_reason = reason
-                call_log.status = CallLog.Status.FAILED
-                call_log.ended_at = timezone.now()
-                return JsonResponse({"action": "hangup", "reason": reason})
+        call_log.ipqs_fraud_score = telnyx_result.get('fraud_score', 0) or 0
+        call_log.ipqs_is_voip = telnyx_result.get('VOIP', False) or False
+        call_log.ipqs_line_type = telnyx_result.get('line_type', '') or ''
+        
+        should_block, reason = TelnyxLookupService.should_block(telnyx_result, campaign)
+        if should_block:
+            call_log.ipqs_block_reason = reason
+            call_log.status = CallLog.Status.FAILED
+            call_log.ended_at = timezone.now()
+            return JsonResponse({"action": "hangup", "reason": reason})
     call_log.status = CallLog.Status.IN_PROGRESS
     call_log.save()
 
