@@ -28,33 +28,56 @@ class AnalyticsService:
 
     @staticmethod
     def _base_qs(user: User, filters):
+        from django.db.models import Case, When, F, DecimalField
+        from django.db.models.functions import Coalesce
+        from decimal import Decimal
+        
         qs = CallRecord.objects.filter(organization=user.organization)
 
-        val_from = filters.date_from or filters.start_date or filters.created_at__gte
+        val_from = filters.date_from or getattr(filters, 'start_date', None) or getattr(filters, 'created_at__gte', None)
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__gte=dt)
 
-        val_to = filters.date_to or filters.end_date or filters.created_at__lte
+        val_to = filters.date_to or getattr(filters, 'end_date', None) or getattr(filters, 'created_at__lte', None)
         if val_to:
             dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__lte=dt)
 
-        if filters.campaign_id:
+        if getattr(filters, 'campaign_id', None):
             qs = qs.filter(campaign_id=filters.campaign_id)
 
-        if filters.buyer_id:
+        if getattr(filters, 'buyer_id', None):
             qs = qs.filter(buyer_id=filters.buyer_id)
 
-        if filters.publisher_id:
+        if getattr(filters, 'publisher_id', None):
             qs = qs.filter(publisher_id=filters.publisher_id)
 
-        if filters.status:
+        if getattr(filters, 'status', None):
             qs = qs.filter(status=filters.status)
+            
+        # Dynamically compute revenue/payout/profit from Campaign on the fly
+        # Only apply campaign amounts if the call was successfully converted, else 0
+        qs = qs.annotate(
+            dynamic_revenue=Case(
+                When(campaign__isnull=False, is_converted=True, then=F('campaign__revenue_amount')),
+                When(campaign__isnull=False, is_converted=False, then=Decimal('0')),
+                default=F('revenue'),
+                output_field=DecimalField(max_digits=10, decimal_places=4)
+            ),
+            dynamic_payout=Case(
+                When(campaign__isnull=False, is_converted=True, then=F('campaign__payout_amount')),
+                When(campaign__isnull=False, is_converted=False, then=Decimal('0')),
+                default=F('payout'),
+                output_field=DecimalField(max_digits=10, decimal_places=4)
+            )
+        ).annotate(
+            dynamic_profit=F('dynamic_revenue') - F('dynamic_payout')
+        )
 
         return qs
 
@@ -98,7 +121,7 @@ class AnalyticsService:
         if filters:
             all_qs = AnalyticsService._base_qs(user, filters)
         else:
-            all_qs = CallRecord.objects.filter(organization=org)
+            all_qs = AnalyticsService._base_qs(user, filters=type('Obj', (object,), {})())
 
         agg = all_qs.aggregate(
             total_calls=Count('id'),
@@ -106,9 +129,9 @@ class AnalyticsService:
             converted=Count('id', filter=Q(is_converted=True)),
             spam=Count('id', filter=Q(is_spam=True)),
             duplicates=Count('id', filter=Q(is_duplicate=True)),
-            total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
-            total_payout=Coalesce(Sum('payout'), Decimal('0')),
-            total_profit=Coalesce(Sum('profit'), Decimal('0')),
+            total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
+            total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
+            total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
             avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
         )
 
@@ -164,9 +187,9 @@ class AnalyticsService:
             .annotate(
                 calls=Count('id'),
                 converted=Count('id', filter=Q(is_converted=True)),
-                revenue=Coalesce(Sum('revenue'), Decimal('0')),
-                payout=Coalesce(Sum('payout'), Decimal('0')),
-                profit=Coalesce(Sum('profit'), Decimal('0')),
+                revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
+                payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
+                profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
             .order_by('period')
@@ -221,9 +244,9 @@ class AnalyticsService:
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(is_qualified=True)),
                 converted_calls=Count('id', filter=Q(is_converted=True)),
-                total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
-                total_payout=Coalesce(Sum('payout'), Decimal('0')),
-                total_profit=Coalesce(Sum('profit'), Decimal('0')),
+                total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
+                total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
+                total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
             )
@@ -285,7 +308,7 @@ class AnalyticsService:
             .annotate(
                 total_calls=Count('id'),
                 converted=Count('id', filter=Q(is_converted=True)),
-                total_payout=Coalesce(Sum('payout'), Decimal('0')),
+                total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
@@ -341,7 +364,7 @@ class AnalyticsService:
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(is_qualified=True)),
                 converted=Count('id', filter=Q(is_converted=True)),
-                total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
+                total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
@@ -477,9 +500,9 @@ class AnalyticsService:
             'is_converted':     r.is_converted,
             'is_duplicate':     r.is_duplicate,
             'is_spam':          r.is_spam,
-            'revenue':          r.revenue,
-            'payout':           r.payout,
-            'profit':           r.profit,
+            'revenue':          r.dynamic_revenue,
+            'payout':           r.dynamic_payout,
+            'profit':           r.dynamic_profit,
             'winning_bid':      r.winning_bid,
             'recording_url':    r.recording_url,
             'started_at':       dt_start,
@@ -517,7 +540,7 @@ class AnalyticsService:
                 clean_caller, r.caller_state, r.called_number,
                 r.campaign_name, r.buyer_name, r.publisher_name,
                 r.status, r.duration_seconds, r.is_converted,
-                r.revenue, r.payout, r.profit, r.recording_url,
+                r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit, r.recording_url,
             ])
 
 

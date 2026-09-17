@@ -33,7 +33,14 @@ class CallRecord(models.Model):
     called_number     = models.CharField(max_length=20, blank=True)
 
     # Campaign / buyer / publisher (denormalized — store IDs and names)
-    campaign_id   = models.UUIDField(null=True, blank=True, db_index=True)
+    campaign = models.ForeignKey(
+        'campaigns.Campaign',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        db_column='campaign_id',
+        related_name='+'
+    )
     campaign_name = models.CharField(max_length=255, blank=True)
 
     buyer_id   = models.UUIDField(null=True, blank=True, db_index=True)
@@ -41,6 +48,22 @@ class CallRecord(models.Model):
 
     publisher_id   = models.UUIDField(null=True, blank=True, db_index=True)
     publisher_name = models.CharField(max_length=255, blank=True)
+
+    @property
+    def dynamic_revenue(self):
+        if self.campaign_id and getattr(self, 'campaign', None):
+            return self.campaign.revenue_amount if self.is_converted else 0
+        return self.revenue
+
+    @property
+    def dynamic_payout(self):
+        if self.campaign_id and getattr(self, 'campaign', None):
+            return self.campaign.payout_amount if self.is_converted else 0
+        return self.payout
+
+    @property
+    def dynamic_profit(self):
+        return self.dynamic_revenue - self.dynamic_payout
 
     # Call outcome
     status          = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
