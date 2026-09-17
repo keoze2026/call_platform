@@ -59,6 +59,31 @@ class AnalyticsService:
         return qs
 
     @staticmethod
+    def _live_qs(user: User, filters):
+        qs = CallLog.objects.filter(
+            organization=user.organization,
+            status__in=['in_progress', 'ringing', 'initiated']
+        )
+        val_from = filters.date_from or getattr(filters, 'start_date', None) or getattr(filters, 'created_at__gte', None)
+        if val_from:
+            dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
+            if timezone.is_naive(dt): dt = timezone.make_aware(dt)
+            qs = qs.filter(created_at__gte=dt)
+
+        val_to = filters.date_to or getattr(filters, 'end_date', None) or getattr(filters, 'created_at__lte', None)
+        if val_to:
+            dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
+            if timezone.is_naive(dt): dt = timezone.make_aware(dt)
+            qs = qs.filter(created_at__lte=dt)
+
+        if getattr(filters, 'campaign_id', None): qs = qs.filter(campaign_id=filters.campaign_id)
+        if getattr(filters, 'buyer_id', None): qs = qs.filter(buyer_id=filters.buyer_id)
+        if getattr(filters, 'publisher_id', None): qs = qs.filter(publisher_id=filters.publisher_id)
+        if getattr(filters, 'status', None) and filters.status not in ['in_progress', 'ringing', 'initiated']:
+            qs = qs.none()
+        return qs
+
+    @staticmethod
     def _zero_decimal():
         return Decimal('0.0000')
 
@@ -87,11 +112,12 @@ class AnalyticsService:
             avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
         )
 
-        if filters and any([filters.date_from, filters.date_to, filters.created_at__gte, filters.created_at__lte, getattr(filters, 'start_date', None), getattr(filters, 'end_date', None)]):
+        if filters and any([getattr(filters, 'date_from', None), getattr(filters, 'date_to', None), getattr(filters, 'created_at__gte', None), getattr(filters, 'created_at__lte', None), getattr(filters, 'start_date', None), getattr(filters, 'end_date', None)]):
             calls_today = agg['total_calls'] or 0
         else:
             calls_today = all_qs.filter(created_at__gte=today_start).count()
-        live_calls  = CallLog.objects.filter(campaign__organization=org, status__in=['in_progress', 'ringing', 'initiated']).count()
+            
+        live_calls = AnalyticsService._live_qs(user, filters).count()
         actual_total_calls = (agg['total_calls'] or 0) + live_calls
 
         total = actual_total_calls or 1
@@ -115,6 +141,7 @@ class AnalyticsService:
     @staticmethod
     def get_time_series(user: User, filters) -> list:
         qs = AnalyticsService._base_qs(user, filters)
+        live_qs = AnalyticsService._live_qs(user, filters)
 
         trunc_map = {
             'hour':  TruncHour,
@@ -122,7 +149,13 @@ class AnalyticsService:
             'week':  TruncWeek,
             'month': TruncMonth,
         }
-        trunc_fn = trunc_map.get(filters.granularity or 'day', TruncDay)
+        trunc_fn = trunc_map.get(getattr(filters, 'granularity', 'day') or 'day', TruncDay)
+
+        live_rows = dict(
+            live_qs.annotate(period=trunc_fn('created_at'))
+            .values_list('period')
+            .annotate(calls=Count('id'))
+        )
 
         rows = (
             qs
@@ -139,31 +172,53 @@ class AnalyticsService:
             .order_by('period')
         )
 
-        return [
-            {
-                'period':       r['period'].isoformat() if r['period'] else '',
-                'calls':        r['calls'],
+        result = []
+        # Merge live calls into historical, tracking which periods we've seen
+        seen_periods = set()
+        for r in rows:
+            period = r['period']
+            seen_periods.add(period)
+            live_c = live_rows.get(period, 0)
+            result.append({
+                'period':       period.isoformat() if period else '',
+                'calls':        r['calls'] + live_c,
                 'converted':    r['converted'],
                 'revenue':      r['revenue'],
                 'payout':       r['payout'],
                 'profit':       r['profit'],
                 'avg_duration': round(r['avg_duration'] or 0, 1),
-            }
-            for r in rows
-        ]
+            })
+            
+        # Add periods that only exist in live_calls
+        for period, live_c in live_rows.items():
+            if period not in seen_periods:
+                result.append({
+                    'period':       period.isoformat() if period else '',
+                    'calls':        live_c,
+                    'converted':    0,
+                    'revenue':      Decimal('0'),
+                    'payout':       Decimal('0'),
+                    'profit':       Decimal('0'),
+                    'avg_duration': 0.0,
+                })
+                
+        result.sort(key=lambda x: x['period'])
+        return result
 
     # ── campaign performance ─────────────────────────────────────────────────
 
     @staticmethod
     def get_campaign_performance(user: User, filters) -> list:
         qs = AnalyticsService._base_qs(user, filters)
+        live_qs = AnalyticsService._live_qs(user, filters)
+        live_counts = dict(live_qs.exclude(campaign_id=None).values_list('campaign_id').annotate(c=Count('id')))
 
         rows = (
             qs
             .exclude(campaign_id=None)
             .values('campaign_id', 'campaign_name')
             .annotate(
-                total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
+                total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(is_qualified=True)),
                 converted_calls=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
@@ -172,25 +227,47 @@ class AnalyticsService:
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
             )
-            .order_by('-total_calls')
         )
 
         result = []
         for r in rows:
-            total = r['total_calls'] or 1
+            cid = r['campaign_id']
+            lc = live_counts.pop(cid, 0)
+            total = r['total_calls'] + lc
+            t_total = total or 1
             result.append({
-                'campaign_id':     str(r['campaign_id']),
+                'campaign_id':     str(cid),
                 'campaign_name':   r['campaign_name'],
-                'total_calls':     r['total_calls'],
+                'total_calls':     total,
                 'qualified_calls': r['qualified_calls'],
                 'converted_calls': r['converted_calls'],
-                'conversion_rate': round((r['converted_calls'] / total) * 100, 2),
+                'conversion_rate': round((r['converted_calls'] / t_total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
                 'total_payout':    r['total_payout'],
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
             })
+
+        if live_counts:
+            from campaigns.models import Campaign
+            camps = {c.id: c.name for c in Campaign.objects.filter(id__in=live_counts.keys())}
+            for cid, lc in live_counts.items():
+                result.append({
+                    'campaign_id': str(cid),
+                    'campaign_name': camps.get(cid, 'Unknown'),
+                    'total_calls': lc,
+                    'qualified_calls': 0,
+                    'converted_calls': 0,
+                    'conversion_rate': 0.0,
+                    'total_revenue': Decimal('0'),
+                    'total_payout': Decimal('0'),
+                    'total_profit': Decimal('0'),
+                    'avg_duration': 0.0,
+                    'spam_blocked': 0,
+                })
+                
+        result.sort(key=lambda x: x['total_calls'], reverse=True)
         return result
 
     # ── buyer performance ────────────────────────────────────────────────────
@@ -198,34 +275,54 @@ class AnalyticsService:
     @staticmethod
     def get_buyer_performance(user: User, filters) -> list:
         qs = AnalyticsService._base_qs(user, filters)
+        live_qs = AnalyticsService._live_qs(user, filters)
+        live_counts = dict(live_qs.exclude(buyer_id=None).values_list('buyer_id').annotate(c=Count('id')))
 
         rows = (
             qs
             .exclude(buyer_id=None)
             .values('buyer_id', 'buyer_name')
             .annotate(
-                total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
+                total_calls=Count('id'),
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_payout=Coalesce(Sum('payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
-            .order_by('-total_calls')
         )
 
         result = []
         for r in rows:
-            total = r['total_calls'] or 1
+            bid = r['buyer_id']
+            lc = live_counts.pop(bid, 0)
+            total = r['total_calls'] + lc
+            t_total = total or 1
             result.append({
-                'buyer_id':       str(r['buyer_id']),
+                'buyer_id':       str(bid),
                 'buyer_name':     r['buyer_name'],
-                'total_calls':    r['total_calls'],
+                'total_calls':    total,
                 'won_calls':      r['converted'],
                 'avg_bid':        r['avg_bid'],
                 'total_payout':   r['total_payout'],
                 'avg_duration':   round(r['avg_duration'] or 0, 1),
-                'conversion_rate': round((r['converted'] / total) * 100, 2),
+                'conversion_rate': round((r['converted'] / t_total) * 100, 2),
             })
+            
+        if live_counts:
+            from buyers.models import Buyer
+            buyers = {b.id: b.name for b in Buyer.objects.filter(id__in=live_counts.keys())}
+            for bid, lc in live_counts.items():
+                result.append({
+                    'buyer_id': str(bid),
+                    'buyer_name': buyers.get(bid, 'Unknown'),
+                    'total_calls': lc,
+                    'won_calls': 0,
+                    'avg_bid': Decimal('0'),
+                    'total_payout': Decimal('0'),
+                    'avg_duration': 0.0,
+                    'conversion_rate': 0.0,
+                })
+        result.sort(key=lambda x: x['total_calls'], reverse=True)
         return result
 
     # ── publisher performance ────────────────────────────────────────────────
@@ -233,36 +330,57 @@ class AnalyticsService:
     @staticmethod
     def get_publisher_performance(user: User, filters) -> list:
         qs = AnalyticsService._base_qs(user, filters)
+        live_qs = AnalyticsService._live_qs(user, filters)
+        live_counts = dict(live_qs.exclude(publisher_id=None).values_list('publisher_id').annotate(c=Count('id')))
 
         rows = (
             qs
             .exclude(publisher_id=None)
             .values('publisher_id', 'publisher_name')
             .annotate(
-                total_calls=Count('id', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])),
+                total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(is_qualified=True)),
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
-            .order_by('-total_calls')
         )
 
         result = []
         for r in rows:
-            total = r['total_calls'] or 1
+            pid = r['publisher_id']
+            lc = live_counts.pop(pid, 0)
+            total = r['total_calls'] + lc
+            t_total = total or 1
             result.append({
-                'publisher_id':    str(r['publisher_id']),
+                'publisher_id':    str(pid),
                 'publisher_name':  r['publisher_name'],
-                'total_calls':     r['total_calls'],
+                'total_calls':     total,
                 'qualified_calls': r['qualified_calls'],
                 'converted_calls': r['converted'],
-                'conversion_rate': round((r['converted'] / total) * 100, 2),
+                'conversion_rate': round((r['converted'] / t_total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
-                'spam_rate':       round((r['spam_count'] / total) * 100, 2),
+                'spam_rate':       round((r['spam_count'] / t_total) * 100, 2),
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
             })
+
+        if live_counts:
+            from publishers.models import Publisher
+            pubs = {p.id: p.name for p in Publisher.objects.filter(id__in=live_counts.keys())}
+            for pid, lc in live_counts.items():
+                result.append({
+                    'publisher_id': str(pid),
+                    'publisher_name': pubs.get(pid, 'Unknown'),
+                    'total_calls': lc,
+                    'qualified_calls': 0,
+                    'converted_calls': 0,
+                    'conversion_rate': 0.0,
+                    'total_revenue': Decimal('0'),
+                    'spam_rate': 0.0,
+                    'avg_duration': 0.0,
+                })
+        result.sort(key=lambda x: x['total_calls'], reverse=True)
         return result
 
     # ── call log ─────────────────────────────────────────────────────────────
@@ -270,21 +388,69 @@ class AnalyticsService:
     @staticmethod
     def get_call_log(user: User, filters) -> dict:
         from routing.models import CallLog
-        qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
-        total = qs.count()
-        items = list(qs[filters.offset: filters.offset + filters.limit])
+        hist_qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
+        live_qs = AnalyticsService._live_qs(user, filters).order_by('-created_at')
 
-        sids = [r.twilio_call_sid for r in items if r.twilio_call_sid]
+        total = hist_qs.count() + live_qs.count()
+        
+        offset = getattr(filters, 'offset', 0)
+        limit = getattr(filters, 'limit', 50)
+        fetch_limit = offset + limit
+        
+        hist_items = list(hist_qs[:fetch_limit])
+        live_items = list(live_qs[:fetch_limit])
+
+        sids = [r.twilio_call_sid for r in hist_items if r.twilio_call_sid]
         dest_map = dict(
             CallLog.objects.filter(twilio_call_sid__in=sids)
             .values_list('twilio_call_sid', 'destination_number')
         )
 
+        hist_formatted = [AnalyticsService._format_record(r, dest_map.get(r.twilio_call_sid)) for r in hist_items]
+        live_formatted = [AnalyticsService._format_live_log(r) for r in live_items]
+
+        combined = sorted(hist_formatted + live_formatted, key=lambda x: x['created_at'], reverse=True)
+        items = combined[offset : fetch_limit]
+
         return {
             'total':  total,
-            'offset': filters.offset,
-            'limit':  filters.limit,
-            'items':  [AnalyticsService._format_record(r, dest_map.get(r.twilio_call_sid)) for r in items],
+            'offset': offset,
+            'limit':  limit,
+            'items':  items,
+        }
+
+    @staticmethod
+    def _format_live_log(r) -> dict:
+        dt_start = r.created_at
+        return {
+            'id':               str(r.id),
+            'twilio_call_sid':  r.twilio_call_sid,
+            'caller_number':    (lambda rc: (d:=''.join(filter(str.isdigit, rc or ''))) and (d[1:] if d.startswith('1') and len(d)==11 else d))(r.caller_number),
+            'caller_state':     r.caller_state,
+            'called_number':    r.called_number,
+            'destination_number': r.destination_number,
+            'destinationNumber':  r.destination_number,
+            'campaign_id':      str(r.campaign_id) if r.campaign_id else None,
+            'campaign_name':    r.campaign.name if r.campaign else '',
+            'buyer_id':         str(r.buyer_id) if r.buyer_id else None,
+            'buyer_name':       r.buyer.name if r.buyer else '',
+            'publisher_id':     str(r.publisher_id) if r.publisher_id else None,
+            'publisher_name':   r.publisher.name if r.publisher else '',
+            'status':           r.status.replace('_', '-'),
+            'duration_seconds': 0,
+            'is_converted':     False,
+            'is_duplicate':     False,
+            'is_spam':          False,
+            'revenue':          0,
+            'payout':           0,
+            'profit':           0,
+            'winning_bid':      None,
+            'recording_url':    '',
+            'started_at':       dt_start,
+            'startedAt':        int(dt_start.timestamp() * 1000) if dt_start else None,
+            'ended_at':         None,
+            'created_at':       r.created_at,
+            'ipqs_line_type':   r.ipqs_line_type,
         }
 
     @staticmethod
