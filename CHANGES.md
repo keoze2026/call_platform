@@ -662,7 +662,28 @@ trail rather than a silent loss.
 the tracking number. If the platform's own fee is meant to be a separate number from
 what the user pays their publisher, that fee needs its own configurable field.
 
-Related: `routing/asterisk_handler.py` sets `call_log.revenue` and
-`call_log.publisher_payout` to the same value, so `CallLog` profit is always zero. The
-Reporting page looks correct only because it reads `CallRecord`'s dynamic properties
-off the campaign instead of these fields.
+### Revenue and payout were the same number — fixed
+
+`routing/asterisk_handler.py` wrote `campaign.payout_amount` into **both**
+`call_log.revenue` and `call_log.publisher_payout`, and mirrored `profit: 0` into
+`CallRecord`. Every stored row therefore showed zero margin.
+
+The Reporting page looked correct regardless, because it reads `CallRecord`'s
+`dynamic_revenue` / `dynamic_payout` properties, which resolve off the campaign at
+read time rather than trusting the stored columns. Anything querying the columns
+directly — the destinations `revenue_today` sum among them — saw the payout where
+revenue belonged.
+
+Now:
+- `revenue_val` = `campaign.revenue_amount` (what the buyer pays)
+- `payout_val` = `RoutingEngine.required_call_balance(campaign, phone)` — the tracking
+  number's `payout_per_call`, falling back to the campaign, matching what the gate and
+  the charge use
+- `profit` = the difference
+
+The `PhoneNumber` lookup already needed for charging was hoisted up and reused, so this
+adds no extra query.
+
+**Historical rows are not corrected.** Calls completed before this change still carry
+payout in the revenue column. A backfill would need to re-derive them from each
+campaign's pricing.

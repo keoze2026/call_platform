@@ -180,9 +180,15 @@ def call_ended(request):
     campaign = call_log.campaign
     min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
     converted = answered and (duration >= min_dur)
-    payout_val = (getattr(campaign, 'payout_amount', 0) or 0) if converted else 0
 
-    call_log.revenue = payout_val
+    # Revenue and payout are different numbers: revenue is what the buyer pays
+    # for the call, payout is what goes to the publisher. Writing the payout into
+    # both left every CallLog with zero profit.
+    phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
+    payout_val = RoutingEngine.required_call_balance(campaign, phone) if converted else 0
+    revenue_val = (getattr(campaign, 'revenue_amount', 0) or 0) if converted else 0
+
+    call_log.revenue = revenue_val
     call_log.publisher_payout = payout_val
     call_log.save()
 
@@ -198,9 +204,9 @@ def call_ended(request):
                 'status': 'completed' if answered else 'no_answer',
                 'duration_seconds': duration,
                 'is_converted': converted,
-                'revenue': payout_val,
+                'revenue': revenue_val,
                 'payout': payout_val,
-                'profit': 0,
+                'profit': revenue_val - payout_val,
                 'campaign_id': call_log.campaign_id,
                 'campaign_name': call_log.campaign.name if call_log.campaign else '',
                 'buyer_id': call_log.buyer_id,
@@ -220,9 +226,7 @@ def call_ended(request):
     if converted and getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
         try:
             from billing.services import BillingService
-            from phone_numbers.models import PhoneNumber
 
-            phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
             amount = RoutingEngine.required_call_balance(campaign, phone)
 
             if amount > 0:
