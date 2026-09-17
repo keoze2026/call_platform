@@ -61,17 +61,14 @@ class AnalyticsService:
             qs = qs.filter(status=filters.status)
             
         # Dynamically compute revenue/payout/profit from Campaign on the fly
-        # Only apply campaign amounts if the call was successfully converted, else 0
         qs = qs.annotate(
             dynamic_revenue=Case(
-                When(campaign__isnull=False, is_converted=True, then=F('campaign__revenue_amount')),
-                When(campaign__isnull=False, is_converted=False, then=Decimal('0')),
+                When(campaign__isnull=False, then=F('campaign__revenue_amount')),
                 default=F('revenue'),
                 output_field=DecimalField(max_digits=10, decimal_places=4)
             ),
             dynamic_payout=Case(
-                When(campaign__isnull=False, is_converted=True, then=F('campaign__payout_amount')),
-                When(campaign__isnull=False, is_converted=False, then=Decimal('0')),
+                When(campaign__isnull=False, then=F('campaign__payout_amount')),
                 default=F('payout'),
                 output_field=DecimalField(max_digits=10, decimal_places=4)
             )

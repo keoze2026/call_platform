@@ -52,13 +52,13 @@ class CallRecord(models.Model):
     @property
     def dynamic_revenue(self):
         if self.campaign_id and getattr(self, 'campaign', None):
-            return self.campaign.revenue_amount if self.is_converted else 0
+            return self.campaign.revenue_amount
         return self.revenue
 
     @property
     def dynamic_payout(self):
         if self.campaign_id and getattr(self, 'campaign', None):
-            return self.campaign.payout_amount if self.is_converted else 0
+            return self.campaign.payout_amount
         return self.payout
 
     @property
