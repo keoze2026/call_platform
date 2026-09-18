@@ -928,6 +928,14 @@ the database finally agree.
 
 **Backend**
 
+- **2026-09-19 — Asterisk channel cross-check (agreed, scheduled).** Stuck live
+  calls are currently bounded, not eliminated: `tasks.close_stale_calls` sweeps
+  every 15 minutes and closes anything past 60 minutes, so a row can show as Live
+  for up to ~75 minutes after the call really ended. The exact fix is to ask
+  Asterisk which channels are actually active — `core show channels` reported 0
+  while the platform showed 1 — and close anything Asterisk does not have. Needs
+  AMI access from the container. Would also let the manual hangup endpoint drop
+  real audio instead of only closing the record.
 - The platform's own fee equals the publisher payout the client configured. If
   Avortyx's fee is meant to be a separate number, set `per_minute_rate` per
   client — no code change needed.

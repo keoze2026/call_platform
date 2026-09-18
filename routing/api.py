@@ -158,6 +158,95 @@ def get_call(request: HttpRequest, call_id: str):
     except ValueError as e:
         return 404, {"detail": str(e)}
 
+@router.post("/calls/{call_id}/hangup", response={200: dict, 400: dict, 404: dict})
+def hangup_call(request: HttpRequest, call_id: str):
+    """End a call that is showing as live.
+
+    Closes the record: sets a terminal status, stamps ended_at, and derives the
+    duration from answered_at when the call had connected. The analytics mirror
+    follows through the usual post_save signal, and billing runs the same path
+    call_ended uses - idempotent on call_sid, so a webhook arriving afterwards
+    cannot charge the call twice.
+
+    It does NOT drop live audio. Asterisk owns the channel and there is no AMI
+    connection from here, so a genuinely connected call keeps talking until the
+    parties hang up. Its purpose is clearing rows stuck as live because no
+    end-of-call webhook arrived.
+    """
+    from django.conf import settings
+    from django.utils import timezone
+
+    try:
+        call_log = CallLog.objects.select_related('campaign', 'buyer', 'publisher').get(
+            id=call_id, organization=request.auth.organization
+        )
+    except CallLog.DoesNotExist:
+        return 404, {"detail": "Call not found"}
+
+    if call_log.status not in (CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS):
+        return 400, {
+            "detail": f"Call is already {call_log.status}, nothing to hang up",
+            "status": call_log.status,
+        }
+
+    now = timezone.now()
+
+    # A call that connected has a real duration to bill; one that never answered
+    # has none, and must not be charged.
+    if call_log.answered_at:
+        duration = max(int((now - call_log.answered_at).total_seconds()), 0)
+        status = CallLog.Status.COMPLETED
+    else:
+        duration = 0
+        status = CallLog.Status.NO_ANSWER
+
+    call_log.status = status
+    call_log.duration = duration
+    call_log.ended_at = now
+    call_log.block_reason = 'manual_hangup'
+
+    campaign = call_log.campaign
+    min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
+    converted = status == CallLog.Status.COMPLETED and duration >= min_dur
+
+    call_log.revenue = (getattr(campaign, 'revenue_amount', 0) or 0) if converted else 0
+    call_log.publisher_payout = (
+        RoutingEngine.required_call_balance(campaign, None) if converted else 0
+    )
+    call_log.save()
+
+    charged = None
+    if converted and getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
+        try:
+            from billing.services import BillingService
+            from phone_numbers.models import PhoneNumber
+
+            phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
+            amount = BillingService.call_cost(call_log.organization, duration)
+            if amount > 0:
+                tx = BillingService.charge_call(
+                    organization=call_log.organization,
+                    campaign=campaign,
+                    buyer=call_log.buyer,
+                    publisher=call_log.publisher,
+                    amount=amount,
+                    call_sid=call_log.twilio_call_sid,
+                )
+                charged = str(amount) if tx else None
+        except Exception:
+            pass
+
+    return 200, {
+        "id": str(call_log.id),
+        "status": call_log.status,
+        "duration": duration,
+        "converted": converted,
+        "charged": charged,
+        "ended_at": now.isoformat(),
+        "message": "Call record closed. Live audio, if any, is not affected.",
+    }
+
+
 @router.post("/rules/{rule_id}/simulate", response={200: dict, 404: dict})
 def simulate_caller(request, rule_id: str):
     import json as _json
