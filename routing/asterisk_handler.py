@@ -73,23 +73,14 @@ def route_incoming_call(request):
         if call_log is None:
             return JsonResponse({"action": "hangup", "reason": "duplicate_call"})
 
-    # Telnyx number lookup — enrichment only. It records the caller's carrier and
-    # line type for reporting and NEVER drops a call: a lookup that is slow,
-    # failing, or flags the number must not cost a real call. Wrapped so an API
-    # outage cannot break routing.
+    # Carrier lookup runs in a worker, not here. It is a blocking HTTP request
+    # with a 5s timeout and nothing about routing depends on its result, so
+    # keeping it off the call path removes an external round-trip per call.
     try:
-        from spam_protection.telnyx import TelnyxLookupService
-        telnyx_result = TelnyxLookupService.check_phone(caller)
-        call_log.ipqs_checked = True
-        call_log.ipqs_fraud_score = telnyx_result.get('fraud_score', 0) or 0
-        call_log.ipqs_is_voip = telnyx_result.get('VOIP', False) or False
-        call_log.ipqs_line_type = telnyx_result.get('line_type', '') or ''
-        call_log.carrier_name = (telnyx_result.get('carrier_name', '') or '')[:100]
+        from tasks import enrich_call_carrier
+        enrich_call_carrier.delay(str(call_log.id), caller)
     except Exception:
-        logger.exception("telnyx_lookup_failed: call_log=%s caller=%s", call_log.id, caller)
-
-    call_log.status = CallLog.Status.IN_PROGRESS
-    call_log.save()
+        logger.warning("carrier_enrichment_not_queued: call_log=%s", call_log.id)
 
     decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,
@@ -104,9 +95,7 @@ def route_incoming_call(request):
         call_log.status = CallLog.Status.FAILED
         call_log.block_reason = reason[:100]
         call_log.ended_at = timezone.now()
-        # The earlier IPQS branch returns without saving; persist here so the
-        # reason survives on the record rather than being lost with the request.
-        call_log.save()
+        call_log.save(update_fields=['status', 'block_reason', 'ended_at', 'updated_at'])
         return JsonResponse({"action": "hangup", "reason": reason})
 
     buyer = decision.get('buyer')
@@ -116,7 +105,9 @@ def route_incoming_call(request):
         # Resolve dynamic live destination from UI
         try:
             from buyers.destination import Destination
-            live_dest = Destination.objects.filter(buyer=buyer, enabled=True).order_by('-created_at').first()
+            live_dest = Destination.objects.filter(
+                buyer=buyer, enabled=True
+            ).only('tfn').order_by('-created_at').first()
             if live_dest and live_dest.tfn:
                 dest_number = live_dest.tfn
         except Exception:
@@ -126,7 +117,7 @@ def route_incoming_call(request):
         call_log.destination_number = dest_number
 
     call_log.status = CallLog.Status.IN_PROGRESS
-    call_log.save()
+    call_log.save(update_fields=['status', 'buyer', 'destination_number', 'updated_at'])
 
     return JsonResponse({
         "action": "dial",

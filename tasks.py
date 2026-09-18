@@ -244,6 +244,35 @@ def send_notification(event: str, organization_id: str, data: dict):
         return f"Organization {organization_id} not found"
 
 
+@app.task(name='tasks.enrich_call_carrier')
+def enrich_call_carrier(call_log_id, caller_number):
+    """Look the caller up with Telnyx and record carrier / line type.
+
+    Runs after the call has already been routed. The lookup is a blocking HTTP
+    request with a 5s timeout, and nothing about routing depends on its result,
+    so keeping it out of the call path removes an external round-trip from every
+    incoming call.
+    """
+    from routing.models import CallLog
+    from spam_protection.telnyx import TelnyxLookupService
+
+    try:
+        call_log = CallLog.objects.get(id=call_log_id)
+    except CallLog.DoesNotExist:
+        return f"CallLog {call_log_id} not found"
+
+    result = TelnyxLookupService.check_phone(caller_number)
+
+    CallLog.objects.filter(id=call_log_id).update(
+        ipqs_checked=True,
+        ipqs_fraud_score=result.get('fraud_score', 0) or 0,
+        ipqs_is_voip=result.get('VOIP', False) or False,
+        ipqs_line_type=(result.get('line_type', '') or '')[:50],
+        carrier_name=(result.get('carrier_name', '') or '')[:100],
+    )
+    return f"Enriched {call_log_id}: {result.get('carrier_name', '') or 'unknown carrier'}"
+
+
 @app.task(name='tasks.mirror_call_record')
 def mirror_call_record(call_log_id):
     """Mirror a terminal CallLog into the CallRecord analytics table."""

@@ -132,9 +132,17 @@ WSGI_APPLICATION = 'config.wsgi.application'
 DATABASES = {
     'default': dj_database_url.config(
         default=config('DATABASE_URL', default=f'sqlite:///{BASE_DIR / "db.sqlite3"}'),
-        conn_max_age=600,
+        # Behind PgBouncer set DB_CONN_MAX_AGE=0 — the pooler owns the connections
+        # and Django holding its own defeats the point.
+        conn_max_age=config('DB_CONN_MAX_AGE', default=600, cast=int),
     )
 }
+
+# PgBouncer in transaction pooling mode cannot carry a server-side cursor across
+# statements. Set DB_DISABLE_SERVER_SIDE_CURSORS=True when pooling.
+DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = config(
+    'DB_DISABLE_SERVER_SIDE_CURSORS', default=False, cast=bool
+)
 
 
 # Custom user model
