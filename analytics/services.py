@@ -84,11 +84,13 @@ class AnalyticsService:
         # Revenue and payout are earned per *converted* call, so an unconverted
         # call contributes zero. Applying campaign pricing to every row credited
         # calls that never connected — 83 incoming were billed as 83 conversions.
-        # Gate on status, not is_converted: routing/signals.py mirrors CallLog rows
-        # without ever setting is_converted, so that flag is False on most records
-        # and gating on it zeroes real earnings.
+        # A call earns when it converts: answered AND at least the campaign's
+        # min_call_duration. Billing already uses that rule, so gating reporting
+        # on status alone counted short answered calls as revenue that was never
+        # charged. is_converted is safe to use now that the signal populates it
+        # and backfill_converted has fixed the historical rows.
         zero = Value(Decimal('0'), output_field=DecimalField(max_digits=10, decimal_places=4))
-        earned = Q(status=CallRecord.Status.COMPLETED)
+        earned = Q(is_converted=True)
 
         qs = qs.annotate(
             dynamic_revenue=Case(

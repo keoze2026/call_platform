@@ -54,7 +54,7 @@ class CallRecord(models.Model):
     def dynamic_revenue(self):
         if hasattr(self, '_dynamic_revenue'):
             return self._dynamic_revenue
-        if self.status != CallRecord.Status.COMPLETED:
+        if not self.is_converted:
             return Decimal('0')
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.revenue_amount
@@ -68,7 +68,7 @@ class CallRecord(models.Model):
     def dynamic_payout(self):
         if hasattr(self, '_dynamic_payout'):
             return self._dynamic_payout
-        if self.status != CallRecord.Status.COMPLETED:
+        if not self.is_converted:
             return Decimal('0')
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.payout_amount
