@@ -120,8 +120,10 @@ class BillingService:
             }
         )
 
-        balance_before = account.balance
-        account.balance += amount
+        # A freshly created account carries the model's float default in memory,
+        # and float + Decimal raises. Coerce before arithmetic.
+        balance_before = Decimal(account.balance or 0)
+        account.balance = balance_before + amount
         account.save(update_fields=['balance', 'updated_at'])
 
         return Transaction.objects.create(
@@ -190,11 +192,11 @@ class BillingService:
         except BillingAccount.DoesNotExist:
             return None
 
-        if account.balance < amount:
+        if Decimal(account.balance or 0) < amount:
             return None
 
-        balance_before = account.balance
-        account.balance -= amount
+        balance_before = Decimal(account.balance or 0)
+        account.balance = balance_before - amount
         account.save(update_fields=['balance', 'updated_at'])
 
         tx = Transaction.objects.create(
