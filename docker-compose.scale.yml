@@ -1,0 +1,12 @@
+# Replica overlay — NOT used by default.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.scale.yml up -d --scale web=3
+#
+# Binds one host port per replica (8000, 8001, 8002). Only use this together with
+# the Nginx upstream block in docs/SCALING.md — with plain docker-compose.yml,
+# Nginx expects the single backend on 127.0.0.1:8000.
+
+services:
+  web:
+    ports: !override
+      - "8000-8002:8000"

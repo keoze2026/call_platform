@@ -22,11 +22,12 @@ services:
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     volumes:
       - .:/app
-    # A port range rather than a single port, so `docker compose up -d --scale web=3`
-    # gives each replica its own host port (8000, 8001, 8002) for Nginx to balance
-    # across. Scaling to 1 still binds 8000 exactly as before.
+    # Fixed port: Nginx proxies to 127.0.0.1:8000. Do NOT change this to a range
+    # here — with a range Docker may bind 8001 instead of 8000 and Nginx silently
+    # loses the backend. To run replicas, use docker-compose.scale.yml (see
+    # docs/SCALING.md), which overrides this alongside the matching Nginx config.
     ports:
-      - "8000-8002:8000"
+      - "8000:8000"
     env_file:
       - .env
     depends_on:
