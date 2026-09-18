@@ -281,6 +281,7 @@ class AnalyticsService:
                 total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
+                duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
             )
         )
 
@@ -302,6 +303,11 @@ class AnalyticsService:
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
+                'duplicate_calls': r['duplicate_calls'],
+                # Aliases: the summary table's DUPE column has been seen reading
+                # each of these spellings.
+                'dupe':            r['duplicate_calls'],
+                'duplicates':      r['duplicate_calls'],
             })
 
         if live_counts:
@@ -320,6 +326,9 @@ class AnalyticsService:
                     'total_profit': Decimal('0'),
                     'avg_duration': 0.0,
                     'spam_blocked': 0,
+                    'duplicate_calls': 0,
+                    'dupe': 0,
+                    'duplicates': 0,
                 })
                 
         result.sort(key=lambda x: x['total_calls'], reverse=True)
@@ -342,6 +351,7 @@ class AnalyticsService:
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
+                duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
         )
@@ -361,6 +371,9 @@ class AnalyticsService:
                 'total_payout':   r['total_payout'],
                 'avg_duration':   round(r['avg_duration'] or 0, 1),
                 'conversion_rate': round((r['converted'] / t_total) * 100, 2),
+                'duplicate_calls': r['duplicate_calls'],
+                'dupe':            r['duplicate_calls'],
+                'duplicates':      r['duplicate_calls'],
             })
             
         if live_counts:
@@ -398,6 +411,7 @@ class AnalyticsService:
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
+                duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
         )
@@ -418,6 +432,9 @@ class AnalyticsService:
                 'total_revenue':   r['total_revenue'],
                 'spam_rate':       round((r['spam_count'] / t_total) * 100, 2),
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
+                'duplicate_calls': r['duplicate_calls'],
+                'dupe':            r['duplicate_calls'],
+                'duplicates':      r['duplicate_calls'],
             })
 
         if live_counts:
@@ -434,6 +451,9 @@ class AnalyticsService:
                     'total_revenue': Decimal('0'),
                     'spam_rate': 0.0,
                     'avg_duration': 0.0,
+                    'duplicate_calls': 0,
+                    'dupe': 0,
+                    'duplicates': 0,
                 })
         result.sort(key=lambda x: x['total_calls'], reverse=True)
         return result
