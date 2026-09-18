@@ -139,6 +139,86 @@ def route_incoming_call(request):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def active_channels(request):
+    """Reconcile live call rows against the channels Asterisk actually has.
+
+    A call whose end-of-call webhook never arrived sits in in_progress forever.
+    Asterisk is the authority on what is really up, so a small host script posts
+    its channel list here and anything the platform thinks is live but Asterisk
+    does not have gets closed.
+
+    Deliberately conservative, because closing a real call would be far worse
+    than leaving a stale row:
+
+      * rows younger than ASTERISK_SYNC_GRACE_SECONDS are never touched - a call
+        can exist here a moment before Asterisk reports the channel
+      * when Asterisk reports zero channels, nothing can be live, so every row
+        past the grace period is closed
+      * when Asterisk reports channels, ids are only trusted if at least one of
+        them matches a live row. If none match, the id format differs from what
+        the dialplan sends and NOTHING is closed - better to do nothing than
+        guess
+
+    Reads nothing in the routing path and changes no routing behaviour.
+    """
+    if not _check_secret(request):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except Exception:
+        return JsonResponse({"error": "Bad JSON"}, status=400)
+
+    active_ids = [str(i) for i in (data.get('active_call_ids') or [])]
+    try:
+        active_count = int(data.get('active_count', len(active_ids)))
+    except (TypeError, ValueError):
+        return JsonResponse({"error": "active_count must be a number"}, status=400)
+
+    grace = getattr(settings, 'ASTERISK_SYNC_GRACE_SECONDS', 120)
+    cutoff = timezone.now() - timezone.timedelta(seconds=grace)
+
+    live = CallLog.objects.filter(
+        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
+        created_at__lt=cutoff,
+    )
+
+    if active_count == 0:
+        stale = list(live)
+        reason = 'asterisk reports no active channels'
+    else:
+        live_sids = set(live.values_list('twilio_call_sid', flat=True))
+        if not (live_sids & set(active_ids)):
+            # No overlap: the ids Asterisk sends are not the ids stored here, so
+            # absence from the list proves nothing. Leave everything alone.
+            return JsonResponse({
+                "closed": 0,
+                "skipped": live.count(),
+                "reason": "channel ids do not match stored call ids; nothing closed",
+            })
+        stale = [c for c in live if c.twilio_call_sid not in active_ids]
+        reason = 'not present in asterisk channel list'
+
+    closed = 0
+    now = timezone.now()
+    for call in stale:
+        call.status = CallLog.Status.NO_ANSWER
+        call.ended_at = now
+        call.block_reason = 'asterisk_gone'
+        # Saved one at a time so post_save fires and the call reaches CallRecord
+        call.save(update_fields=['status', 'ended_at', 'block_reason', 'updated_at'])
+        logger.info('closed orphaned call %s (%s)', call.id, reason)
+        closed += 1
+
+    return JsonResponse({
+        "closed": closed,
+        "asterisk_active": active_count,
+        "reason": reason,
+    })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def call_ended(request):
     if not _check_secret(request):
         return JsonResponse({"error": "Forbidden"}, status=403)

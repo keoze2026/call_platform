@@ -218,6 +218,10 @@ CHARGE_COMPLETED_CALLS = config('CHARGE_COMPLETED_CALLS', default=True, cast=boo
 # webhook from Asterisk and is closed as no_answer by tasks.close_stale_calls.
 STALE_CALL_MINUTES = config('STALE_CALL_MINUTES', default=60, cast=int)
 
+# A live row younger than this is never closed by the Asterisk channel sync: a
+# call can exist here a moment before Asterisk reports its channel.
+ASTERISK_SYNC_GRACE_SECONDS = config('ASTERISK_SYNC_GRACE_SECONDS', default=120, cast=int)
+
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
