@@ -12,7 +12,11 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-003](#ch-003) | 2026-08-31 | Phone Numbers | Trunk-attach failure no longer aborts a paid-for purchase | Done — commit `76b76357` |
 | [CH-004](#ch-004) | 2026-09-13 | Multi-tenant / Analytics | Org alignment, analytics backfill, webhook + recording fixes | Done — commit `d470a7d4` |
 | [CH-005](#ch-005) | 2026-09-14 | Celery / Scaling | Task registration fix, async webhooks, decoupled analytics mirroring | Done — commit `e8e5a888` |
-| [CH-006](#ch-006) | 2026-09-18 | Billing / Routing | Balance guardrail before call dispatch, manual recharge command | Done — not yet committed |
+| [CH-006](#ch-006) | 2026-09-18 | Billing / Routing | Balance guardrail before call dispatch, manual recharge command | Done — commit `be28f5f5` |
+| [CH-007](#ch-007) | 2026-09-18 | Billing | Per-minute call charging, per-client rates | Done — commit `80c9d2fe` |
+| [CH-008](#ch-008) | 2026-09-18 | Analytics | Revenue/payout split, conversion gating, duplicate records removed | Done — commit `aa68a720` |
+| [CH-009](#ch-009) | 2026-09-18 | Routing / Scaling | Carrier lookup off the call path, Telnyx no longer blocks calls | Done — commit `d5f55466` |
+| [CH-010](#ch-010) | 2026-09-18 | Migrations | State-only FK migration, CallLog indexes | Done — commit `ceecc5ea` |
 | [CH-006](#ch-006) | 2026-09-17 | Analytics | Dynamic Dashboard Pricing & PhoneNumber Formatting | Done |
 
 ## Open items (not done yet)
@@ -538,7 +542,7 @@ duplicate-node symptom the consolidation step was meant to fix.
 ## CH-006 — Balance validation before call dispatch, manual recharge workflow
 
 **Date:** 2026-09-18
-**Commit:** not yet committed
+**Commit:** `be28f5f5`
 **Made on:** local (`/home/hans/Desktop/call_platform`)
 
 ### Problem
@@ -687,3 +691,261 @@ adds no extra query.
 **Historical rows are not corrected.** Calls completed before this change still carry
 payout in the revenue column. A backfill would need to re-derive them from each
 campaign's pricing.
+
+---
+
+<a name="ch-007"></a>
+## CH-007 — Per-minute call charging with per-client rates
+
+**Commits:** `c914fa65`, `63f79fef`, `80c9d2fe`, `4061c6ff`
+**Deployed and verified:** 2026-09-18
+
+### Problem
+
+[CH-006](#ch-006) built a *gate* — it refused calls an organization could not
+afford but never charged for the ones it allowed, so balances never moved. Worse,
+when charging was added it billed a flat $0.45 per call. The $0.45 is a
+**per-minute** rate, so a five-minute call was billed at one fifth of its cost.
+
+Whether the rate charged to a client equals the payout they pay their publisher,
+and whether a markup applies, were never settled.
+
+### What was built
+
+**`BillingService.call_cost(organization, duration_seconds)`**
+
+```
+ceil(duration / 60) x per_minute_rate x (1 + markup)
+```
+
+Rounded **up** to the whole minute — confirmed as the intended behaviour. A
+90-second call bills 2 minutes. A missed call has no duration and costs nothing,
+matching "100 calls hit, 20 missed, we count our minutes".
+
+**`BillingAccount.per_minute_rate` and `.markup_percent`** (migration
+`billing/0006`), defaulting to `$0.4500` and `0.00`. Per client, not global.
+
+The two unsettled questions became **settings rather than code**: if the client
+rate should differ from the publisher payout, change the field. Same for markup.
+Neither needs a deploy, and neither blocked shipping.
+
+**`set_rate` command** — view and change a client's pricing, with `--preview`:
+
+```bash
+python manage.py set_rate --list
+python manage.py set_rate --org "Avortyx" --rate 0.45 --markup 20
+python manage.py set_rate --org "Avortyx" --preview 150   # 3 min = $1.35
+```
+
+**Charging** happens in `call_ended` on converted calls, is idempotent on
+`call_sid` so carrier retries cannot double-bill, and never blocks the webhook
+response — a billing failure is logged and the handler still returns 200.
+
+**The routing gate** now requires one minute's cost rather than a flat per-call
+figure, falling back to the payout figures when no account rate exists.
+
+### Bug found in the first deploy
+
+`add_funds` crashed with `unsupported operand type(s) for +=: 'float' and
+'decimal.Decimal'` when creating a **new** billing account. The model default is
+the float literal `0.00` and `get_or_create` leaves that float on the in-memory
+instance; accounts loaded from the database come back as `Decimal`. So it only
+failed on a client's first top-up — precisely what the command exists for. Fixed
+by coercing in `add_funds` and `charge_call` (`4061c6ff`).
+
+### Verified
+
+```
+150s call -> 3 min = $1.35
+ 61s call -> 2 min = $0.90
+```
+
+Balance moved from $10,050.00 to $10,025.25 over 55 charged calls, confirming the
+loop end to end: recharge -> gate -> route -> complete -> deduct.
+
+---
+
+<a name="ch-008"></a>
+## CH-008 — Analytics: revenue/payout split, conversion gating, duplicate records
+
+**Commits:** `34f757fc`, `11791da4`, `6f136515`, `e596d732`, `a74a2088`, `aa68a720`
+**Deployed and verified:** 2026-09-18
+
+Four separate defects, all surfacing as "the numbers are wrong".
+
+### 1. Revenue and payout were the same number
+
+`call_ended` wrote `campaign.payout_amount` into **both** `call_log.revenue` and
+`call_log.publisher_payout`, mirroring `profit: 0`. Every stored row showed zero
+margin. Reporting looked right only because it reads `CallRecord`'s dynamic
+properties, which resolve off the campaign at read time rather than trusting the
+columns.
+
+Now revenue comes from `campaign.revenue_amount`, payout from
+`RoutingEngine.required_call_balance` (tracking number first, campaign as
+fallback — the same resolution the gate and the charge use), profit is the
+difference.
+
+### 2. Earnings counted on every call, not converted ones
+
+The `_base_qs` annotation applied campaign pricing to any call with a campaign,
+regardless of outcome: **83 incoming calls were billed as 83 conversions**
+($83.00 revenue) when only 43 converted.
+
+Gating on `is_converted` was the obvious fix and **zeroed the entire dashboard** —
+`routing/signals.py` mirrors rows without ever setting that flag, so it was
+`False` almost everywhere. Reverted to gating on `status == completed` the same
+day (`6f136515`), then done properly in [CH-010](#ch-010) once the flag was
+populated and backfilled.
+
+### 3. CallRecord written twice per call
+
+`call_ended` did `update_or_create(twilio_call_sid=..., organization=...)` while
+the `post_save` signal does `update_or_create(id=call.id, ...)`. **Different
+unique keys**, so every terminal call produced two analytics rows and every total
+was doubled — 8 real calls reporting as 16, against a `CallLog` holding the true
+12.
+
+`call_ended`'s copy was removed; the signal is now the single writer.
+`dedupe_call_records` cleared the rows the old writer left behind (8 removed,
+`CallRecord` down to 766), preferring the row whose id matches its `CallLog`.
+
+### 4. Balance was not served anywhere
+
+The header rendered `$0` against a real $10,050. Neither
+`/api/analytics/dashboard` nor `/api/accounts/me` carried a balance field, and
+`/api/billing/account` — the only endpoint that did — was never called on page
+load. `balance` and `currency` now ride along on the dashboard payload, the same
+response that already feeds `Live:` and `Total:`.
+
+### Verified
+
+Sep 17: 43 completed, 43 converted, `$43.00 / $19.35 / $23.65`. Every carrier row
+reconciles to `converted x $1.00` and `converted x $0.45`.
+
+---
+
+<a name="ch-009"></a>
+## CH-009 — Carrier lookup off the call path; Telnyx stops dropping calls
+
+**Commits:** `af675f18`, `d5f55466`, `bd8d8f02`
+**Deployed:** 2026-09-18
+
+### Telnyx was ending real calls
+
+The number lookup fed a `should_block` branch that hung up on flagged numbers,
+and ran only when `campaign.ipqs_enabled` was set — so carrier data was missing
+on campaigns with the flag off, while flagged callers lost real calls.
+
+It is now enrichment only: no block branch, wrapped so a Telnyx outage cannot
+touch routing, and running on every call so carrier data is always captured.
+
+### Then it became the bottleneck
+
+Running unconditionally put a blocking HTTP request with a 5-second timeout in
+front of **every** incoming call. Nothing about routing depends on its result, so
+it moved to `tasks.enrich_call_carrier` — one external round-trip removed per
+call. Carrier data now lands a moment after the call rather than instantly.
+
+### Scaling groundwork
+
+- `docker-compose.scale.yml` maps one host port per replica, opt-in
+- PgBouncer under the `pooling` profile, with `DB_CONN_MAX_AGE` and
+  `DB_DISABLE_SERVER_SIDE_CURSORS` as settings
+- `docs/SCALING.md`: Nginx upstream config, and the Kamailio/OpenSIPS media-split
+  design with its one real dependency — recordings must move to shared storage
+  before Asterisk can be multi-node
+
+### Outage caused by this work
+
+Replicas were first implemented by changing the live `web` port to the range
+`8000-8002`. With a single replica Docker bound **8001** while Nginx still
+proxied to 8000, taking the API down with "Failed to fetch". Calls kept routing —
+Asterisk posts to the container directly — but the dashboard was unreachable.
+
+Reverted to a fixed `8000:8000`; replica mapping now lives in the opt-in overlay
+file, matching how PgBouncer was handled. **Never change the live port binding
+in `docker-compose.yml`.**
+
+---
+
+<a name="ch-010"></a>
+## CH-010 — Migrations: state-only FK, CallLog indexes, conversion backfill
+
+**Commit:** `ceecc5ea`, `aa68a720`
+**Deployed and verified:** 2026-09-18
+
+### A migration that would have destroyed data
+
+`makemigrations` reported pending changes in `analytics` and `routing` from
+another developer's model edits. The analytics one was
+`RemoveField(campaign_id)` + `AddField(campaign)`.
+
+`CallRecord.campaign` is a ForeignKey declared with `db_column='campaign_id'` —
+**the same physical column** the old UUIDField used, with the same contents.
+Nothing in the database needed to change. But the generated migration becomes
+`DROP COLUMN campaign_id` then `ADD COLUMN campaign_id`: every `CallRecord` would
+lose its campaign, and since revenue and payout resolve through the campaign, all
+reporting would read zero.
+
+Written by hand as `SeparateDatabaseAndState` instead — model state changes, no
+database operations. No FK constraint was added: the column holds ids written
+before the FK existed, and a constraint could fail on any row whose campaign has
+since been deleted.
+
+**Do not run `makemigrations` on `analytics` without reading what it generates.**
+
+### CallLog indexes
+
+`routing/0006` adds `(called_number, status)` and `(status)`, which the model had
+gained without a migration. The first is the exact lookup `route_incoming_call`
+performs on every incoming call.
+
+### Reporting now matches billing
+
+Billing charges on conversion — answered **and** at least the campaign's
+`min_call_duration`. Reporting counted any answered call, so a 6-second call
+showed $1.00 revenue and was never charged.
+
+`backfill_converted` recomputes `is_converted` the way `call_ended` does. Dry run
+first: 279 rows to flip, **8 of 400 completed calls under threshold** — the exact
+size of the gap. After the backfill the reporting gate moved to `is_converted`.
+
+This is per campaign, not global: hit-and-count clients set `min_call_duration`
+to 0 so every answered call counts; buffer clients set 10 or 30 and only calls
+past it count. No global rule, as the client requested.
+
+### Verified
+
+Sep 17 after the switch: `completed: 43 | converted: 43`, `$43.00 / $19.35 /
+$23.65` — unchanged, because all 43 ran past the threshold.
+`makemigrations --dry-run` reports **No changes detected**: Django's state and
+the database finally agree.
+
+---
+
+## Still open
+
+**Backend**
+
+- The platform's own fee equals the publisher payout the client configured. If
+  Avortyx's fee is meant to be a separate number, set `per_minute_rate` per
+  client — no code change needed.
+- `get_dashboard(filters=None)` builds `type('Obj', (object,), {})()` and crashes
+  on the missing `date_from`. Production never hits it (`Query(...)` makes filters
+  required) but it is a landmine for any internal caller.
+- The worker runs as root; Celery warns on every start.
+- `callplatform-worker.service` has no `-n` flag, so a second worker would
+  collide on the default node name.
+
+**Frontend** — backend is complete for all of these
+
+1. Balance never displayed. `GET /api/analytics/dashboard` returns `balance` and
+   `currency`; verified server-side as `Decimal('10050.00')`.
+2. `Cost` column is fabricated — no backend field feeds it.
+3. Caller Profile carriers were fabricated. `carrier_name` is now captured on new
+   calls; historical rows are blank and cannot be recovered.
+4. Routing plan builder cannot show or edit rules. Endpoints exist at
+   `/api/routing/rules/{id}/destinations`.
+5. Number provisioning must surface `trunk_warning` on a `201` with
+   `status: "pending"`.
