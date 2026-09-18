@@ -1,5 +1,6 @@
 import uuid
-from decimal import Decimal
+import math
+from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
 from django.db import transaction
 from .models import BillingAccount, Transaction, Invoice
@@ -135,6 +136,37 @@ class BillingService:
             provider='manual',
             status=Transaction.Status.COMPLETED,
         )
+
+    @staticmethod
+    def call_cost(organization, duration_seconds: int) -> Decimal:
+        """What this client is charged for a call of this length.
+
+            ceil(duration / 60) x per_minute_rate x (1 + markup)
+
+        Rounded up to the whole minute, the standard telecom convention: a
+        90-second call bills as 2 minutes. A zero-length call (missed, no answer)
+        costs nothing.
+
+        Rate and markup are per-client fields on the billing account, so pricing
+        changes without a deploy.
+        """
+        duration_seconds = int(duration_seconds or 0)
+        if duration_seconds <= 0:
+            return Decimal('0.00')
+
+        try:
+            account = BillingAccount.objects.only(
+                'per_minute_rate', 'markup_percent'
+            ).get(organization=organization)
+        except BillingAccount.DoesNotExist:
+            return Decimal('0.00')
+
+        minutes = Decimal(math.ceil(duration_seconds / 60))
+        rate = Decimal(account.per_minute_rate or 0)
+        markup = Decimal(account.markup_percent or 0) / Decimal('100')
+
+        cost = minutes * rate * (Decimal('1') + markup)
+        return cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
 
     @staticmethod
     @transaction.atomic

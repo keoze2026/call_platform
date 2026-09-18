@@ -357,7 +357,7 @@ class RoutingEngine:
 
     @staticmethod
     @staticmethod
-    def required_call_balance(campaign, phone_number=None) -> Decimal:
+    def required_call_balance(campaign, phone_number=None, organization=None) -> Decimal:
         """Credit needed to dispatch one call, read from configured pricing.
 
         Nothing here is a fixed rate. The number comes from what the operator set
@@ -369,6 +369,18 @@ class RoutingEngine:
         Zero means the campaign has not been priced, so no minimum is enforced.
         MINIMUM_CALL_BALANCE is an optional floor, off (0) unless configured.
         """
+        # A call cannot be routed unless the client can afford its first minute,
+        # which is what they are actually billed. Falls through to the payout
+        # figures only when no billing account rate is available.
+        if organization is not None:
+            try:
+                from billing.services import BillingService
+                one_minute = BillingService.call_cost(organization, 60)
+                if one_minute > 0:
+                    return one_minute
+            except Exception:
+                logger.exception("call_cost_failed: org=%s", getattr(organization, 'id', None))
+
         if phone_number is not None:
             per_number = getattr(phone_number, 'payout_per_call', None) or Decimal('0')
             if per_number > 0:
@@ -390,7 +402,9 @@ class RoutingEngine:
         if not getattr(settings, 'ENFORCE_CALL_BALANCE', True):
             return True
 
-        required = RoutingEngine.required_call_balance(campaign, phone_number)
+        required = RoutingEngine.required_call_balance(
+            campaign, phone_number, campaign.organization
+        )
         if required <= 0:
             # Unpriced campaign — nothing configured to charge against.
             return True

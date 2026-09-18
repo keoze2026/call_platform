@@ -196,7 +196,9 @@ def call_ended(request):
         try:
             from billing.services import BillingService
 
-            amount = RoutingEngine.required_call_balance(campaign, phone)
+            # Per-minute pricing: ceil(duration / 60) x rate x (1 + markup).
+            # A missed call has no duration and therefore no cost.
+            amount = BillingService.call_cost(call_log.organization, duration)
 
             if amount > 0:
                 charge = BillingService.charge_call(

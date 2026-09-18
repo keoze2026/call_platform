@@ -1,4 +1,6 @@
 import uuid
+from decimal import Decimal
+
 from django.db import models
 from accounts.models import Organization, User
 
@@ -25,6 +27,17 @@ class BillingAccount(models.Model):
     auto_recharge_amount = models.DecimalField(max_digits=10, decimal_places=2, default=50.00)
     auto_recharge_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=10.00)
 
+
+    # Per-minute call pricing, per client. Billing rounds up to the whole minute:
+    # a 90-second call bills as 2 minutes.
+    per_minute_rate = models.DecimalField(
+        max_digits=10, decimal_places=4, default=Decimal('0.4500'),
+        help_text='What this client is charged per minute of call time'
+    )
+    markup_percent = models.DecimalField(
+        max_digits=6, decimal_places=2, default=Decimal('0.00'),
+        help_text='Percentage added on top of the per-minute rate. 0 = no markup'
+    )
 
     currency = models.CharField(max_length=3, default='USD', help_text='ISO 4217 currency code (USD, EUR, GBP, etc)')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
