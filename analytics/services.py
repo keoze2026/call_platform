@@ -22,6 +22,27 @@ def _map_twilio_status(status_str):
     return mapping.get((status_str or '').lower(), 'completed')
 
 
+def _account_balance(organization) -> Decimal:
+    """Organization credit, or zero when billing is unavailable.
+
+    Never raises: a billing problem must not take the dashboard down with it.
+    """
+    try:
+        from billing.services import BillingService
+        return BillingService.get_balance(organization)
+    except Exception:
+        return Decimal('0')
+
+
+def _account_currency(organization) -> str:
+    try:
+        from billing.models import BillingAccount
+        account = BillingAccount.objects.only('currency').get(organization=organization)
+        return account.currency or 'USD'
+    except Exception:
+        return 'USD'
+
+
 class AnalyticsService:
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -162,6 +183,8 @@ class AnalyticsService:
             'total_payout':      agg['total_payout'],
             'total_profit':      agg['total_profit'],
             'avg_call_duration': round(agg['avg_duration'] or 0, 1),
+            'balance':           _account_balance(org),
+            'currency':          _account_currency(org),
             'spam_blocked':      agg['spam'],
             'duplicate_blocked': agg['duplicates'],
         }

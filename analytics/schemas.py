@@ -73,6 +73,10 @@ class DashboardSchema(Schema):
     avg_call_duration: float
     spam_blocked:      int
     duplicate_blocked: int
+    # Account credit, so the header can show it without a second request.
+    # Also served on its own at GET /api/billing/account.
+    balance:           Decimal = Decimal('0')
+    currency:          str = 'USD'
 
 
 # ─── Time Series ─────────────────────────────────────────────────────────────
