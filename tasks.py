@@ -244,6 +244,52 @@ def send_notification(event: str, organization_id: str, data: dict):
         return f"Organization {organization_id} not found"
 
 
+@app.task(name='tasks.charge_portal_fees')
+def charge_portal_fees():
+    """Take the recurring portal fee from any account whose cycle is due.
+
+    Runs daily and charges on each account's own 30-day cycle rather than a
+    fixed calendar date: a client who signs up on the 20th is not billed again
+    on the 1st, and the whole customer base does not land on one day.
+
+    An account that cannot cover the fee is skipped and retried tomorrow, so a
+    temporary shortfall delays the charge rather than skipping that month.
+    """
+    from datetime import timedelta
+    from django.utils import timezone
+    from billing.models import BillingAccount
+    from billing.services import BillingService
+
+    now = timezone.now()
+    cutoff = now - timedelta(days=30)
+
+    due = BillingAccount.objects.filter(
+        status=BillingAccount.Status.ACTIVE,
+        monthly_portal_fee__gt=0,
+    ).filter(
+        Q(portal_fee_charged_at__isnull=True) | Q(portal_fee_charged_at__lte=cutoff)
+    ).select_related('organization')
+
+    charged = skipped = 0
+    for account in due:
+        tx = BillingService.charge_fee(
+            organization=account.organization,
+            amount=account.monthly_portal_fee,
+            description=f"Portal access fee ({now.strftime('%b %Y')})",
+            reference_id=f"portal-{account.organization_id}-{now:%Y%m}",
+        )
+        if tx is None:
+            skipped += 1
+            print(f'portal fee skipped, insufficient balance: {account.organization}')
+            continue
+
+        # Only stamped on success, so a skipped account is retried tomorrow
+        BillingAccount.objects.filter(pk=account.pk).update(portal_fee_charged_at=now)
+        charged += 1
+
+    return f"Portal fees: {charged} charged, {skipped} skipped"
+
+
 @app.task(name='tasks.enrich_call_carrier')
 def enrich_call_carrier(call_log_id, caller_number):
     """Look the caller up with Telnyx and record carrier / line type.

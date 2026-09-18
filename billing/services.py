@@ -172,6 +172,57 @@ class BillingService:
 
     @staticmethod
     @transaction.atomic
+    def charge_fee(organization, amount: Decimal, description: str,
+                   reference_id: str = '') -> Transaction:
+        """Take a one-off fee. Returns None when the balance cannot cover it.
+
+        Idempotency is the caller's business: unlike charge_call there is no
+        call_sid to key on, so pass a reference_id and check for it first if the
+        fee must only be taken once.
+        """
+        if amount <= 0:
+            return None
+
+        try:
+            account = BillingAccount.objects.select_for_update().get(
+                organization=organization
+            )
+        except BillingAccount.DoesNotExist:
+            return None
+
+        balance_before = Decimal(account.balance or 0)
+        if balance_before + Decimal(account.credit_limit or 0) < amount:
+            return None
+
+        account.balance = balance_before - amount
+        account.save(update_fields=['balance', 'updated_at'])
+
+        return Transaction.objects.create(
+            organization=organization,
+            billing_account=account,
+            transaction_type=Transaction.Type.CHARGE,
+            amount=amount,
+            balance_before=balance_before,
+            balance_after=account.balance,
+            description=description,
+            reference_id=reference_id or '',
+            provider='manual',
+            status=Transaction.Status.COMPLETED,
+        )
+
+    @staticmethod
+    def tfn_fee(organization) -> Decimal:
+        """What this client pays to provision one tracking number."""
+        try:
+            account = BillingAccount.objects.only('tfn_purchase_fee').get(
+                organization=organization
+            )
+        except BillingAccount.DoesNotExist:
+            return Decimal('0.00')
+        return Decimal(account.tfn_purchase_fee or 0)
+
+    @staticmethod
+    @transaction.atomic
     def charge_call(organization, campaign, buyer, publisher, amount: Decimal, call_sid: str = '') -> Transaction:
         # Carriers retry end-of-call webhooks. Without this guard a retry would
         # charge the same call twice.

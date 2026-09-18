@@ -26,6 +26,8 @@ class Command(BaseCommand):
         parser.add_argument('--org-id', help='Organization UUID')
         parser.add_argument('--rate', help='New per-minute rate, e.g. 0.45')
         parser.add_argument('--markup', help='New markup percent, e.g. 20 for 20%%')
+        parser.add_argument('--tfn-fee', help='New per-number provisioning fee, e.g. 20')
+        parser.add_argument('--portal-fee', help='New monthly portal fee, e.g. 49.99. 0 disables it')
         parser.add_argument('--preview', type=int, metavar='SECONDS',
                             help='Show what a call of this length would cost')
         parser.add_argument('--list', action='store_true', help='Show every client rate')
@@ -45,13 +47,27 @@ class Command(BaseCommand):
         if options['markup'] is not None:
             account.markup_percent = self._decimal(options['markup'], '--markup')
             changed.append('markup')
+        if options['tfn_fee'] is not None:
+            account.tfn_purchase_fee = self._decimal(options['tfn_fee'], '--tfn-fee')
+            changed.append('tfn fee')
+        if options['portal_fee'] is not None:
+            account.monthly_portal_fee = self._decimal(options['portal_fee'], '--portal-fee')
+            changed.append('portal fee')
 
         if changed:
-            account.save(update_fields=['per_minute_rate', 'markup_percent', 'updated_at'])
+            account.save(update_fields=[
+                'per_minute_rate', 'markup_percent',
+                'tfn_purchase_fee', 'monthly_portal_fee', 'updated_at',
+            ])
             self.stdout.write(self.style.SUCCESS(f"Updated {', '.join(changed)} for {org.name}"))
 
         self.stdout.write(
-            f'{org.name}: ${account.per_minute_rate}/min, markup {account.markup_percent}%'
+            f'{org.name}: ${account.per_minute_rate}/min, markup {account.markup_percent}%, '
+            f'TFN ${account.tfn_purchase_fee}, portal ${account.monthly_portal_fee}/mo'
+        )
+        last = account.portal_fee_charged_at
+        self.stdout.write(
+            f'  portal fee last charged: {last.strftime("%Y-%m-%d") if last else "never"}'
         )
 
         seconds = options['preview'] if options['preview'] is not None else 90
@@ -74,8 +90,8 @@ class Command(BaseCommand):
                 rows.append((
                     org.name,
                     f'${a.per_minute_rate}/min',
-                    f'{a.markup_percent}% markup',
-                    f'balance ${a.balance}',
+                    f'TFN ${a.tfn_purchase_fee}',
+                    f'portal ${a.monthly_portal_fee}/mo  balance ${a.balance}',
                 ))
         if not rows:
             self.stdout.write('No organizations found.')

@@ -39,6 +39,19 @@ class BillingAccount(models.Model):
         help_text='Percentage added on top of the per-minute rate. 0 = no markup'
     )
 
+    tfn_purchase_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('20.00'),
+        help_text='Charged when this client provisions a tracking number'
+    )
+    monthly_portal_fee = models.DecimalField(
+        max_digits=10, decimal_places=2, default=Decimal('49.99'),
+        help_text='Recurring portal access fee. 0 disables it for this client'
+    )
+    portal_fee_charged_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text='When the portal fee was last taken; drives the 30-day cycle'
+    )
+
     currency = models.CharField(max_length=3, default='USD', help_text='ISO 4217 currency code (USD, EUR, GBP, etc)')
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
 

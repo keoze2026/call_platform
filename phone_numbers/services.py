@@ -1,8 +1,12 @@
+import logging
+
 from routing.models import CallLog
 from django.conf import settings
 from twilio.rest import Client
 from .models import PhoneNumber
 from accounts.models import User
+
+logger = logging.getLogger(__name__)
 
 
 class PhoneNumberService:
@@ -53,6 +57,18 @@ class PhoneNumberService:
             raise ValueError("User has no organization")
         if PhoneNumber.objects.filter(number=data.phone_number).exists():
             raise ValueError("Number already purchased")
+
+        # Check the provisioning fee is affordable BEFORE buying from Twilio.
+        # Checking afterwards would mean Twilio has already charged for a number
+        # the client cannot pay us for.
+        from billing.services import BillingService
+        tfn_fee = BillingService.tfn_fee(user.organization)
+        if tfn_fee > 0 and not BillingService.has_sufficient_balance(user.organization, tfn_fee):
+            raise ValueError(
+                f"Insufficient balance: provisioning a number costs ${tfn_fee}, "
+                f"available ${BillingService.get_balance(user.organization)}"
+            )
+
         try:
             purchased = client.incoming_phone_numbers.create(
                 phone_number=data.phone_number,
@@ -102,6 +118,26 @@ class PhoneNumberService:
                 status=PhoneNumber.Status.PENDING if trunk_warning else PhoneNumber.Status.ACTIVE
             )
             phone_number.trunk_warning = trunk_warning
+
+            # Number exists now, so take the fee. A failure here is logged
+            # rather than raised: the number is bought and recorded either way,
+            # and losing it over a billing error would be worse than an unbilled
+            # provision that can be reconciled from the transaction log.
+            if tfn_fee > 0:
+                try:
+                    charged = BillingService.charge_fee(
+                        organization=user.organization,
+                        amount=tfn_fee,
+                        description=f"Tracking number {purchased.phone_number}",
+                        reference_id=purchased.sid,
+                    )
+                    if charged is None:
+                        logger.warning(
+                            'tfn_fee_uncharged: number=%s org=%s fee=%s',
+                            purchased.phone_number, user.organization_id, tfn_fee,
+                        )
+                except Exception:
+                    logger.exception('tfn_fee_failed: number=%s', purchased.phone_number)
 
             if getattr(data, 'campaign_id', None):
                 from campaigns.models import Campaign

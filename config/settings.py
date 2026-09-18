@@ -245,6 +245,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.check_auto_recharge',
         'schedule': 3600.0,  # every 1 hour
     },
+    'charge-portal-fees': {
+        'task': 'tasks.charge_portal_fees',
+        'schedule': 86400.0,  # daily; each account charged on its own 30-day cycle
+    },
 }
 
 
