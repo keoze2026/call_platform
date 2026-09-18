@@ -14,6 +14,8 @@ The mirroring itself runs in a Celery worker, not in the request thread — the
 receiver only enqueues. Enqueueing happens on transaction commit so the worker
 can never read a CallLog row that has not been written yet.
 """
+from decimal import Decimal
+
 from django.db import transaction
 from django.db.models.signals import post_save
 from django.dispatch import receiver
@@ -36,6 +38,20 @@ STATUS_MAP = {
     CallLog.Status.BUSY: CallRecord.Status.BUSY,
     CallLog.Status.FAILED: CallRecord.Status.FAILED,
 }
+
+
+def _campaign_revenue(call) -> Decimal:
+    """Revenue for a call: campaign pricing, falling back to the stored value."""
+    if call.campaign_id and call.campaign:
+        return Decimal(call.campaign.revenue_amount or 0) or Decimal(call.revenue or 0)
+    return Decimal(call.revenue or 0)
+
+
+def _campaign_payout(call) -> Decimal:
+    """Payout for a call: campaign pricing, falling back to the stored value."""
+    if call.campaign_id and call.campaign:
+        return Decimal(call.campaign.payout_amount or 0) or Decimal(call.publisher_payout or 0)
+    return Decimal(call.publisher_payout or 0)
 
 
 def mirror_call_log(call_log_id) -> bool:
@@ -81,12 +97,11 @@ def mirror_call_log(call_log_id) -> bool:
             'recording_url': call.recording_url or '',
             'carrier_name': call.carrier_name or '',
             'ipqs_line_type': call.ipqs_line_type or '',
-                'revenue': (call.campaign.revenue_amount if call.campaign_id and call.campaign else 0) or call.revenue or 0,
-    'payout': (call.campaign.payout_amount if call.campaign_id and call.campaign else 0) or call.buyer_payout or 0,
-    'profit': (
-        ((call.campaign.revenue_amount if call.campaign_id and call.campaign else 0) or call.revenue or 0) -
-        ((call.campaign.payout_amount if call.campaign_id and call.campaign else 0) or call.buyer_payout or 0)
-    ),
+            'revenue': _campaign_revenue(call),
+            # publisher_payout, not buyer_payout: publisher payout is what
+            # call_ended writes and what 'payout' means in reporting.
+            'payout': _campaign_payout(call),
+            'profit': _campaign_revenue(call) - _campaign_payout(call),
             'answered_at': call.answered_at,
             'ended_at': call.ended_at,
         },

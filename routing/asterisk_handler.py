@@ -183,33 +183,10 @@ def call_ended(request):
     call_log.publisher_payout = payout_val
     call_log.save()
 
-    # Sync to analytics CallRecord
-    try:
-        from analytics.models import CallRecord
-        cr, created = CallRecord.objects.update_or_create(
-            twilio_call_sid=call_log.twilio_call_sid,
-            organization=call_log.organization,
-            defaults={
-                'caller_number': call_log.caller_number,
-                'called_number': call_log.called_number,
-                'status': 'completed' if answered else 'no_answer',
-                'duration_seconds': duration,
-                'is_converted': converted,
-                'revenue': revenue_val,
-                'payout': payout_val,
-                'profit': revenue_val - payout_val,
-                'campaign_id': call_log.campaign_id,
-                'campaign_name': call_log.campaign.name if call_log.campaign else '',
-                'buyer_id': call_log.buyer_id,
-                'buyer_name': call_log.buyer.name if call_log.buyer else '',
-                'publisher_id': call_log.publisher_id,
-                'publisher_name': call_log.publisher.name if call_log.publisher else '',
-                'recording_url': recording_url if recording_url else '',
-                'carrier_name': call_log.carrier_name or '',
-            }
-        )
-    except Exception:
-        pass
+    # CallRecord is written by the post_save signal on routing/signals.py, keyed
+    # on the CallLog id. A second update_or_create here keyed on twilio_call_sid
+    # created a *separate* row for every terminal call, doubling every analytics
+    # total — 8 real calls reported as 16.
 
     # Deduct the call's cost from the organization's balance. Charged only on a
     # converted call, at the same rate RoutingEngine checked before dispatch, so
