@@ -152,6 +152,67 @@ def update_profile(request: HttpRequest, data: UpdateProfileSchema):
     return ProfileService.get_profile(user)
 
 
+# ========== TELEGRAM LINK ==========
+
+@router.post("/me/telegram/link", response={200: dict, 400: dict})
+def create_telegram_link(request: HttpRequest):
+    """Issue a one-shot deep link that ties a Telegram chat to this user.
+
+    The user opens the URL, Telegram sends the bot /start <code>, and the webhook
+    stores their chat_id. Any earlier unused code for this user is invalidated so
+    only the most recent link works.
+    """
+    import secrets
+    from datetime import timedelta
+    from django.conf import settings
+    from django.utils import timezone
+    from accounts.models import TelegramLinkCode
+
+    bot = getattr(settings, 'TELEGRAM_BOT_USERNAME', '')
+    if not bot:
+        return 400, {"detail": "TELEGRAM_BOT_USERNAME is not configured"}
+
+    user = request.auth
+    now = timezone.now()
+
+    # Retire outstanding codes — a fresh link should supersede an older one
+    TelegramLinkCode.objects.filter(
+        user=user, used_at__isnull=True, expires_at__gt=now
+    ).update(expires_at=now)
+
+    ttl_minutes = getattr(settings, 'TELEGRAM_LINK_TTL_MINUTES', 15)
+    # token_urlsafe gives [A-Za-z0-9_-], which is what Telegram allows in a
+    # start payload, and 16 bytes is well short of its 64-character limit.
+    link = TelegramLinkCode.objects.create(
+        user=user,
+        code=secrets.token_urlsafe(16),
+        expires_at=now + timedelta(minutes=ttl_minutes),
+    )
+
+    return 200, {
+        "url": f"https://t.me/{bot.lstrip('@')}?start={link.code}",
+        "code": link.code,
+        "expires_at": link.expires_at.isoformat(),
+    }
+
+
+@router.delete("/me/telegram", response={200: dict})
+def unlink_telegram(request: HttpRequest):
+    """Clear the Telegram link. telegram_username is left alone."""
+    from django.utils import timezone
+    from accounts.models import TelegramLinkCode
+
+    user = request.auth
+    user.telegram_chat_id = ''
+    user.save(update_fields=['telegram_chat_id'])
+
+    TelegramLinkCode.objects.filter(
+        user=user, used_at__isnull=True
+    ).update(expires_at=timezone.now())
+
+    return 200, {"message": "Telegram unlinked", "success": True}
+
+
 # ========== PASSWORD RESET ENDPOINTS ==========
 
 @router.post("/password-reset/request", response=MessageResponseSchema, auth=None)

@@ -467,6 +467,11 @@ MEDIA_URL = 'https://avortyx.io/media/'
 
 TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
 
+# Bot handle used to build profile deep links: https://t.me/<username>?start=<code>
+# No leading '@'. Without it, POST /api/accounts/me/telegram/link returns 400.
+TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='')
+TELEGRAM_LINK_TTL_MINUTES = config('TELEGRAM_LINK_TTL_MINUTES', default=15, cast=int)
+
 # Production security hardening
 SECURE_SSL_REDIRECT = False
 SESSION_COOKIE_SECURE = True

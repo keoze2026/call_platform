@@ -174,6 +174,10 @@ class ProfileService:
             'organization_id': str(user.organization_id) if user.organization_id else None,
             'organization_name': user.organization.name if user.organization else None,
             'avatar_url': f"https://avortyx.io/media/{user.avatar}" if user.avatar else None,
+            # null rather than "" when unset — the Profile page treats absence as
+            # "not linked" and an empty string would read as linked.
+            'telegram_chat_id': user.telegram_chat_id or None,
+            'telegram_username': user.telegram_username or None,
             'created_at': user.created_at.isoformat()
         }
     
@@ -191,6 +195,11 @@ class ProfileService:
                     if os.path.exists(old_path):
                         os.remove(old_path)
                 user.avatar = None
+
+        if 'telegram_username' in dump:
+            raw = dump.pop('telegram_username')
+            # Users paste "@name"; store the bare handle. Empty clears it.
+            user.telegram_username = (raw or '').strip().lstrip('@')[:64]
 
         for field, value in dump.items():
             if field in ALLOWED_FIELDS:

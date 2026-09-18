@@ -48,6 +48,11 @@ class User(AbstractUser):
     )
     phone_number = models.CharField(max_length=20, blank=True)
     avatar = models.CharField(max_length=500, blank=True, default='')
+
+    # Telegram account link. chat_id is set by the bot's /start handler once the
+    # user opens the deep link; username is what they type on the Profile page.
+    telegram_chat_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
+    telegram_username = models.CharField(max_length=64, blank=True, default='')
     
     # Email verification
     is_email_verified = models.BooleanField(default=False)
@@ -193,3 +198,35 @@ class CustomRole(models.Model):
 
 
 # Avatar field added to existing User model via migration
+
+
+class TelegramLinkCode(models.Model):
+    """One-shot code that ties a Telegram /start to a platform user.
+
+    The Profile page asks for a link, we hand back
+    https://t.me/<bot>?start=<code>, and when the user opens it Telegram calls
+    the bot webhook with that code — which is how we learn their chat_id.
+
+    Codes are single use and short lived; an unused one simply expires.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='telegram_link_codes')
+    code = models.CharField(max_length=64, unique=True, db_index=True)
+
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = 'telegram_link_codes'
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.code} for {self.user.email}"
+
+    @property
+    def is_usable(self) -> bool:
+        from django.utils import timezone
+        return self.used_at is None and self.expires_at > timezone.now()

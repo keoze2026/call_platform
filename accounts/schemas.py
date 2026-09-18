@@ -78,6 +78,8 @@ class UpdateProfileSchema(Schema):
     last_name: Optional[str] = None
     phone_number: Optional[str] = None
     avatarUrl: Optional[str] = None
+    # No leading "@" — it is stripped if sent. Empty string clears the field.
+    telegram_username: Optional[str] = None
 
 
 class MFAVerifySchema(Schema):
@@ -126,6 +128,8 @@ class UserOutSchema(Schema):
     organization_id: Optional[str] = None
     organization_name: Optional[str] = None
     avatar_url: Optional[str] = None
+    telegram_chat_id: Optional[str] = None
+    telegram_username: Optional[str] = None
     created_at: str
 
 
