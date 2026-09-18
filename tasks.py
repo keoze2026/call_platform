@@ -244,6 +244,51 @@ def send_notification(event: str, organization_id: str, data: dict):
         return f"Organization {organization_id} not found"
 
 
+@app.task(name='tasks.close_stale_calls')
+def close_stale_calls():
+    """Close calls left hanging because no end-of-call webhook arrived.
+
+    Asterisk does not always fire the h extension, so a call can sit in
+    in_progress forever - inflating live counts and never reaching the analytics
+    mirror. Anything older than STALE_CALL_MINUTES with no terminal status is
+    closed as no_answer with zero duration, so it is never charged and never
+    counts as revenue.
+
+    The threshold sits well past any real call length: a genuine long call is
+    still in Asterisk's channel list and will report its own hangup.
+    """
+    from datetime import timedelta
+    from django.conf import settings
+    from django.utils import timezone
+    from routing.models import CallLog
+
+    minutes = getattr(settings, 'STALE_CALL_MINUTES', 60)
+    cutoff = timezone.now() - timedelta(minutes=minutes)
+
+    stale = CallLog.objects.filter(
+        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
+        created_at__lt=cutoff,
+    )
+
+    rows = list(stale.values_list('id', 'caller_number', 'created_at')[:50])
+    if not rows:
+        return "No stale calls"
+
+    for _id, caller, created in rows:
+        print(f'closing stale call {_id} from {caller} started {created:%Y-%m-%d %H:%M}')
+
+    # Updated one at a time so the post_save signal fires and each call reaches
+    # the analytics mirror; a queryset update() would skip signals entirely.
+    closed = 0
+    for call in CallLog.objects.filter(id__in=[r[0] for r in rows]):
+        call.status = CallLog.Status.NO_ANSWER
+        call.ended_at = timezone.now()
+        call.save(update_fields=['status', 'ended_at', 'updated_at'])
+        closed += 1
+
+    return f"Closed {closed} stale calls"
+
+
 @app.task(name='tasks.charge_portal_fees')
 def charge_portal_fees():
     """Take the recurring portal fee from any account whose cycle is due.

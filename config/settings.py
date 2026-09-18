@@ -214,6 +214,10 @@ ENFORCE_CALL_BALANCE = config('ENFORCE_CALL_BALANCE', default=True, cast=bool)
 # CHARGE_COMPLETED_CALLS=False stops billing without stopping calls.
 CHARGE_COMPLETED_CALLS = config('CHARGE_COMPLETED_CALLS', default=True, cast=bool)
 
+# A call still 'in_progress' after this many minutes never got an end-of-call
+# webhook from Asterisk and is closed as no_answer by tasks.close_stale_calls.
+STALE_CALL_MINUTES = config('STALE_CALL_MINUTES', default=60, cast=int)
+
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']
@@ -248,6 +252,10 @@ CELERY_BEAT_SCHEDULE = {
     'charge-portal-fees': {
         'task': 'tasks.charge_portal_fees',
         'schedule': 86400.0,  # daily; each account charged on its own 30-day cycle
+    },
+    'close-stale-calls': {
+        'task': 'tasks.close_stale_calls',
+        'schedule': 900.0,  # every 15 minutes
     },
 }
 
