@@ -494,7 +494,7 @@ class AnalyticsService:
             'status':           r.status.replace('_', '-'),
             'duration_seconds': 0,
             'is_converted':     False,
-            'is_duplicate':     False,
+            'is_duplicate':     getattr(r, 'is_duplicate', False),
             'is_spam':          False,
             'revenue':          0,
             'payout':           0,

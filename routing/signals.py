@@ -94,6 +94,7 @@ def mirror_call_log(call_log_id) -> bool:
                 )
             ),
             'billable_seconds': call.duration or 0,
+            'is_duplicate': call.is_duplicate,
             'recording_url': call.recording_url or '',
             'carrier_name': call.carrier_name or '',
             'ipqs_line_type': call.ipqs_line_type or '',

@@ -118,6 +118,12 @@ class CallLog(models.Model):
     ipqs_line_type = models.CharField(max_length=50, blank=True)
     ipqs_block_reason = models.CharField(max_length=100, blank=True)
 
+    # True when this caller already reached the same campaign inside the
+    # campaign's duplicate window. Recorded on every call for reporting; whether
+    # a duplicate is actually blocked is controlled separately by
+    # campaign.duplicate_call_block.
+    is_duplicate = models.BooleanField(default=False)
+
     # Caller's carrier, from the Telnyx number lookup. Blank when the lookup is
     # disabled on the campaign or the API call failed.
     carrier_name = models.CharField(max_length=100, blank=True)

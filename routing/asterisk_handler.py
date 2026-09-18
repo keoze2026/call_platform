@@ -56,6 +56,15 @@ def route_incoming_call(request):
         return JsonResponse({"action": "hangup", "reason": "campaign_inactive"})
 
     call_sid = asterisk_call_id or f"asterisk-{uuid.uuid4()}"
+
+    # Has this caller reached this campaign before, inside its window? Checked
+    # before the row is created so the new call is not counted against itself.
+    # Recorded regardless of duplicate_call_block — that flag decides whether a
+    # duplicate is blocked, not whether it is reported.
+    is_duplicate = RoutingEngine.is_duplicate(
+        caller, str(campaign.id), campaign.duplicate_call_block_hours or 24
+    )
+
     try:
         call_log = CallLog.objects.create(
             organization=campaign.organization,
@@ -65,6 +74,7 @@ def route_incoming_call(request):
             caller_number=caller,
             called_number=called,
             twilio_call_sid=call_sid,
+            is_duplicate=is_duplicate,
             status=CallLog.Status.RINGING,
         )
     except IntegrityError:
