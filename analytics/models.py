@@ -100,6 +100,7 @@ class CallRecord(models.Model):
     recording_url   = models.URLField(blank=True)
     ipqs_line_type  = models.CharField(max_length=50, blank=True)
     carrier_name    = models.CharField(max_length=100, blank=True, db_index=True)
+    carrier         = models.CharField(max_length=60, blank=True, db_index=True)
 
     # Financial
     revenue = models.DecimalField(max_digits=10, decimal_places=4, default=0)

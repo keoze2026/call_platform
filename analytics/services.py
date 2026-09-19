@@ -365,6 +365,72 @@ class AnalyticsService:
     # ── buyer performance ────────────────────────────────────────────────────
 
     @staticmethod
+    def get_carrier_performance(user: User, filters) -> list:
+        """Breakdown by caller carrier, for the CALLER PROFILE tab.
+
+        Groups on the normalised carrier family, so 'Verizon Wireless:6006' and
+        'CELLCO PARTNERSHIP DBA VERIZON WIRELESS - OH' land in one row instead of
+        two. Calls whose lookup has not run or returned nothing are grouped as
+        'Unknown' rather than dropped, so the rows still sum to the total.
+        """
+        qs = AnalyticsService._base_qs(user, filters)
+
+        rows = (
+            qs
+            .values('carrier')
+            .annotate(
+                total_calls=Count('id'),
+                qualified_calls=Count('id', filter=Q(is_qualified=True)),
+                converted_calls=Count('id', filter=Q(is_converted=True)),
+                total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
+                total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
+                total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(
+                    status__in=['failed', 'no_answer', 'busy', 'canceled']
+                )), 0.0),
+                spam_blocked=Count('id', filter=Q(is_spam=True)),
+                duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
+                connected_calls=Count('id', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                not_connected_calls=Count('id', filter=~Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                paid_calls=Count('id', filter=Q(
+                    is_converted=True, campaign__payout_amount__gt=0,
+                )),
+                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+            )
+            .order_by('-total_calls')
+        )
+
+        result = []
+        for r in rows:
+            total = r['total_calls'] or 1
+            result.append({
+                'carrier':         r['carrier'] or 'Unknown',
+                'carrier_name':    r['carrier'] or 'Unknown',
+                'total_calls':     r['total_calls'],
+                'qualified_calls': r['qualified_calls'],
+                'converted_calls': r['converted_calls'],
+                'conversion_rate': round((r['converted_calls'] / total) * 100, 2),
+                'total_revenue':   r['total_revenue'],
+                'total_payout':    r['total_payout'],
+                'total_profit':    r['total_profit'],
+                'avg_duration':    round(r['avg_duration'] or 0, 1),
+                'spam_blocked':    r['spam_blocked'],
+                'duplicate_calls': r['duplicate_calls'],
+                'dupe':            r['duplicate_calls'],
+                'duplicates':      r['duplicate_calls'],
+                'connected_calls': r['connected_calls'],
+                'not_connected_calls': r['not_connected_calls'],
+                'paid_calls':      r['paid_calls'],
+                'live_calls':      0,
+                'total_duration_sec': r['total_duration_sec'],
+            })
+        return result
+
+    @staticmethod
     def get_buyer_performance(user: User, filters) -> list:
         qs = AnalyticsService._base_qs(user, filters)
         live_qs = AnalyticsService._live_qs(user, filters)
@@ -635,6 +701,7 @@ class AnalyticsService:
             'winning_bid':      r.winning_bid,
             'recording_url':    r.recording_url,
             'carrier_name':     r.carrier_name,
+            'carrier':          r.carrier or 'Unknown',
             'started_at':       dt_start,
             'startedAt':        int(dt_start.timestamp() * 1000) if dt_start else None,
             'ended_at':         r.ended_at,

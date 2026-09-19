@@ -352,14 +352,18 @@ def enrich_call_carrier(call_log_id, caller_number):
     except CallLog.DoesNotExist:
         return f"CallLog {call_log_id} not found"
 
+    from routing.carriers import normalise_carrier
+
     result = TelnyxLookupService.check_phone(caller_number)
+    raw_carrier = (result.get('carrier_name', '') or '')[:100]
 
     CallLog.objects.filter(id=call_log_id).update(
         ipqs_checked=True,
         ipqs_fraud_score=result.get('fraud_score', 0) or 0,
         ipqs_is_voip=result.get('VOIP', False) or False,
         ipqs_line_type=(result.get('line_type', '') or '')[:50],
-        carrier_name=(result.get('carrier_name', '') or '')[:100],
+        carrier_name=raw_carrier,
+        carrier=normalise_carrier(raw_carrier),
     )
     return f"Enriched {call_log_id}: {result.get('carrier_name', '') or 'unknown carrier'}"
 

@@ -37,6 +37,13 @@ def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = 
     return 200, data
 
 
+@router.get("/carriers", response={200: list})
+def carrier_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
+    """Performance breakdown per caller carrier — the CALLER PROFILE tab."""
+    data = AnalyticsService.get_carrier_performance(request.auth, filters)
+    return 200, data
+
+
 @router.get("/buyers", response={200: list})
 def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per buyer — win rate, avg bid, payout."""

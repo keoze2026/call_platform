@@ -105,6 +105,7 @@ def mirror_call_log(call_log_id) -> bool:
             'is_duplicate': call.is_duplicate,
             'recording_url': call.recording_url or '',
             'carrier_name': call.carrier_name or '',
+            'carrier': call.carrier or '',
             'ipqs_line_type': call.ipqs_line_type or '',
             'revenue': _campaign_revenue(call),
             # publisher_payout, not buyer_payout: publisher payout is what

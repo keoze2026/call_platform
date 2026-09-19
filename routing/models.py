@@ -118,6 +118,11 @@ class CallLog(models.Model):
     ipqs_line_type = models.CharField(max_length=50, blank=True)
     ipqs_block_reason = models.CharField(max_length=100, blank=True)
 
+    # Carrier family derived from carrier_name — 'Verizon' rather than
+    # 'CELLCO PARTNERSHIP DBA VERIZON WIRELESS - OH'. The raw value is kept so a
+    # mapping change can be replayed without another lookup.
+    carrier = models.CharField(max_length=60, blank=True, default='', db_index=True)
+
     # True when this caller already reached the same campaign inside the
     # campaign's duplicate window. Recorded on every call for reporting; whether
     # a duplicate is actually blocked is controlled separately by
