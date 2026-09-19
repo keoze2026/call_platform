@@ -18,6 +18,14 @@ class AnalyticsFilterSchema(Schema):
     buyer_id:     Optional[str] = None
     publisher_id: Optional[str] = None
     status:       Optional[str] = None
+    # Boolean filters used by the summary table's drill-downs, e.g.
+    # /api/analytics/calls?is_qualified=true. Without these the query string was
+    # ignored and the full list came back.
+    is_qualified: Optional[bool] = None
+    is_converted: Optional[bool] = None
+    is_duplicate: Optional[bool] = None
+    is_spam:      Optional[bool] = None
+
     granularity:  Optional[str] = 'day'   # hour | day | week | month
     limit:        int = 100
     offset:       int = 0

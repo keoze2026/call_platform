@@ -80,6 +80,11 @@ class AnalyticsService:
 
         if getattr(filters, 'status', None):
             qs = qs.filter(status=filters.status)
+
+        for flag in ('is_qualified', 'is_converted', 'is_duplicate', 'is_spam'):
+            value = getattr(filters, flag, None)
+            if value is not None:
+                qs = qs.filter(**{flag: value})
             
         # Revenue and payout are earned per *converted* call, so an unconverted
         # call contributes zero. Applying campaign pricing to every row credited
@@ -282,6 +287,19 @@ class AnalyticsService:
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
+                # Columns the summary table was deriving client-side. Definitions
+                # agreed with the frontend: connected and not-connected are
+                # complements, so the two always sum to total_calls.
+                connected_calls=Count('id', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                not_connected_calls=Count('id', filter=~Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                paid_calls=Count('id', filter=Q(
+                    is_converted=True, campaign__payout_amount__gt=0,
+                )),
+                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
             )
         )
 
@@ -308,6 +326,11 @@ class AnalyticsService:
                 # each of these spellings.
                 'dupe':            r['duplicate_calls'],
                 'duplicates':      r['duplicate_calls'],
+                'connected_calls': r['connected_calls'],
+                'not_connected_calls': r['not_connected_calls'],
+                'paid_calls':      r['paid_calls'],
+                'live_calls':      lc,
+                'total_duration_sec': r['total_duration_sec'],
             })
 
         if live_counts:
@@ -329,6 +352,11 @@ class AnalyticsService:
                     'duplicate_calls': 0,
                     'dupe': 0,
                     'duplicates': 0,
+                    'connected_calls': lc,
+                    'not_connected_calls': 0,
+                    'paid_calls': 0,
+                    'live_calls': lc,
+                    'total_duration_sec': 0,
                 })
                 
         result.sort(key=lambda x: x['total_calls'], reverse=True)
@@ -352,6 +380,16 @@ class AnalyticsService:
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
                 duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
+                connected_calls=Count('id', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                not_connected_calls=Count('id', filter=~Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                paid_calls=Count('id', filter=Q(
+                    is_converted=True, campaign__payout_amount__gt=0,
+                )),
+                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
         )
@@ -374,6 +412,11 @@ class AnalyticsService:
                 'duplicate_calls': r['duplicate_calls'],
                 'dupe':            r['duplicate_calls'],
                 'duplicates':      r['duplicate_calls'],
+                'connected_calls': r['connected_calls'],
+                'not_connected_calls': r['not_connected_calls'],
+                'paid_calls':      r['paid_calls'],
+                'live_calls':      lc,
+                'total_duration_sec': r['total_duration_sec'],
             })
             
         if live_counts:
@@ -389,7 +432,15 @@ class AnalyticsService:
                     'total_payout': Decimal('0'),
                     'avg_duration': 0.0,
                     'conversion_rate': 0.0,
-                })
+                                    'connected_calls': lc,
+                    'not_connected_calls': 0,
+                    'paid_calls': 0,
+                    'live_calls': lc,
+                    'total_duration_sec': 0,
+                    'duplicate_calls': 0,
+                    'dupe': 0,
+                    'duplicates': 0,
+})
         result.sort(key=lambda x: x['total_calls'], reverse=True)
         return result
 
@@ -412,6 +463,16 @@ class AnalyticsService:
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
                 duplicate_calls=Count('id', filter=Q(is_duplicate=True)),
+                connected_calls=Count('id', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                not_connected_calls=Count('id', filter=~Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                paid_calls=Count('id', filter=Q(
+                    is_converted=True, campaign__payout_amount__gt=0,
+                )),
+                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
         )
@@ -435,6 +496,11 @@ class AnalyticsService:
                 'duplicate_calls': r['duplicate_calls'],
                 'dupe':            r['duplicate_calls'],
                 'duplicates':      r['duplicate_calls'],
+                'connected_calls': r['connected_calls'],
+                'not_connected_calls': r['not_connected_calls'],
+                'paid_calls':      r['paid_calls'],
+                'live_calls':      lc,
+                'total_duration_sec': r['total_duration_sec'],
             })
 
         if live_counts:
@@ -454,7 +520,15 @@ class AnalyticsService:
                     'duplicate_calls': 0,
                     'dupe': 0,
                     'duplicates': 0,
-                })
+                                    'connected_calls': lc,
+                    'not_connected_calls': 0,
+                    'paid_calls': 0,
+                    'live_calls': lc,
+                    'total_duration_sec': 0,
+                    'duplicate_calls': 0,
+                    'dupe': 0,
+                    'duplicates': 0,
+})
         result.sort(key=lambda x: x['total_calls'], reverse=True)
         return result
 
