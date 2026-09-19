@@ -550,6 +550,9 @@ class AnalyticsService:
             'status':           r.status,
             'duration_seconds': r.duration_seconds,
             'is_converted':     r.is_converted,
+            # Was absent entirely, so any client counting qualified calls from
+            # the call log had no field to read.
+            'is_qualified':     r.is_qualified,
             'is_duplicate':     r.is_duplicate,
             'is_spam':          r.is_spam,
             'revenue':          r.dynamic_revenue,
