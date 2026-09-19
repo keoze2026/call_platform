@@ -1,4 +1,4 @@
-"""Recompute is_converted on existing CallRecord rows.
+"""Recompute is_converted and is_qualified on existing CallRecord rows.
 
 The mirroring signal never set is_converted, so it is False on nearly every
 record regardless of how the call actually went. Reporting could not use it, and
@@ -73,9 +73,20 @@ class Command(BaseCommand):
         n_true = should_be_true.filter(is_converted=False).update(is_converted=True)
         n_false = should_be_false.filter(is_converted=True).update(is_converted=False)
 
+        # is_qualified uses the same rule and was never set by the mirroring
+        # signal, so it drifted away from converted on every Asterisk call.
+        q_true = should_be_true.filter(is_qualified=False).update(is_qualified=True)
+        q_false = should_be_false.filter(is_qualified=True).update(is_qualified=False)
+
         self.stdout.write(self.style.SUCCESS(
-            f'\nUpdated {n_true + n_false} rows '
-            f'({n_true} -> True, {n_false} -> False).'
+            f'\nconverted: updated {n_true + n_false} rows '
+            f'({n_true} -> True, {n_false} -> False)'
+        ))
+        self.stdout.write(self.style.SUCCESS(
+            f'qualified: updated {q_true + q_false} rows '
+            f'({q_true} -> True, {q_false} -> False)'
         ))
         self.stdout.write(f'is_converted=True now: '
                           f'{CallRecord.objects.filter(is_converted=True).count()}')
+        self.stdout.write(f'is_qualified=True now: '
+                          f'{CallRecord.objects.filter(is_qualified=True).count()}')

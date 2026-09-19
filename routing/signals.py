@@ -40,6 +40,14 @@ STATUS_MAP = {
 }
 
 
+def _is_converted(call) -> bool:
+    """Answered, and at least as long as the campaign requires."""
+    if call.status != CallLog.Status.COMPLETED:
+        return False
+    threshold = getattr(call.campaign, 'min_call_duration', 0) if call.campaign_id else 0
+    return (call.duration or 0) >= (threshold or 0)
+
+
 def _campaign_revenue(call) -> Decimal:
     """Revenue for a call: campaign pricing, falling back to the stored value."""
     if call.campaign_id and call.campaign:
@@ -87,12 +95,12 @@ def mirror_call_log(call_log_id) -> bool:
             'publisher_name': call.publisher.name if call.publisher_id else '',
             'status': STATUS_MAP.get(call.status, CallRecord.Status.FAILED),
             'duration_seconds': call.duration or 0,
-            'is_converted': (
-                call.status == CallLog.Status.COMPLETED
-                and (call.duration or 0) >= (
-                    getattr(call.campaign, 'min_call_duration', 0) if call.campaign_id else 0
-                )
-            ),
+            'is_converted': _is_converted(call),
+            # Same rule as converted. The two flags have only ever been computed
+            # identically in this codebase, but the signal never set qualified,
+            # so it stayed False on every call mirrored from Asterisk while
+            # converted was populated - the two counts drifted apart.
+            'is_qualified': _is_converted(call),
             'billable_seconds': call.duration or 0,
             'is_duplicate': call.is_duplicate,
             'recording_url': call.recording_url or '',
