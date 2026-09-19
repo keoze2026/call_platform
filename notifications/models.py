@@ -19,6 +19,9 @@ class NotificationRule(models.Model):
         CAMPAIGN_PAUSED = 'campaign.paused', 'Campaign Paused'
         DAILY_SUMMARY = 'daily.summary', 'Daily Summary'
         NEW_CALL = 'call.started', 'New Call'
+        DESTINATION_CAP_REACHED = 'destination.cap_reached', 'Destination Cap Reached'
+        BUYER_MISSED = 'buyer.missed', 'Buyer Missed Call'
+        LOW_AHT = 'aht.low', 'Average Handle Time Dropped'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='notification_rules')
@@ -68,3 +71,49 @@ class NotificationLog(models.Model):
 
     def __str__(self):
         return f"{self.event} → {self.recipient} ({self.status})"
+
+
+class NotificationPreference(models.Model):
+    """Which alerts a user wants surfaced as a pop-up.
+
+    Separate from NotificationRule: a rule decides whether an event is dispatched
+    at all and to whom by email or SMS, this decides whether it interrupts the
+    person looking at the dashboard. One person wanting cap alerts on top should
+    not change what anyone else receives.
+
+    popup_events holds NotificationRule.Event values. An empty list means no
+    pop-ups; the defaults below are what a new user starts with.
+    """
+
+    DEFAULT_POPUP_EVENTS = [
+        NotificationRule.Event.CAMPAIGN_CAP_REACHED,
+        NotificationRule.Event.BUYER_CAP_REACHED,
+        NotificationRule.Event.DESTINATION_CAP_REACHED,
+        NotificationRule.Event.LOW_BALANCE,
+    ]
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.OneToOneField(
+        User, on_delete=models.CASCADE, related_name='notification_preference'
+    )
+
+    popups_enabled = models.BooleanField(
+        default=True, help_text='Master switch for pop-up alerts'
+    )
+    popup_events = models.JSONField(
+        default=list, blank=True,
+        help_text='Event types that surface as a pop-up. Empty means none.'
+    )
+    sound_enabled = models.BooleanField(default=False)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'notification_preferences'
+
+    def __str__(self):
+        return f"Pop-up preferences for {self.user.email}"
+
+    def wants_popup(self, event: str) -> bool:
+        return self.popups_enabled and event in (self.popup_events or [])

@@ -75,6 +75,53 @@ def list_logs(request: HttpRequest, page: int = 1, page_size: int = 50):
     ]
     return 200, paginate_list(data, page, page_size)
 
+@router.get("/events", response={200: list})
+def list_event_types(request: HttpRequest):
+    """Catalogue of alert types, for rendering the pop-up preference list.
+
+    Returned rather than hardcoded on the frontend so a new alert type appears
+    in the settings automatically.
+    """
+    from notifications.models import NotificationRule, NotificationPreference
+
+    defaults = set(NotificationPreference.DEFAULT_POPUP_EVENTS)
+    return 200, [
+        {
+            'event': value,
+            'label': label,
+            'default_popup': value in defaults,
+        }
+        for value, label in NotificationRule.Event.choices
+    ]
+
+
+@router.get("/preferences", response={200: dict})
+def get_preferences(request: HttpRequest):
+    """This user's pop-up alert preferences."""
+    from notifications.services import NotificationService
+    return 200, NotificationService.get_preferences(request.auth)
+
+
+@router.patch("/preferences", response={200: dict, 400: dict})
+def update_preferences(request: HttpRequest):
+    """Update which alerts pop up. Send any subset of the fields.
+
+    Body: {"popups_enabled": bool, "popup_events": [str], "sound_enabled": bool}
+    """
+    import json as _json
+    from notifications.services import NotificationService
+
+    try:
+        body = _json.loads(request.body or b'{}')
+    except Exception:
+        return 400, {"detail": "Invalid JSON"}
+
+    try:
+        return 200, NotificationService.update_preferences(request.auth, body)
+    except ValueError as e:
+        return 400, {"detail": str(e)}
+
+
 @router.post("/test", response={200: dict, 400: dict})
 def test_notification(request: HttpRequest):
     try:

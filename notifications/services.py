@@ -68,6 +68,67 @@ class NotificationService:
         ).order_by('-created_at')[:100]
 
     @staticmethod
+    def get_preferences(user) -> dict:
+        """Pop-up preferences for a user, created with the defaults if absent."""
+        from notifications.models import NotificationPreference
+
+        pref, created = NotificationPreference.objects.get_or_create(
+            user=user,
+            defaults={'popup_events': list(NotificationPreference.DEFAULT_POPUP_EVENTS)},
+        )
+        return NotificationService.format_preferences(pref)
+
+    @staticmethod
+    def update_preferences(user, body: dict) -> dict:
+        from notifications.models import NotificationPreference, NotificationRule
+
+        pref, _ = NotificationPreference.objects.get_or_create(
+            user=user,
+            defaults={'popup_events': list(NotificationPreference.DEFAULT_POPUP_EVENTS)},
+        )
+
+        fields = []
+        if 'popups_enabled' in body:
+            pref.popups_enabled = bool(body['popups_enabled'])
+            fields.append('popups_enabled')
+
+        if 'sound_enabled' in body:
+            pref.sound_enabled = bool(body['sound_enabled'])
+            fields.append('sound_enabled')
+
+        if 'popup_events' in body:
+            events = body['popup_events']
+            if not isinstance(events, list):
+                raise ValueError('popup_events must be a list')
+
+            valid = {v for v, _ in NotificationRule.Event.choices}
+            unknown = [e for e in events if e not in valid]
+            if unknown:
+                raise ValueError(
+                    f"Unknown event types: {', '.join(map(str, unknown))}. "
+                    f"See GET /api/notifications/events"
+                )
+            # Deduplicated, and ordered as the catalogue orders them so the list
+            # reads the same however the client sent it
+            order = [v for v, _ in NotificationRule.Event.choices]
+            pref.popup_events = [e for e in order if e in set(events)]
+            fields.append('popup_events')
+
+        if fields:
+            pref.save(update_fields=fields + ['updated_at'])
+
+        return NotificationService.format_preferences(pref)
+
+    @staticmethod
+    def format_preferences(pref) -> dict:
+        return {
+            'popups_enabled': pref.popups_enabled,
+            'popup_events': pref.popup_events or [],
+            'sound_enabled': pref.sound_enabled,
+            'updated_at': pref.updated_at.isoformat(),
+        }
+
+    @staticmethod
     def dispatch(event: str, organization, data: dict):
         rules = NotificationRule.objects.filter(
             organization=organization,
