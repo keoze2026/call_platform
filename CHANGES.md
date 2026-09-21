@@ -1220,6 +1220,20 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
 
 **Backend**
 
+- **2026-09-22 — delete `routing/twilio_handler.py` (agreed, scheduled).** 496
+  lines of Twilio call handling that nothing uses: Asterisk handles inbound,
+  `call_ended` handles hangups, and recordings come from Asterisk to
+  avortyx.io/recordings — the Twilio `RecordingUrl` line has never run for any
+  call. It still serves live public endpoints at `/api/twilio/incoming-call/`
+  and `/api/twilio/call-status/`, and holds the old charging and CallRecord
+  paths that caused the double-billing and duplicate-record bugs. Removing it
+  also clears 8 of the 24 swallowed exceptions.
+  **Blocked on one answer:** click_to_call and click_to_call_connect have no
+  Asterisk equivalent. Confirm with the frontend dev whether any dial button
+  exists in the UI. If not, delete the file; if so, keep those two and remove
+  the rest.
+  Twilio itself stays — number provisioning and SMS both use it.
+
 - 24 swallowed exceptions (`except: pass`), 8 of them in
   `routing/twilio_handler.py` where a failure disappears without trace. This is
   the category that hid the duplicate-record and payout bugs.
