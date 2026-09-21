@@ -1,3 +1,4 @@
+from django.core.exceptions import ValidationError
 from ninja import Router, Schema
 from typing import Optional, List, Union
 from accounts.api import JWTAuth
@@ -35,6 +36,9 @@ class DestinationSchema(Schema):
 
 
 class DestinationUpdateSchema(Schema):
+    # Was absent entirely, so a destination saved without a buyer could never be
+    # corrected through the API - only by editing the database directly.
+    buyer_id: Optional[str] = None
     name: Optional[str] = None
     tfn: Optional[str] = None
     forward_type: Optional[str] = None
@@ -218,12 +222,18 @@ def get_destination_stats(request):
 def create_destination(request, payload: DestinationSchema):
     from buyers.destination import Destination
     from buyers.models import Buyer
-    buyer = None
-    if payload.buyer_id:
-        try:
-            buyer = Buyer.objects.get(id=payload.buyer_id, organization=request.auth.organization)
-        except (Buyer.DoesNotExist, Exception):
-            return 400, {"detail": "Buyer not found or invalid buyer_id"}
+
+    # A destination without a buyer is unreachable: routing resolves the live
+    # destination with Destination.objects.filter(buyer=..., enabled=True), so
+    # one with no buyer can never be selected. It was optional, and five were
+    # saved that way - active, and silently never used.
+    if not payload.buyer_id:
+        return 400, {"detail": "buyer_id is required - a destination with no buyer can never receive calls"}
+
+    try:
+        buyer = Buyer.objects.get(id=payload.buyer_id, organization=request.auth.organization)
+    except (Buyer.DoesNotExist, ValidationError, ValueError):
+        return 400, {"detail": "Buyer not found or invalid buyer_id"}
     d = Destination.objects.create(
         organization=request.auth.organization,
         buyer=buyer,
@@ -256,12 +266,26 @@ def get_destination(request, destination_id: str):
         return 404, {"detail": "Destination not found"}
 
 
-@router.patch("/{destination_id}/", response={200: dict, 404: dict})
+@router.patch("/{destination_id}/", response={200: dict, 400: dict, 404: dict})
 def update_destination(request, destination_id: str, payload: DestinationUpdateSchema):
     from buyers.destination import Destination
+    from buyers.models import Buyer
     try:
         d = Destination.objects.get(id=destination_id, organization=request.auth.organization)
-        for k, v in payload.dict(exclude_none=True).items():
+
+        fields = payload.dict(exclude_none=True)
+
+        # Resolve the buyer rather than assigning the raw id: setattr would
+        # happily store an id belonging to another organization.
+        if 'buyer_id' in fields:
+            try:
+                d.buyer = Buyer.objects.get(
+                    id=fields.pop('buyer_id'), organization=request.auth.organization
+                )
+            except (Buyer.DoesNotExist, ValidationError, ValueError):
+                return 400, {"detail": "Buyer not found or invalid buyer_id"}
+
+        for k, v in fields.items():
             setattr(d, k, v)
         d.save()
         try:
