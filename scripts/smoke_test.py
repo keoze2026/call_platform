@@ -25,6 +25,13 @@ import requests  # noqa: E402  (after django.setup)
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
+# Endpoints whose 404 is the correct answer, not a defect
+EXPECTED_404 = {
+    # Resolves a white-label config by Host header; there is none for 127.0.0.1
+    '/api/white-label/config',
+}
+
+
 def load_endpoints():
     with open(os.path.join(HERE, 'endpoint_list.json')) as fh:
         return json.load(fh)
@@ -80,8 +87,11 @@ def main():
             errors.append((ep, r.status_code, r.text[:200]))
             print(f'  {r.status_code}  {ep}')
         elif r.status_code == 404:
-            notfound.append((ep, r.status_code))
-            print(f'  404  {ep}')
+            if ep in EXPECTED_404:
+                ok += 1
+            else:
+                notfound.append((ep, r.status_code))
+                print(f'  404  {ep}')
         elif r.status_code in (401, 403):
             errors.append((ep, r.status_code, 'auth rejected'))
             print(f'  {r.status_code}  {ep}')

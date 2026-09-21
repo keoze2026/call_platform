@@ -651,6 +651,25 @@ def list_roles_catalog(request: HttpRequest):
         },
     ]
 
+    # The list was built and never returned, so this endpoint answered None and
+    # failed response validation with a 500. CustomRole was imported here and
+    # never used, so an organization's own roles were missing from the catalogue.
+    custom = [
+        {
+            "id": str(r.id),
+            "name": r.name,
+            "description": r.description,
+            "capabilities": r.capabilities or [],
+            "is_builtin": False,
+        }
+        for r in CustomRole.objects.filter(organization=request.auth.organization)
+    ]
+
+    for role in builtin:
+        role["is_builtin"] = True
+
+    return 200, builtin + custom
+
 
 @router.post("/workspace/roles", response={201: dict, 400: dict})
 def create_role(request: HttpRequest):
