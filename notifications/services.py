@@ -206,16 +206,52 @@ class NotificationService:
 
     @staticmethod
     def _build_subject(event: str, data: dict) -> str:
+        # Detectors send the subject under 'name'; older callers send
+        # campaign_name / buyer_name. Accept either so neither produces a
+        # subject line with a blank where the name should be.
+        name = (
+            data.get('name')
+            or data.get('campaign_name')
+            or data.get('buyer_name')
+            or data.get('publisher_name')
+            or ''
+        )
+        suffix = f" - {name}" if name else ""
+
+        # Cap alerts fire twice: approaching the limit, then at it
+        if data.get('level') == 'warn':
+            used, limit = data.get('used'), data.get('limit')
+            period = data.get('period', '')
+            near = f" ({used}/{limit} {period})" if limit else ""
+            cap_subjects = {
+                'campaign.cap_reached': f"Campaign Cap Filling{suffix}{near}",
+                'buyer.cap_reached': f"Buyer Cap Filling{suffix}{near}",
+                'destination.cap_reached': f"Destination Cap Filling{suffix}{near}",
+            }
+            if event in cap_subjects:
+                return cap_subjects[event]
+
         subjects = {
             'call.missed': f"Missed Call from {data.get('caller_number', 'Unknown')}",
-            'call.completed': f"Call Completed - {data.get('campaign_name', '')}",
-            'campaign.cap_reached': f"Campaign Cap Reached - {data.get('campaign_name', '')}",
-            'buyer.cap_reached': f"Buyer Cap Reached - {data.get('buyer_name', '')}",
-            'publisher.cap_reached': f"Publisher Cap Reached - {data.get('publisher_name', '')}",
+            'call.completed': f"Call Completed{suffix}",
+            'campaign.cap_reached': f"Campaign Cap Reached{suffix}",
+            'buyer.cap_reached': f"Buyer Cap Reached{suffix}",
+            'publisher.cap_reached': f"Publisher Cap Reached{suffix}",
+            'destination.cap_reached': f"Destination Cap Reached{suffix}",
+            'buyer.missed': (
+                f"Buyer Missing Calls{suffix} - "
+                f"{data.get('missed', 0)}/{data.get('total', 0)} in the last "
+                f"{data.get('window_minutes', 0)} min"
+            ),
+            'aht.low': (
+                f"Handle Time Dropped{suffix} - "
+                f"{data.get('recent_aht_seconds', 0)}s vs "
+                f"{data.get('baseline_aht_seconds', 0)}s usual"
+            ),
             'low.balance': f"Low Balance Alert - {data.get('balance', '')}",
-            'campaign.paused': f"Campaign Paused - {data.get('campaign_name', '')}",
-            'daily.summary': f"Daily Summary Report",
-            'call.started': f"New Call - {data.get('campaign_name', '')}",
+            'campaign.paused': f"Campaign Paused{suffix}",
+            'daily.summary': "Daily Summary Report",
+            'call.started': f"New Call{suffix}",
         }
         return subjects.get(event, f"Platform Alert - {event}")
 

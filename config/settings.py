@@ -294,6 +294,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.close_stale_calls',
         'schedule': 900.0,  # every 15 minutes
     },
+    'check-alert-conditions': {
+        'task': 'tasks.check_alert_conditions',
+        'schedule': 300.0,  # every 5 minutes
+    },
 }
 
 

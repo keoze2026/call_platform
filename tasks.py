@@ -244,6 +244,32 @@ def send_notification(event: str, organization_id: str, data: dict):
         return f"Organization {organization_id} not found"
 
 
+@app.task(name='tasks.check_alert_conditions')
+def check_alert_conditions():
+    """Look for the conditions that should raise an alert, and dispatch them.
+
+    The alert types could be switched on in settings but nothing ever detected
+    them, so cap warnings, missed-call spikes and handle-time drops were dead
+    options. Runs every few minutes; each alert is suppressed for a day after
+    firing so one condition does not repeat all afternoon.
+    """
+    from accounts.models import Organization
+    from notifications.detectors import run_all
+    from notifications.services import NotificationService
+
+    dispatched = 0
+    for org in Organization.objects.filter(is_active=True):
+        for event, payload in run_all(org):
+            try:
+                NotificationService.dispatch(event, org, payload)
+                dispatched += 1
+                print(f'alert {event} for {org.name}: {payload.get("name")}')
+            except Exception as exc:
+                print(f'alert dispatch failed for {org.name}: {exc}')
+
+    return f"Dispatched {dispatched} alerts"
+
+
 @app.task(name='tasks.close_stale_calls')
 def close_stale_calls():
     """Close calls left hanging because no end-of-call webhook arrived.
