@@ -394,7 +394,12 @@ class AnalyticsService:
             'carrier_raw': call.carrier_name or None,
             'line_type': call.ipqs_line_type or None,
             'is_voip': call.ipqs_is_voip,
-            'fraud_score': call.ipqs_fraud_score if call.ipqs_checked else None,
+            # The current provider does not supply this - its wrapper returns 0
+            # meaning 'not provided', which reads as a clean score on screen.
+            'fraud_score': (
+                call.ipqs_fraud_score
+                if call.ipqs_checked and call.ipqs_fraud_score else None
+            ),
             'lookup_performed': call.ipqs_checked,
             # Not available from the current lookup provider
             'city': None,
@@ -464,6 +469,14 @@ class AnalyticsService:
                     'reason': call.block_reason or call.ipqs_block_reason or None,
                 },
             })
+
+        # answered_at is derived as (hangup - duration) and can land a fraction
+        # before created_at, which renders the timeline out of order.
+        started = call.created_at
+        for event in timeline:
+            if event['at'] and started and event['at'] < started.isoformat():
+                event['at'] = started.isoformat()
+        timeline.sort(key=lambda e: e['at'] or '')
 
         return {
             'id': str(call.id),

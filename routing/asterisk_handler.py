@@ -65,6 +65,14 @@ def route_incoming_call(request):
         caller, str(campaign.id), campaign.duplicate_call_block_hours or 24
     )
 
+    # Only the Twilio path ever set these, so every Asterisk call - which is all
+    # live traffic - had no area code, state or country recorded.
+    digits = ''.join(c for c in caller if c.isdigit())
+    if len(digits) == 11 and digits.startswith('1'):
+        digits = digits[1:]
+    area_code = digits[:3] if len(digits) == 10 else ''
+    caller_state = RoutingEngine.get_caller_state(area_code) if area_code else ''
+
     try:
         call_log = CallLog.objects.create(
             organization=campaign.organization,
@@ -73,6 +81,9 @@ def route_incoming_call(request):
             publisher_payout=0,
             caller_number=caller,
             called_number=called,
+            caller_area_code=area_code,
+            caller_state=caller_state,
+            caller_country='US' if area_code else '',
             twilio_call_sid=call_sid,
             is_duplicate=is_duplicate,
             status=CallLog.Status.RINGING,
@@ -108,6 +119,12 @@ def route_incoming_call(request):
         call_log.save(update_fields=['status', 'block_reason', 'ended_at', 'updated_at'])
         return JsonResponse({"action": "hangup", "reason": reason})
 
+    # The engine picks a rule and the call never recorded which one, so the call
+    # detail could not say why it went where it did.
+    chosen_rule = decision.get('rule')
+    if chosen_rule is not None:
+        call_log.routing_rule = chosen_rule
+
     buyer = decision.get('buyer')
     dest_number = decision.get('destination')
     if buyer:
@@ -127,7 +144,9 @@ def route_incoming_call(request):
         call_log.destination_number = dest_number
 
     call_log.status = CallLog.Status.IN_PROGRESS
-    call_log.save(update_fields=['status', 'buyer', 'destination_number', 'updated_at'])
+    call_log.save(update_fields=[
+        'status', 'buyer', 'destination_number', 'routing_rule', 'updated_at',
+    ])
 
     return JsonResponse({
         "action": "dial",
