@@ -297,6 +297,10 @@ EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=False, cast=bool)
 # MEDIA_BASE_URL    where recordings and avatars are served from.
 FRONTEND_URL = config('FRONTEND_URL', default='https://avortyx.io').rstrip('/')
 PUBLIC_SITE_URL = config('PUBLIC_SITE_URL', default='https://avortyx.com').rstrip('/')
+
+# Self-registration. Off by default: it created an organization and an ADMIN
+# user with no approval, bypassing the access-request flow entirely.
+OPEN_REGISTRATION = config('OPEN_REGISTRATION', default=False, cast=bool)
 MEDIA_BASE_URL = config('MEDIA_BASE_URL', default=FRONTEND_URL).rstrip('/')
 # Every outgoing platform email sends from here, and admin notifications land in
 # PLATFORM_SUPPORT_EMAIL. Both were hardcoded in nine places across four files.

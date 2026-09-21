@@ -142,7 +142,13 @@ def get_stats(request: HttpRequest, buyer_id: str):
 def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
     from buyers.models import BuyerCampaign
     try:
-        bc = BuyerCampaign.objects.get(buyer_id=buyer_id, campaign_id=campaign_id)
+        # Scoped to the caller's organization: without it any authenticated user
+        # could delete another organization's assignment by its ids alone.
+        bc = BuyerCampaign.objects.get(
+            buyer_id=buyer_id,
+            campaign_id=campaign_id,
+            buyer__organization=request.auth.organization,
+        )
         bc.delete()
         return 200, {"message": "Campaign detached", "success": True}
     except BuyerCampaign.DoesNotExist:

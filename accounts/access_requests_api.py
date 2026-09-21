@@ -3,7 +3,7 @@ from ninja import Router, Schema
 from typing import Optional
 from django.utils import timezone
 from datetime import timedelta
-from accounts.api import JWTAuth
+from accounts.api import JWTAuth, StaffAuth
 import secrets
 
 router = Router(tags=["Access Requests"])
@@ -101,7 +101,7 @@ def create_access_request(request, payload: AccessRequestSchema):
     return 201, format_request(req)
 
 
-@router.get("/", auth=JWTAuth(), response={200: dict})
+@router.get("/", auth=StaffAuth(), response={200: dict})
 def list_access_requests(request, status: Optional[str] = None, page: int = 1, page_size: int = 50):
     from accounts.access_requests import AccessRequest
     from config.pagination import paginate_list
@@ -114,7 +114,7 @@ def list_access_requests(request, status: Optional[str] = None, page: int = 1, p
     return 200, paginate_list(data, page, page_size)
 
 
-@router.post("/{request_id}/approve/", auth=JWTAuth(), response={200: dict, 404: dict, 400: dict})
+@router.post("/{request_id}/approve/", auth=StaffAuth(), response={200: dict, 404: dict, 400: dict})
 def approve_access_request(request, request_id: str, payload: ApproveSchema):
     from accounts.access_requests import AccessRequest, SetupToken
     from accounts.models import User, Organization
@@ -193,7 +193,7 @@ def approve_access_request(request, request_id: str, payload: ApproveSchema):
     }
 
 
-@router.post("/{request_id}/reject/", auth=JWTAuth(), response={200: dict, 404: dict})
+@router.post("/{request_id}/reject/", auth=StaffAuth(), response={200: dict, 404: dict})
 def reject_access_request(request, request_id: str, payload: RejectSchema):
     from accounts.access_requests import AccessRequest
     try:

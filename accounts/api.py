@@ -26,6 +26,29 @@ class JWTAuth(HttpBearer):
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
 
+class StaffAuth(HttpBearer):
+    """Platform staff only — Django superuser or staff.
+
+    For endpoints that act across every organization rather than inside one.
+    Organization admin is not enough: any self-registered user becomes an admin
+    of their own organization, so role alone would gate nothing.
+    """
+
+    def authenticate(self, request, token):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+        from .models import User
+        try:
+            validated = AccessToken(token)
+            user = User.objects.get(id=validated['user_id'])
+        except (InvalidToken, TokenError, User.DoesNotExist):
+            return None
+
+        if not (user.is_superuser or user.is_staff):
+            return None
+        return user
+
+
 router = Router(tags=["Authentication & Accounts"], auth=JWTAuth())
 # Helper to get client IP
 def get_client_ip(request):
@@ -53,9 +76,24 @@ class APIKeyAuth(HttpBearer):
 
 # ========== AUTHENTICATION ENDPOINTS ==========
 
-@router.post("/register", response={201: UserOutSchema, 400: dict}, auth=None)
+@router.post("/register", response={201: UserOutSchema, 400: dict, 403: dict}, auth=None)
 def register(request: HttpRequest, data: RegisterSchema):
-    """Register a new user and organization"""
+    """Register a new user and organization.
+
+    Disabled by default. Registration created an organization and an ADMIN user
+    with no approval, which made the access-request flow pointless - anyone could
+    skip it, and platform-wide endpoints trusted any authenticated account.
+
+    Set OPEN_REGISTRATION=True to reopen it.
+    """
+    from django.conf import settings
+
+    if not getattr(settings, 'OPEN_REGISTRATION', False):
+        return 403, {
+            "detail": "Self-registration is closed. Request access instead.",
+            "request_access_url": f"{settings.PUBLIC_SITE_URL}/request-access",
+        }
+
     try:
         user = AuthService.register(
             data, 
