@@ -331,10 +331,9 @@ class PasswordResetService:
             expires_at=timezone.now() + timedelta(hours=24)
         )
         
-        # TODO: Send email with reset link
-        reset_url = f"https://app.callplatform.com/reset-password?token={raw_token}"
-        print(f"Password reset email would be sent to {email}: {reset_url}")
-        
+        from accounts.emails import send_password_reset_email
+        send_password_reset_email(user, raw_token)
+
         return
     
     @staticmethod

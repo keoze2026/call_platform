@@ -410,12 +410,40 @@ def invite_member(request: HttpRequest):
         )
         user.set_password(temp_password)
         user.save()
+
+        # Invite mail carries a set-password link rather than the generated
+        # password. The same token type the reset flow uses, so it expires.
+        import hashlib
+        from datetime import timedelta
+        from django.utils import timezone
+        from accounts.models import PasswordResetToken
+        from accounts.emails import send_invite_email
+
+        raw_token = secrets.token_urlsafe(48)
+        PasswordResetToken.objects.create(
+            user=user,
+            token_hash=hashlib.sha256(raw_token.encode()).hexdigest(),
+            expires_at=timezone.now() + timedelta(hours=24),
+        )
+
+        sent, error = send_invite_email(
+            user, request.auth.organization, raw_token, invited_by=request.auth
+        )
+
         return 201, {
             'id': str(user.id),
             'email': user.email,
             'role': user.role,
             'temp_password': temp_password,
-            'message': 'Member invited successfully',
+            # Surfaced so a silent delivery failure is visible to whoever
+            # invited them, instead of the member simply never hearing anything
+            'email_sent': sent,
+            'email_error': error,
+            'message': (
+                'Member invited and invitation email sent'
+                if sent else
+                f'Member invited, but the invitation email failed: {error}'
+            ),
         }
     except Exception as e:
         return 400, {"detail": str(e)}

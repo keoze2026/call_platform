@@ -275,6 +275,12 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='noreply@example.com')
 EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=False, cast=bool)
 
+# Base URL for links in outgoing email. The reset flow previously pointed at a
+# placeholder domain, so any link it produced was dead.
+FRONTEND_URL = config('FRONTEND_URL', default='https://avortyx.io').rstrip('/')
+# Matches the address the access-request emails already send from and deliver with
+INVITE_FROM_EMAIL = config('INVITE_FROM_EMAIL', default='support@keozx.com')
+
 ASSEMBLYAI_API_KEY = config('ASSEMBLYAI_API_KEY', default='')
 
 
