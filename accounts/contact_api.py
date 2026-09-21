@@ -1,3 +1,4 @@
+from django.conf import settings
 from ninja import Router, Schema
 
 router = Router(tags=["Contact"])
@@ -47,7 +48,7 @@ def contact(request, payload: ContactSchema):
         send_mail(
             subject='We received your message — Avortyx',
             message=f'Hi {name},\n\nThank you for contacting us. We have received your message and will get back to you shortly.\n\nAvortyx Team',
-            from_email='support@keozx.com',
+            from_email=settings.PLATFORM_FROM_EMAIL,
             recipient_list=[email],
             fail_silently=False,
         )
@@ -63,8 +64,8 @@ def contact(request, payload: ContactSchema):
         send_mail(
             subject=f'New contact form: {name}',
             message=f'Name: {name}\nEmail: {email}\n\nMessage:\n{message}\n\n---\nID: {msg.id}',
-            from_email='support@keozx.com',
-            recipient_list=['support@keozx.com'],
+            from_email=settings.PLATFORM_FROM_EMAIL,
+            recipient_list=[settings.PLATFORM_SUPPORT_EMAIL],
             fail_silently=False,
         )
     except Exception as e:

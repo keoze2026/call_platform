@@ -278,8 +278,18 @@ EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=False, cast=bool)
 # Base URL for links in outgoing email. The reset flow previously pointed at a
 # placeholder domain, so any link it produced was dead.
 FRONTEND_URL = config('FRONTEND_URL', default='https://avortyx.io').rstrip('/')
-# Matches the address the access-request emails already send from and deliver with
-INVITE_FROM_EMAIL = config('INVITE_FROM_EMAIL', default='support@keozx.com')
+# Every outgoing platform email sends from here, and admin notifications land in
+# PLATFORM_SUPPORT_EMAIL. Both were hardcoded in nine places across four files.
+#
+# The SMTP account authenticates as support@keozx.com, so changing the sender to
+# another domain needs that mailbox to exist on the mail host and SPF/DKIM set
+# for it, or mail is rejected or filed as spam. Verify with:
+#   python manage.py test_email --to you@example.com
+PLATFORM_FROM_EMAIL = config('PLATFORM_FROM_EMAIL', default='support@keozx.com')
+PLATFORM_SUPPORT_EMAIL = config('PLATFORM_SUPPORT_EMAIL', default='support@keozx.com')
+
+# Kept for compatibility; PLATFORM_FROM_EMAIL is the one to set
+INVITE_FROM_EMAIL = config('INVITE_FROM_EMAIL', default=PLATFORM_FROM_EMAIL)
 
 ASSEMBLYAI_API_KEY = config('ASSEMBLYAI_API_KEY', default='')
 

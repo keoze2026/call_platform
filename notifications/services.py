@@ -163,7 +163,7 @@ class NotificationService:
             send_mail(
                 subject=subject,
                 message=body,
-                from_email=getattr(settings, 'DEFAULT_FROM_EMAIL', 'noreply@callplatform.com'),
+                from_email=getattr(settings, 'PLATFORM_FROM_EMAIL', settings.DEFAULT_FROM_EMAIL),
                 recipient_list=[recipient],
                 fail_silently=False
             )

@@ -1,3 +1,4 @@
+from django.conf import settings
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -162,7 +163,7 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
         send_mail(
             subject="You have been invited to Avortyx as a Buyer",
             message=f"Hi,\n\nYou have been invited to join Avortyx as a buyer.\n\nClick the link below:\n\n{invite_link}\n\nAvortyx Team",
-            from_email="support@keozx.com",
+            from_email=settings.PLATFORM_FROM_EMAIL,
             recipient_list=[buyer.created_by.email],
             fail_silently=True,
         )

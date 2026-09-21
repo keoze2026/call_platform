@@ -17,7 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 def _from_email() -> str:
-    return getattr(settings, 'INVITE_FROM_EMAIL', None) or settings.DEFAULT_FROM_EMAIL
+    return (
+        getattr(settings, 'PLATFORM_FROM_EMAIL', None)
+        or getattr(settings, 'INVITE_FROM_EMAIL', None)
+        or settings.DEFAULT_FROM_EMAIL
+    )
 
 
 def _frontend_url() -> str:

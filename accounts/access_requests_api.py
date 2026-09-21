@@ -1,3 +1,4 @@
+from django.conf import settings
 from ninja import Router, Schema
 from typing import Optional
 from django.utils import timezone
@@ -64,7 +65,7 @@ def create_access_request(request, payload: AccessRequestSchema):
         send_mail(
             subject='We received your request — Avortyx',
             message=f'Hi {payload.name},\n\nThank you for your interest in Avortyx. We have received your request and will review it shortly.\n\nYou will receive another email once your account has been approved.\n\nAvortyx Team',
-            from_email='support@keozx.com',
+            from_email=settings.PLATFORM_FROM_EMAIL,
             recipient_list=[payload.email],
             fail_silently=True,
         )
@@ -77,8 +78,8 @@ def create_access_request(request, payload: AccessRequestSchema):
         send_mail(
             subject=f'New Access Request — {payload.name} from {payload.company}',
             message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: https://avortyx.com/admin/access-requests',
-            from_email='support@keozx.com',
-            recipient_list=['support@keozx.com'],
+            from_email=settings.PLATFORM_FROM_EMAIL,
+            recipient_list=[settings.PLATFORM_SUPPORT_EMAIL],
             fail_silently=True,
         )
     except Exception:
@@ -90,8 +91,8 @@ def create_access_request(request, payload: AccessRequestSchema):
         send_mail(
             subject=f'New Access Request — {payload.name} from {payload.company}',
             message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: https://avortyx.com/admin/access-requests',
-            from_email='support@keozx.com',
-            recipient_list=['support@keozx.com'],
+            from_email=settings.PLATFORM_FROM_EMAIL,
+            recipient_list=[settings.PLATFORM_SUPPORT_EMAIL],
             fail_silently=False,
         )
     except Exception as e:
@@ -169,7 +170,7 @@ def approve_access_request(request, request_id: str, payload: ApproveSchema):
         send_mail(
             subject="Welcome to Avortyx — Set Your Password",
             message=f"Hi {first_name},\n\nYour account has been approved. Click the link below to set your password and sign in:\n\n{setup_link}\n\nThis link expires in 48 hours.\n\nAvortyx Team",
-            from_email="support@keozx.com",
+            from_email=settings.PLATFORM_FROM_EMAIL,
             recipient_list=[req.email],
             fail_silently=False,
         )
