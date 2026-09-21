@@ -3,6 +3,7 @@
 
 from pathlib import Path
 from decimal import Decimal
+from django.core.exceptions import ImproperlyConfigured
 from decouple import config, AutoConfig
 config = AutoConfig(search_path='/opt/call_platform')
 from datetime import timedelta
@@ -28,8 +29,17 @@ sentry_sdk.init(
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^wosqcp*bb73+*g&n0%dy&l($pxb#y')
-ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
 DEBUG = config("DEBUG", default=False, cast=bool)
+
+# SIMPLE_JWT signs tokens with SECRET_KEY, and the fallback above is committed to
+# this repository - anyone holding the code could mint a valid token for any
+# account. Refuse to start rather than run on it.
+if not DEBUG and SECRET_KEY.startswith('django-insecure-'):
+    raise ImproperlyConfigured(
+        'SECRET_KEY is the insecure default committed to the repository. '
+        'Set SECRET_KEY in the environment before running with DEBUG=False.'
+    )
+ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
 APPEND_SLASH = True
 # Add a new portal domain here via env rather than editing this file
 CSRF_TRUSTED_ORIGINS = [
@@ -174,6 +184,19 @@ SIMPLE_JWT = {
 }
 
 # CORS
+# ── Cache ─────────────────────────────────────────────────────────────────────
+# django_ratelimit counts attempts in the cache. With no CACHES configured
+# Django falls back to per-process local memory, so every worker kept its own
+# count and a restart cleared it - the limits existed but barely applied. Redis
+# is already running for Celery and the channel layer.
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': config('REDIS_URL', default='redis://127.0.0.1:6379/0'),
+        'KEY_PREFIX': 'callplatform',
+    }
+}
+
 CORS_ALLOW_ALL_ORIGINS = False
 # Extend via env when the portal moves to a new domain — a request from an
 # origin missing here is blocked by the browser before it reaches any view.
