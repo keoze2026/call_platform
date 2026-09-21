@@ -28,6 +28,12 @@ class BillingAccountOutSchema(Schema):
     currency: str
     status: str
     organization_id: str
+    per_minute_rate: Decimal = Decimal('0')
+    markup_percent: Decimal = Decimal('0')
+    tfn_purchase_fee: Decimal = Decimal('0')
+    monthly_portal_fee: Decimal = Decimal('0')
+    portal_fee_charged_at: Optional[str] = None
+    portal_fee_next_due: Optional[str] = None
     created_at: str
     updated_at: str
 

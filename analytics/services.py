@@ -365,6 +365,161 @@ class AnalyticsService:
     # ── buyer performance ────────────────────────────────────────────────────
 
     @staticmethod
+    def format_call_detail(call) -> dict:
+        """Assemble the full picture of one call.
+
+        caller_profile   who rang, from the Telnyx lookup plus what the carrier
+                         sent. Fields Telnyx does not return are null rather than
+                         zero, so the client can hide them instead of showing a
+                         fraud score of 0 that means 'unknown'.
+        routing          which rule ran and where the call went.
+        timeline         ordered events with timestamps, each one derived from a
+                         stored value - nothing is inferred or invented.
+        financials       resolved the same way reporting resolves them.
+        """
+        campaign = call.campaign
+
+        def iso(dt):
+            return dt.isoformat() if dt else None
+
+        # Telnyx returns carrier and portability only. A fraud score of 0 from it
+        # means "not provided", so it is reported as null unless a lookup ran.
+        profile = {
+            'caller_number': call.caller_number,
+            'local_format': AnalyticsService._local_format(call.caller_number),
+            'area_code': call.caller_area_code or None,
+            'region': call.caller_state or None,
+            'country': call.caller_country or None,
+            'carrier': call.carrier or None,
+            'carrier_raw': call.carrier_name or None,
+            'line_type': call.ipqs_line_type or None,
+            'is_voip': call.ipqs_is_voip,
+            'fraud_score': call.ipqs_fraud_score if call.ipqs_checked else None,
+            'lookup_performed': call.ipqs_checked,
+            # Not available from the current lookup provider
+            'city': None,
+            'zip_code': None,
+            'timezone': None,
+        }
+
+        timeline = [{
+            'event': 'call_received',
+            'label': 'Call Received',
+            'at': iso(call.created_at),
+            'detail': {'from': call.caller_number, 'to': call.called_number},
+        }]
+
+        if call.ipqs_checked:
+            timeline.append({
+                'event': 'caller_lookup',
+                'label': 'Caller Profile',
+                'at': iso(call.created_at),
+                'detail': {'carrier': call.carrier or None, 'line_type': call.ipqs_line_type or None},
+            })
+
+        if call.destination_number:
+            timeline.append({
+                'event': 'destination_dialed',
+                'label': 'Destination Dialed',
+                'at': iso(call.created_at),
+                'detail': {
+                    'destination': call.destination_number,
+                    'buyer': call.buyer.name if call.buyer_id else None,
+                },
+            })
+
+        if call.answered_at:
+            timeline.append({
+                'event': 'connected',
+                'label': 'Connected Call',
+                'at': iso(call.answered_at),
+                'detail': {'destination': call.destination_number or None},
+            })
+
+        min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
+        converted = (
+            call.status == call.Status.COMPLETED and (call.duration or 0) >= (min_dur or 0)
+        )
+
+        if converted:
+            timeline.append({
+                'event': 'converted',
+                'label': 'Converted Call',
+                'at': iso(call.ended_at),
+                'detail': {
+                    'buyer': call.buyer.name if call.buyer_id else None,
+                    'destination': call.destination_number or None,
+                    'conversion_amount': str(call.revenue or 0),
+                },
+            })
+
+        if call.ended_at:
+            timeline.append({
+                'event': 'ended',
+                'label': 'Call Ended',
+                'at': iso(call.ended_at),
+                'detail': {
+                    'status': call.status,
+                    'duration_seconds': call.duration or 0,
+                    'reason': call.block_reason or call.ipqs_block_reason or None,
+                },
+            })
+
+        return {
+            'id': str(call.id),
+            'call_sid': call.twilio_call_sid,
+            'status': call.status,
+            'duration_seconds': call.duration or 0,
+            'is_duplicate': call.is_duplicate,
+            'is_converted': converted,
+            'created_at': iso(call.created_at),
+
+            'caller_profile': profile,
+
+            'routing': {
+                'called_number': call.called_number,
+                'campaign_id': str(call.campaign_id) if call.campaign_id else None,
+                'campaign_name': campaign.name if call.campaign_id else None,
+                'rule_id': str(call.routing_rule_id) if call.routing_rule_id else None,
+                'rule_name': call.routing_rule.name if call.routing_rule_id else None,
+                'rule_type': call.routing_rule.rule_type if call.routing_rule_id else None,
+                'destination_number': call.destination_number or None,
+                'buyer_id': str(call.buyer_id) if call.buyer_id else None,
+                'buyer_name': call.buyer.name if call.buyer_id else None,
+                'publisher_name': call.publisher.name if call.publisher_id else None,
+                'block_reason': call.block_reason or call.ipqs_block_reason or None,
+            },
+
+            'financials': {
+                'revenue': str((campaign.revenue_amount if campaign and converted else 0) or 0),
+                'payout': str(call.publisher_payout or 0),
+                'profit': str(
+                    ((campaign.revenue_amount if campaign and converted else 0) or 0)
+                    - (call.publisher_payout or 0)
+                ),
+                'min_call_duration': min_dur or 0,
+            },
+
+            'recording': {
+                'url': call.recording_url or None,
+                'transcription': call.transcription_text or None,
+                'sentiment': call.sentiment or None,
+            },
+
+            'timeline': timeline,
+        }
+
+    @staticmethod
+    def _local_format(number: str) -> str:
+        """(410) 392-5785 from +14103925785. Returns the input if it is not NANP."""
+        digits = ''.join(c for c in (number or '') if c.isdigit())
+        if len(digits) == 11 and digits.startswith('1'):
+            digits = digits[1:]
+        if len(digits) != 10:
+            return number or ''
+        return f'({digits[:3]}) {digits[3:6]}-{digits[6:]}'
+
+    @staticmethod
     def get_carrier_performance(user: User, filters) -> list:
         """Breakdown by caller carrier, for the CALLER PROFILE tab.
 

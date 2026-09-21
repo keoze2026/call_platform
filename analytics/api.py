@@ -97,6 +97,26 @@ def get_recording(request: HttpRequest, call_id: str):
         return 404, {"detail": "Call not found"}
     
 
+@router.get("/calls/{call_id}/detail", response={200: dict, 404: dict})
+def call_detail(request: HttpRequest, call_id: str):
+    """Everything known about one call — the expandable row detail.
+
+    Three sections: who called, what the routing decided, and what happened
+    when. Assembled from the CallLog rather than the analytics mirror, since the
+    mirror only carries terminal calls and drops the routing detail.
+    """
+    from routing.models import CallLog
+
+    try:
+        call = CallLog.objects.select_related(
+            'campaign', 'buyer', 'publisher', 'routing_rule'
+        ).get(id=call_id, organization=request.auth.organization)
+    except CallLog.DoesNotExist:
+        return 404, {"detail": "Call not found"}
+
+    return 200, AnalyticsService.format_call_detail(call)
+
+
 @router.get("/live", response={200: list})
 def live_calls(request: HttpRequest):
     from routing.models import CallLog

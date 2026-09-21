@@ -1,5 +1,6 @@
 import uuid
 import math
+from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from django.utils import timezone
 from django.db import transaction
@@ -360,6 +361,21 @@ class BillingService:
             'currency': account.currency,
             'status': account.status,
             'organization_id': str(account.organization_id),
+            # What this client is actually charged. Added because the rates were
+            # configurable but invisible - the Billing page had no way to show
+            # them.
+            'per_minute_rate': account.per_minute_rate,
+            'markup_percent': account.markup_percent,
+            'tfn_purchase_fee': account.tfn_purchase_fee,
+            'monthly_portal_fee': account.monthly_portal_fee,
+            'portal_fee_charged_at': (
+                account.portal_fee_charged_at.isoformat()
+                if account.portal_fee_charged_at else None
+            ),
+            'portal_fee_next_due': (
+                (account.portal_fee_charged_at + timedelta(days=30)).isoformat()
+                if account.portal_fee_charged_at else None
+            ),
             'created_at': account.created_at.isoformat(),
             'updated_at': account.updated_at.isoformat(),
         }
