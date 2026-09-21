@@ -17,6 +17,15 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-008](#ch-008) | 2026-09-18 | Analytics | Revenue/payout split, conversion gating, duplicate records removed | Done — commit `aa68a720` |
 | [CH-009](#ch-009) | 2026-09-18 | Routing / Scaling | Carrier lookup off the call path, Telnyx no longer blocks calls | Done — commit `d5f55466` |
 | [CH-010](#ch-010) | 2026-09-18 | Migrations | State-only FK migration, CallLog indexes | Done — commit `ceecc5ea` |
+| [CH-011](#ch-011) | 2026-09-18 | Billing | TFN provisioning fee, monthly portal fee | Done — commit `6bcd6689` |
+| [CH-012](#ch-012) | 2026-09-18 | Routing | Stale-call cleanup, Asterisk channel sync, manual hangup | Done — commit `3ba24887` |
+| [CH-013](#ch-013) | 2026-09-19 | Analytics | Duplicate detection, qualified fix, summary columns | Done — commit `0a651d74` |
+| [CH-014](#ch-014) | 2026-09-19 | Analytics | Carrier normalisation and breakdown endpoint | Done — commit `2018a1a7` |
+| [CH-015](#ch-015) | 2026-09-18 | Accounts | Telegram account linking | Done — commit `6f78e1e8` |
+| [CH-016](#ch-016) | 2026-09-20 | Notifications | Per-user pop-up alert preferences | Done — commit `ba858308` |
+| [CH-017](#ch-017) | 2026-09-21 | Accounts | Invitation and reset email actually sent | Done — commit `6c11aff5` |
+| [CH-018](#ch-018) | 2026-09-21 | Config | Domains and sender addresses made configurable | Done — commit `3d907f16` |
+| [CH-019](#ch-019) | 2026-09-21 | **Security** | **Open registration closed, access requests locked to staff** | Done — commit `ea3a7fdd` |
 | [CH-006](#ch-006) | 2026-09-17 | Analytics | Dynamic Dashboard Pricing & PhoneNumber Formatting | Done |
 
 ## Open items (not done yet)
@@ -957,3 +966,275 @@ the database finally agree.
    `/api/routing/rules/{id}/destinations`.
 5. Number provisioning must surface `trunk_warning` on a `201` with
    `status: "pending"`.
+
+---
+
+<a name="ch-011"></a>
+## CH-011 — TFN provisioning fee and monthly portal fee
+
+**Commit:** `6bcd6689` · Deployed 2026-09-18
+
+$20 per tracking number and $49.99 a month, both per-client fields on
+`BillingAccount` beside the per-minute rate. A `Plan` model with `monthly_cost`
+already existed but nothing imports it, so the $499 plan shown on the Billing
+page drives no charge.
+
+The TFN fee is checked for affordability **before** Twilio is called — checking
+after would mean Twilio had already billed for a number the client cannot pay
+for. A failure once the number exists is logged rather than raised: losing the
+number over a billing error is worse than an unbilled provision the transaction
+log can reconcile.
+
+The portal fee bills on each account's own 30-day cycle rather than a calendar
+date, so a mid-month signup is not billed twice and the customer base does not
+land on one day. `portal_fee_charged_at` is stamped only on success, so an
+account that cannot cover it is retried tomorrow rather than losing the month.
+
+`set_rate` manages all of it, with `--preview` to check what a call of a given
+length would cost.
+
+---
+
+<a name="ch-012"></a>
+## CH-012 — Stale calls, Asterisk reconciliation, manual hangup
+
+**Commits:** `1f3291b9`, `3ba24887`, `2d887efd` · Deployed 2026-09-18
+
+A call sat in `in_progress` for 126 minutes while Asterisk reported **zero
+active channels** — the end-of-call webhook had never fired. Stuck rows inflate
+live counts and never reach the analytics mirror, since only terminal statuses
+are mirrored.
+
+`close_stale_calls` sweeps every 15 minutes and closes anything past
+`STALE_CALL_MINUTES` as `no_answer` with zero duration, so it is never charged
+and never counts as revenue. That bounds the problem at roughly 75 minutes but
+cannot eliminate it, because age is all it knows.
+
+`POST /api/twilio/asterisk/active-channels/` makes Asterisk the authority. A
+host cron posts its channel list every minute and rows Asterisk does not have
+are closed. Three guards, since closing a real call is far worse than leaving a
+stale row: rows under `ASTERISK_SYNC_GRACE_SECONDS` are never touched, a zero
+count closes everything past that grace, and when Asterisk does report channels
+the ids are trusted **only** if at least one matches a live row — otherwise the
+id format differs from what the dialplan sends and nothing is closed. The host
+script exits without posting when the Asterisk CLI is unreachable, so an outage
+cannot be read as "no calls are up".
+
+Orphaned rows now clear in under 60 seconds.
+
+`POST /api/routing/calls/{id}/hangup` closes a call showing as live. It does
+**not** drop audio — Asterisk owns the channel and there is no AMI connection —
+and the response says so.
+
+**Root cause still open:** the dialplan does not reliably reach `call_ended`.
+This treats the symptom.
+
+---
+
+<a name="ch-013"></a>
+## CH-013 — Duplicate detection, qualified, and the summary columns
+
+**Commits:** `0f911731`, `2f2736f5`, `7a29c3a7`, `ef40b06b`, `0a651d74` · 2026-09-19
+
+**DUPE always read 0.** `is_duplicate` was never written by anything —
+`analytics/services.py` hardcoded it to `False` and no other path set it.
+`RoutingEngine.is_duplicate` existed but only to decide whether to *block* a
+call; the result was discarded. `CallLog.is_duplicate` now records it on arrival,
+detection running regardless of `duplicate_call_block` — that flag governs
+blocking, not reporting.
+
+**Qualified read 81 against 87 connected.** `is_qualified` is written by two
+one-off scripts and the Twilio path, but not by the signal that mirrors live
+Asterisk calls, so it stayed `False` on everything written since. The signal now
+sets both flags from one helper so they cannot drift.
+
+**Five columns were invented client-side.** The campaigns endpoint never
+returned Connected, Not Connected, Paid, Live or duplicate counts, so no
+server-side fix could move them. All three breakdowns now return them, connected
+and not-connected as complements summing to `total_calls`.
+
+`AnalyticsFilterSchema` gained the boolean filters, so
+`/api/analytics/calls?is_qualified=true` works — it was silently ignored,
+returning the full list, which is why a drill-down disagreed with its header.
+
+---
+
+<a name="ch-014"></a>
+## CH-014 — Carrier normalisation
+
+**Commit:** `2018a1a7` · Deployed 2026-09-19
+
+Telnyx returns the operating entity, not a brand: one network arrived as
+`Verizon Wireless:6006 - SVR/2`, `CELLCO PARTNERSHIP DBA VERIZON WIRELESS - OH`
+and a dozen more — 33 distinct strings across 150 calls. The Caller Profile tab
+was showing six invented carrier names instead, including Sprint and US Cellular,
+which do not appear in the data at all.
+
+`routing/carriers.py` maps the raw string to a family, matching MVNOs before
+their host network so Metro is not swallowed by T-Mobile nor Cricket by AT&T,
+and covering acquired entities still present in LRN data — Cingular and the Bell
+operating companies as AT&T, Omnipoint, Powertel, Aerial and SunCom as T-Mobile,
+Cellco Partnership as Verizon, Eliska as Cricket. An unrecognised carrier keeps
+its own name rather than collapsing into Unknown.
+
+Real spread: Verizon 59, AT&T 33, T-Mobile 28, Metro 11, Boost 2, Cricket 1,
+Onvoy 1. `GET /api/analytics/carriers` serves the breakdown.
+
+---
+
+<a name="ch-015"></a>
+## CH-015 — Telegram account linking
+
+**Commit:** `6f78e1e8` · Deployed 2026-09-18
+
+Four profile endpoints. `POST /api/accounts/me/telegram/link` issues a
+single-use code and returns `{url, code, expires_at}`; opening the link sends the
+bot `/start <code>`, which is the only point at which the chat id becomes
+knowable. Codes use `secrets.token_urlsafe(16)` — inside Telegram's start-payload
+character set and well under its 64-character limit — expire after 15 minutes,
+and requesting a new link retires any outstanding one.
+
+The webhook grew a `/start` branch beside the existing support-reply handling
+and still answers 200 on every path, since a non-200 makes Telegram retry the
+same update indefinitely.
+
+---
+
+<a name="ch-016"></a>
+## CH-016 — Pop-up alert preferences
+
+**Commit:** `ba858308` · 2026-09-20
+
+Per-user control over which alerts surface as pop-ups, deliberately separate from
+`NotificationRule`: a rule decides whether an event is dispatched and to whom, this
+decides only whether it interrupts the person looking at the dashboard. One
+person wanting cap alerts on top should not change what anyone else receives.
+
+`GET /api/notifications/events` serves the catalogue rather than the frontend
+hardcoding it, so a new alert type appears in settings automatically. Adds
+`destination.cap_reached`, `buyer.missed` and `aht.low`.
+
+**Open:** those three have preference storage and dispatch plumbing but no
+detection logic firing them.
+
+---
+
+<a name="ch-017"></a>
+## CH-017 — Invitation and password reset email
+
+**Commit:** `6c11aff5` · Deployed 2026-09-21
+
+**Neither flow ever sent anything.** The invite endpoint created the user,
+generated a temporary password, returned it in the API response and stopped — so
+an invited member was never contacted, which is why a freshly invited address
+showed an empty inbox while the member read as Active. The reset flow was worse:
+a `TODO: send email` beside a `print()` pointing at `app.callplatform.com`, a
+domain that is not ours, so every reset link ever produced was dead.
+
+`accounts/emails.py` centralises both, returning `(sent, error)` rather than
+raising so a caller can report delivery instead of failing the request over SMTP.
+The invitation carries a set-password link backed by the existing
+`PasswordResetToken` rather than the password itself.
+
+`test_email` prints the resolved SMTP configuration and sends a message, so
+delivery can be proven independently of the invite flow.
+
+**Sender:** the SMTP account authenticates as a specific mailbox, and the host
+rejects sending as another domain — `553 Sender address rejected: not owned by
+user`. Changing the visible sender needs that mailbox to exist on the mail host,
+not a code change.
+
+---
+
+<a name="ch-018"></a>
+## CH-018 — Domains and sender addresses made configurable
+
+**Commits:** `0bbc82eb`, `3d907f16` · Deployed 2026-09-21
+
+The domain was hardcoded in **thirteen places across eight files**, and
+inconsistently — referral redirects and buyer invites pointed at one domain,
+avatars and recordings at another. The sender address was hardcoded in nine more
+places across four files, with notifications falling back to a placeholder.
+
+`FRONTEND_URL`, `PUBLIC_SITE_URL` and `MEDIA_BASE_URL` now cover the domains,
+kept separate so the client portal can move to a disposable domain without
+touching the marketing site. `PLATFORM_FROM_EMAIL` and `PLATFORM_SUPPORT_EMAIL`
+cover the sender. `CORS_ALLOWED_ORIGINS` and `CSRF_TRUSTED_ORIGINS` read from env
+— a portal on a new domain needs its origin in both or the browser blocks every
+request before it reaches a view, which fails looking exactly like a backend
+outage.
+
+`contact_api` imported `settings` inside a function below three module-level uses
+of it, which would have raised `NameError` on the first contact-form submission.
+
+---
+
+<a name="ch-019"></a>
+## CH-019 — Security audit: registration, access requests, tenant scoping
+
+**Commits:** `1e3c3ea0`, `e40fcf00`, `ea3a7fdd`, `3139f17f` · Deployed 2026-09-21
+
+A full pass over 256 endpoints found one chain open to anyone on the internet.
+
+**`POST /api/accounts/register` was unauthenticated** and created an
+Organization plus a user with `role=ADMIN`. **No endpoint in the codebase checks
+a role** — five roles exist and the only mention of permissions anywhere is the
+Django admin config. So a stranger could self-register and immediately reach
+endpoints acting across every organization:
+
+- `GET /api/accounts/access-requests/` — every prospect's name, company, email,
+  phone and use case, platform-wide. Not organization-scoped.
+- `POST .../approve/` — create arbitrary organizations and users.
+- `DELETE /api/buyers/{id}/campaigns/{id}` — delete another organization's
+  assignment, no organization filter.
+
+The access-request flow exists precisely to gate signup; open registration
+bypassed it entirely.
+
+**Closed.** Registration is off unless `OPEN_REGISTRATION=True`. The
+platform-wide endpoints now require `StaffAuth` — Django superuser or staff.
+Organization admin is deliberately not enough, since the first user of any
+organization is an admin of it. Submitting a request and setting a password stay
+public, as they must. `detach_campaign` is scoped to the caller's organization.
+
+Two accounts held superuser on production — a test account and one with no
+organization at all. Both revoked. `grant_staff` manages this and warns when
+nobody holds it, in which case access requests cannot be approved by anyone.
+
+**Also found:** destinations could be saved with no buyer — five were, all
+active and none reachable, since routing resolves the live destination by buyer.
+Worse, `DestinationUpdateSchema` had no `buyer_id`, so it could not be corrected
+through the API by any client. Create now requires it; update accepts it and
+resolves the Buyer scoped to the caller's organization rather than assigning the
+raw id, which would have stored another organization's id without complaint.
+
+`GET /api/accounts/roles` built its list and never returned it, answering `None`
+and failing response validation with a 500 — the Roles screen had never worked.
+
+`scripts/smoke_test.py` exercises 62 read-only endpoints in one command and
+reports 500s, bad auth and slow queries. **62/62 passing.**
+
+---
+
+## Still open
+
+**Backend**
+
+- 24 swallowed exceptions (`except: pass`), 8 of them in
+  `routing/twilio_handler.py` where a failure disappears without trace. This is
+  the category that hid the duplicate-record and payout bugs.
+- The Asterisk dialplan does not reliably reach `call_ended`. CH-012 treats the
+  symptom.
+- `destination.cap_reached`, `buyer.missed` and `aht.low` have no detection logic.
+- The `Plan` model and 7 other model fields are dead code.
+- Buyers have empty `phone_number`. Harmless on the current routing path, but the
+  RTB path returns `auction.winner.phone_number` as the destination.
+- Web replicas and PgBouncer are configured and intentionally inactive.
+
+**Frontend**
+
+- `Cost` column is fabricated — no backend field feeds it.
+- TCL renders as `mm:ss` rather than `hh:mm:ss`. The value is correct.
+- Routing plan builder cannot show or edit rules; endpoints exist.
+- `trunk_warning` not surfaced on number purchase.
+- Hangup button not wired to `POST /api/routing/calls/{id}/hangup`.
