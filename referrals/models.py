@@ -1,3 +1,4 @@
+from django.conf import settings
 import uuid
 import random
 import string
@@ -28,7 +29,7 @@ class ReferralProgram(models.Model):
 
     @property
     def link(self):
-        return f"https://avortyx.io/r/{self.code}"
+        return f"{settings.PUBLIC_SITE_URL}/r/{self.code}"
 
 
 class Referral(models.Model):

@@ -31,7 +31,13 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-ud69xs!-nnj@2o99m9fv^
 ALLOWED_HOSTS = config('ALLOWED_HOSTS', default='localhost').split(',')
 DEBUG = config("DEBUG", default=False, cast=bool)
 APPEND_SLASH = True
-CSRF_TRUSTED_ORIGINS = ['https://avortyx.io', 'https://www.avortyx.io']
+# Add a new portal domain here via env rather than editing this file
+CSRF_TRUSTED_ORIGINS = [
+    o.strip() for o in config(
+        'CSRF_TRUSTED_ORIGINS',
+        default='https://avortyx.io,https://www.avortyx.io',
+    ).split(',') if o.strip()
+]
 
 # Application definition
 INSTALLED_APPS = [
@@ -169,13 +175,17 @@ SIMPLE_JWT = {
 
 # CORS
 CORS_ALLOW_ALL_ORIGINS = False
+# Extend via env when the portal moves to a new domain — a request from an
+# origin missing here is blocked by the browser before it reaches any view.
 CORS_ALLOWED_ORIGINS = [
-    'https://avortyx.com',
-    'https://www.avortyx.com',
-    'https://avortyx.io',
-    'http://localhost:3000',
-    'http://localhost:3001',
-]  # Change in production
+    o.strip() for o in config(
+        'CORS_ALLOWED_ORIGINS',
+        default=(
+            'https://avortyx.com,https://www.avortyx.com,https://avortyx.io,'
+            'http://localhost:3000,http://localhost:3001'
+        ),
+    ).split(',') if o.strip()
+]
 
 # Internationalization
 LANGUAGE_CODE = 'en-us'
@@ -277,7 +287,17 @@ EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=False, cast=bool)
 
 # Base URL for links in outgoing email. The reset flow previously pointed at a
 # placeholder domain, so any link it produced was dead.
+# ── Domains ───────────────────────────────────────────────────────────────────
+# Kept separate so the client-facing portal can move to a disposable domain
+# without touching the marketing site, and without a code change. Both were
+# hardcoded across eight files, inconsistently: some pointed at .com, some .io.
+#
+# FRONTEND_URL      where clients log in. This is the one that moves.
+# PUBLIC_SITE_URL   the marketing site — signup, referral landing.
+# MEDIA_BASE_URL    where recordings and avatars are served from.
 FRONTEND_URL = config('FRONTEND_URL', default='https://avortyx.io').rstrip('/')
+PUBLIC_SITE_URL = config('PUBLIC_SITE_URL', default='https://avortyx.com').rstrip('/')
+MEDIA_BASE_URL = config('MEDIA_BASE_URL', default=FRONTEND_URL).rstrip('/')
 # Every outgoing platform email sends from here, and admin notifications land in
 # PLATFORM_SUPPORT_EMAIL. Both were hardcoded in nine places across four files.
 #
@@ -495,7 +515,7 @@ TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
 
 MEDIA_ROOT = BASE_DIR / 'media'
-MEDIA_URL = 'https://avortyx.io/media/'
+MEDIA_URL = f'{MEDIA_BASE_URL}/media/'
 
 TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
 

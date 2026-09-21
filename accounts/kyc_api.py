@@ -1,3 +1,4 @@
+from django.conf import settings
 from ninja import Router, Schema, File
 from ninja.files import UploadedFile
 from django.utils import timezone
@@ -144,5 +145,5 @@ def upload_kyc_document(request):
     with open(filepath, 'wb') as f:
         for chunk in file.chunks():
             f.write(chunk)
-    base_url = getattr(settings, 'BASE_URL', 'https://avortyx.io')
+    base_url = settings.MEDIA_BASE_URL
     return 200, {"url": f"{base_url}/media/{filename}"}

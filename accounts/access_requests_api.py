@@ -77,7 +77,7 @@ def create_access_request(request, payload: AccessRequestSchema):
         from django.core.mail import send_mail
         send_mail(
             subject=f'New Access Request — {payload.name} from {payload.company}',
-            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: https://avortyx.com/admin/access-requests',
+            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: {settings.PUBLIC_SITE_URL}/admin/access-requests',
             from_email=settings.PLATFORM_FROM_EMAIL,
             recipient_list=[settings.PLATFORM_SUPPORT_EMAIL],
             fail_silently=True,
@@ -90,7 +90,7 @@ def create_access_request(request, payload: AccessRequestSchema):
         from django.core.mail import send_mail
         send_mail(
             subject=f'New Access Request — {payload.name} from {payload.company}',
-            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: https://avortyx.com/admin/access-requests',
+            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: {settings.PUBLIC_SITE_URL}/admin/access-requests',
             from_email=settings.PLATFORM_FROM_EMAIL,
             recipient_list=[settings.PLATFORM_SUPPORT_EMAIL],
             fail_silently=False,
@@ -164,7 +164,7 @@ def approve_access_request(request, request_id: str, payload: ApproveSchema):
     )
 
     # Send email
-    setup_link = f"https://avortyx.com/set-password?token={token_str}"
+    setup_link = f"{settings.FRONTEND_URL}/set-password?token={token_str}"
     try:
         from django.core.mail import send_mail
         send_mail(

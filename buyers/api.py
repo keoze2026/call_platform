@@ -159,7 +159,7 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
         if not buyer.created_by or not buyer.created_by.email:
             return 400, {"detail": "No email found for this buyer"}
         token = secrets.token_urlsafe(32)
-        invite_link = f"https://avortyx.com/buyer-setup?token={token}&buyer_id={buyer_id}"
+        invite_link = f"{settings.FRONTEND_URL}/buyer-setup?token={token}&buyer_id={buyer_id}"
         send_mail(
             subject="You have been invited to Avortyx as a Buyer",
             message=f"Hi,\n\nYou have been invited to join Avortyx as a buyer.\n\nClick the link below:\n\n{invite_link}\n\nAvortyx Team",

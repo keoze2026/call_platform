@@ -1,5 +1,6 @@
 # accounts/api.py
 
+from django.conf import settings
 from ninja import Router, Form
 from ninja.security import HttpBearer
 from django.http import HttpRequest
@@ -139,7 +140,7 @@ def upload_avatar(request: HttpRequest):
         user = request.auth
         user.avatar = filename
         user.save()
-        avatar_url = f"https://avortyx.io/media/{filename}"
+        avatar_url = f"{settings.MEDIA_BASE_URL}/media/{filename}"
         return 200, {"avatar_url": avatar_url, "message": "Avatar uploaded"}
     except Exception as e:
         return 400, {"detail": str(e)}

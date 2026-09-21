@@ -1,3 +1,4 @@
+from django.conf import settings
 import secrets
 import hashlib
 import base64
@@ -173,7 +174,7 @@ class ProfileService:
             'is_email_verified': user.is_email_verified,
             'organization_id': str(user.organization_id) if user.organization_id else None,
             'organization_name': user.organization.name if user.organization else None,
-            'avatar_url': f"https://avortyx.io/media/{user.avatar}" if user.avatar else None,
+            'avatar_url': f"{settings.MEDIA_BASE_URL}/media/{user.avatar}" if user.avatar else None,
             # null rather than "" when unset — the Profile page treats absence as
             # "not linked" and an empty string would read as linked.
             'telegram_chat_id': user.telegram_chat_id or None,

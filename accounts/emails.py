@@ -25,7 +25,7 @@ def _from_email() -> str:
 
 
 def _frontend_url() -> str:
-    return getattr(settings, 'FRONTEND_URL', 'https://avortyx.io').rstrip('/')
+    return settings.FRONTEND_URL.rstrip('/')
 
 
 def send_account_email(to_email: str, subject: str, body: str):
