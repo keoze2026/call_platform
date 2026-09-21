@@ -1,15 +1,42 @@
+import logging
 from django.core.mail import send_mail
 from django.conf import settings
 from .models import NotificationRule, NotificationLog
 from accounts.models import User
 
+logger = logging.getLogger(__name__)
+
 
 class NotificationService:
+
+    @staticmethod
+    @staticmethod
+    def _validate_choices(event=None, channel=None):
+        """Reject values the model does not define.
+
+        Nothing checked these, so rules were saved for events that never fire
+        and channels dispatch has no branch for - the rule looks configured and
+        silently delivers nothing.
+        """
+        if event is not None:
+            valid = [c[0] for c in NotificationRule.Event.choices]
+            if event not in valid:
+                raise ValueError(
+                    f"'{event}' is not a valid event. One of: {', '.join(valid)}"
+                )
+        if channel is not None:
+            valid = [c[0] for c in NotificationRule.Channel.choices]
+            if channel not in valid:
+                raise ValueError(
+                    f"'{channel}' is not a valid channel. One of: {', '.join(valid)}"
+                )
 
     @staticmethod
     def create_rule(data, user: User) -> NotificationRule:
         if not user.organization:
             raise ValueError("User has no organization")
+
+        NotificationService._validate_choices(data.event, data.channel)
 
         rule = NotificationRule.objects.create(
             organization=user.organization,
@@ -45,8 +72,10 @@ class NotificationService:
         if data.name is not None:
             rule.name = data.name
         if data.event is not None:
+            NotificationService._validate_choices(event=data.event)
             rule.event = data.event
         if data.channel is not None:
+            NotificationService._validate_choices(channel=data.channel)
             rule.channel = data.channel
         if data.recipients is not None:
             rule.recipients = data.recipients
@@ -142,6 +171,14 @@ class NotificationService:
                     NotificationService._send_email(rule, recipient, event, data, organization)
                 elif rule.channel == 'sms':
                     NotificationService._send_sms(rule, recipient, event, data, organization)
+                else:
+                    # A channel with no branch here delivered nothing at all,
+                    # while the rule looked configured and active.
+                    logger.warning(
+                        'notification rule %s has channel %r, which cannot be '
+                        'delivered; nothing was sent for %s',
+                        rule.id, rule.channel, event,
+                    )
 
     @staticmethod
     def _send_email(rule, recipient: str, event: str, data: dict, organization):
