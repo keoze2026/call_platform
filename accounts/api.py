@@ -431,17 +431,38 @@ def invite_member(request: HttpRequest):
     import json
     import secrets
     try:
+        from django.core.exceptions import ValidationError as DjangoValidationError
+        from django.core.validators import validate_email
+
         data = json.loads(request.body)
-        email = data.get('email')
+        email = (data.get('email') or '').strip()
         role = data.get('role', 'agent')
+
         if not email:
             return 400, {"detail": "Email is required"}
-        if User.objects.filter(email=email).exists():
+
+        # Nothing checked the format, so an address with a space in it -
+        # 'x someone@example.com' - was accepted, stored, and could never
+        # receive the invitation.
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return 400, {"detail": f"'{email}' is not a valid email address"}
+
+        # Stored lowercase so the same person cannot be invited twice under
+        # different capitalisation
+        email = email.lower()
+
+        if User.objects.filter(email__iexact=email).exists():
             return 400, {"detail": "User with this email already exists"}
         temp_password = secrets.token_urlsafe(12)
         user = User.objects.create(
             email=email,
             username=email.split('@')[0],
+            # Optional, but without them the members list falls back to the
+            # username, which is just the local part of the address
+            first_name=(data.get('first_name') or '').strip()[:150],
+            last_name=(data.get('last_name') or '').strip()[:150],
             role=role,
             organization=request.auth.organization,
             is_email_verified=True,
