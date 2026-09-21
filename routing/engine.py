@@ -300,17 +300,37 @@ class RoutingEngine:
 
     @staticmethod
     def get_valid_destination(rule: RoutingRule, call_data: dict):
+        """Pick the first destination that passes every check.
+
+        Records why each one was rejected into call_data['trace'] when the caller
+        supplies it, so a call can later explain its own routing. Costs nothing
+        when no trace is passed.
+        """
+        trace = call_data.get('trace')
         destinations = list(rule.destinations.all().order_by('priority'))
+
         for destination in destinations:
+            reason = None
+
             if destination.buyer:
                 buyer = destination.buyer
                 if buyer.status != 'active':
-                    continue
-                if not RoutingEngine.check_buyer_caps(buyer):
-                    continue
-                if not RoutingEngine.check_buyer_concurrency(buyer, destination_number=destination.destination):
-                    continue
-            return destination
+                    reason = f'buyer {buyer.name} is {buyer.status}'
+                elif not RoutingEngine.check_buyer_caps(buyer):
+                    reason = f'buyer {buyer.name} has reached its cap'
+                elif not RoutingEngine.check_buyer_concurrency(
+                    buyer, destination_number=destination.destination
+                ):
+                    reason = f'buyer {buyer.name} is at concurrency limit'
+
+            if reason is None:
+                if trace is not None:
+                    trace.record_destination(rule, destination, eligible=True)
+                return destination
+
+            if trace is not None:
+                trace.record_destination(rule, destination, eligible=False, reason=reason)
+
         return None
 
     @staticmethod
@@ -355,7 +375,6 @@ class RoutingEngine:
 
         return None
 
-    @staticmethod
     @staticmethod
     def required_call_balance(campaign, phone_number=None, organization=None) -> Decimal:
         """Credit needed to dispatch one call, read from configured pricing.
@@ -437,20 +456,30 @@ class RoutingEngine:
 
         caller_number = call_data.get('caller_number', '')
 
+        trace = call_data.get('trace')
+
         if RoutingEngine.is_blacklisted(caller_number, str(campaign.organization_id)):
+            if trace: trace.step('blacklist', False, 'caller is blacklisted')
             return {'destination': None, 'rule': None, 'error': 'Caller is blacklisted'}
+        if trace: trace.step('blacklist', True)
 
         if campaign.duplicate_call_block:
             if RoutingEngine.is_duplicate(caller_number, str(campaign.id), campaign.duplicate_call_block_hours):
+                if trace: trace.step('duplicate', False, f'called within {campaign.duplicate_call_block_hours}h')
                 return {'destination': None, 'rule': None, 'error': 'Duplicate call blocked'}
+            if trace: trace.step('duplicate', True)
 
         if not RoutingEngine.check_campaign_caps(campaign):
+            if trace: trace.step('campaign_cap', False, 'campaign cap reached')
             return {'destination': None, 'rule': None, 'error': 'Campaign cap reached'}
+        if trace: trace.step('campaign_cap', True)
 
         # Funds check runs last of the guardrails — it is the most expensive, and
         # there is no point pricing a call the other rules would have dropped.
         if not RoutingEngine.check_balance(campaign, call_data.get('phone_number')):
+            if trace: trace.step('balance', False, 'insufficient balance for one call')
             return {'destination': None, 'rule': None, 'error': 'insufficient_balance'}
+        if trace: trace.step('balance', True)
 
         rules = campaign.routing_rules.filter(
             status=RoutingRule.Status.ACTIVE
@@ -481,6 +510,10 @@ class RoutingEngine:
                 }
             return {'destination': None, 'rule': None, 'error': 'RTB no winner'}
 
+        if trace:
+            for rule in rules:
+                trace.count_considered(rule.destinations.count())
+
         for rule in rules:
             destination = RoutingEngine.evaluate_rule(rule, call_data)
             if destination:
@@ -498,4 +531,5 @@ class RoutingEngine:
                     'error': None
                 }
 
+        if trace: trace.step('rule_match', False, 'no rule produced a destination')
         return {'destination': None, 'rule': None, 'error': 'No matching rule found'}

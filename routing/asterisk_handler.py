@@ -103,12 +103,20 @@ def route_incoming_call(request):
     except Exception:
         logger.warning("carrier_enrichment_not_queued: call_log=%s", call_log.id)
 
+    from routing.trace import RouteTrace
+    trace = RouteTrace()
+
     decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,
+        'caller_area_code': area_code,
+        'caller_state': caller_state,
         'twilio_call_sid': call_log.twilio_call_sid,
         # Carries the tracking number's own payout_per_call into the balance
         # check, so per-number pricing is honoured over the campaign default.
         'phone_number': phone,
+        # Passive recorder: the engine writes its reasoning here and the trace
+        # never influences a decision.
+        'trace': trace,
     })
 
     if not decision or decision.get('error') or not decision.get('destination'):
@@ -116,7 +124,10 @@ def route_incoming_call(request):
         call_log.status = CallLog.Status.FAILED
         call_log.block_reason = reason[:100]
         call_log.ended_at = timezone.now()
-        call_log.save(update_fields=['status', 'block_reason', 'ended_at', 'updated_at'])
+        call_log.routing_trace = trace.as_dict(selected=None)
+        call_log.save(update_fields=[
+            'status', 'block_reason', 'ended_at', 'routing_trace', 'updated_at',
+        ])
         return JsonResponse({"action": "hangup", "reason": reason})
 
     # The engine picks a rule and the call never recorded which one, so the call
@@ -144,8 +155,14 @@ def route_incoming_call(request):
         call_log.destination_number = dest_number
 
     call_log.status = CallLog.Status.IN_PROGRESS
+    call_log.routing_trace = trace.as_dict(selected={
+        'destination': dest_number,
+        'buyer': buyer.name if buyer else None,
+        'rule': chosen_rule.name if chosen_rule is not None else None,
+    })
     call_log.save(update_fields=[
-        'status', 'buyer', 'destination_number', 'routing_rule', 'updated_at',
+        'status', 'buyer', 'destination_number', 'routing_rule',
+        'routing_trace', 'updated_at',
     ])
 
     return JsonResponse({

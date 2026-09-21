@@ -118,6 +118,11 @@ class CallLog(models.Model):
     ipqs_line_type = models.CharField(max_length=50, blank=True)
     ipqs_block_reason = models.CharField(max_length=100, blank=True)
 
+    # How the routing decision was reached — guardrails, destinations considered
+    # and why each was rejected. Written once at dispatch, read by the call
+    # detail view. Empty on calls placed before this existed.
+    routing_trace = models.JSONField(default=dict, blank=True)
+
     # Carrier family derived from carrier_name — 'Verizon' rather than
     # 'CELLCO PARTNERSHIP DBA VERIZON WIRELESS - OH'. The raw value is kept so a
     # mapping change can be replayed without another lookup.

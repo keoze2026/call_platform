@@ -513,6 +513,11 @@ class AnalyticsService:
                 'min_call_duration': min_dur or 0,
             },
 
+            # How the destination was chosen. Empty on calls placed before this
+            # was recorded, so the client should treat {} as "not available"
+            # rather than "nothing was considered".
+            'routing_trace': call.routing_trace or {},
+
             'recording': {
                 'url': call.recording_url or None,
                 'transcription': call.transcription_text or None,
