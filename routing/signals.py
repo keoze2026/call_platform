@@ -96,11 +96,13 @@ def mirror_call_log(call_log_id) -> bool:
             'status': STATUS_MAP.get(call.status, CallRecord.Status.FAILED),
             'duration_seconds': call.duration or 0,
             'is_converted': _is_converted(call),
-            # Same rule as converted. The two flags have only ever been computed
-            # identically in this codebase, but the signal never set qualified,
-            # so it stayed False on every call mirrored from Asterisk while
-            # converted was populated - the two counts drifted apart.
-            'is_qualified': _is_converted(call),
+            # Qualified means an answered call from a new caller: answered, and
+            # not a repeat inside the campaign's duplicate window. The Qualified
+            # column counts exactly these, so the drill-down lists the same
+            # calls the column reports.
+            'is_qualified': (
+                call.status == CallLog.Status.COMPLETED and not call.is_duplicate
+            ),
             'billable_seconds': call.duration or 0,
             'is_duplicate': call.is_duplicate,
             'recording_url': call.recording_url or '',

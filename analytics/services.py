@@ -164,8 +164,9 @@ class AnalyticsService:
             converted=Count('id', filter=Q(is_converted=True)),
             spam=Count('id', filter=Q(is_spam=True)),
             connected=Count('id', filter=Q(status__in=['completed', 'in_progress'])),
-            unique_answered=Count('caller_number', distinct=True,
-                                  filter=Q(status__in=['completed', 'in_progress'])),
+            repeat_answered=Count('id', filter=Q(
+                status__in=['completed', 'in_progress'], is_duplicate=True,
+            )),
             total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
             total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
             total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -195,8 +196,8 @@ class AnalyticsService:
             'balance':           _account_balance(org),
             'currency':          _account_currency(org),
             'spam_blocked':      agg['spam'],
-            # Answered calls beyond each caller's first, matching the summary table
-            'duplicate_blocked': (agg['connected'] or 0) - (agg['unique_answered'] or 0),
+            # Answered calls from a caller who rang before, matching the summary table
+            'duplicate_blocked': agg['repeat_answered'] or 0,
         }
 
     # ── time series ──────────────────────────────────────────────────────────
@@ -282,7 +283,7 @@ class AnalyticsService:
             .values('campaign_id', 'campaign_name')
             .annotate(
                 total_calls=Count('id'),
-                qualified_calls=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
                 converted_calls=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
@@ -293,7 +294,7 @@ class AnalyticsService:
                 # Columns the summary table was deriving client-side. Definitions
                 # agreed with the frontend: connected and not-connected are
                 # complements, so the two always sum to total_calls.
-                unique_answered=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -325,11 +326,11 @@ class AnalyticsService:
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
-                'duplicate_calls': r['connected_calls'] - r['unique_answered'],
+                'duplicate_calls': r['repeat_answered'],
                 # Aliases: the summary table's DUPE column has been seen reading
                 # each of these spellings.
-                'dupe': r['connected_calls'] - r['unique_answered'],
-                'duplicates': r['connected_calls'] - r['unique_answered'],
+                'dupe': r['repeat_answered'],
+                'duplicates': r['repeat_answered'],
                 'connected_calls': r['connected_calls'],
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
@@ -557,7 +558,7 @@ class AnalyticsService:
             .values('carrier')
             .annotate(
                 total_calls=Count('id'),
-                qualified_calls=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
                 converted_calls=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
@@ -567,7 +568,7 @@ class AnalyticsService:
                 )), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 
-                unique_answered=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -597,9 +598,9 @@ class AnalyticsService:
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
-                'duplicate_calls': r['connected_calls'] - r['unique_answered'],
-                'dupe': r['connected_calls'] - r['unique_answered'],
-                'duplicates': r['connected_calls'] - r['unique_answered'],
+                'duplicate_calls': r['repeat_answered'],
+                'dupe': r['repeat_answered'],
+                'duplicates': r['repeat_answered'],
                 'connected_calls': r['connected_calls'],
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
@@ -624,7 +625,7 @@ class AnalyticsService:
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
                 
-                unique_answered=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -654,9 +655,9 @@ class AnalyticsService:
                 'total_payout':   r['total_payout'],
                 'avg_duration':   round(r['avg_duration'] or 0, 1),
                 'conversion_rate': round((r['converted'] / t_total) * 100, 2),
-                'duplicate_calls': r['connected_calls'] - r['unique_answered'],
-                'dupe': r['connected_calls'] - r['unique_answered'],
-                'duplicates': r['connected_calls'] - r['unique_answered'],
+                'duplicate_calls': r['repeat_answered'],
+                'dupe': r['repeat_answered'],
+                'duplicates': r['repeat_answered'],
                 'connected_calls': r['connected_calls'],
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
@@ -703,12 +704,12 @@ class AnalyticsService:
             .values('publisher_id', 'publisher_name')
             .annotate(
                 total_calls=Count('id'),
-                qualified_calls=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
                 converted=Count('id', filter=Q(is_converted=True)),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
                 
-                unique_answered=Count('caller_number', distinct=True, filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS])),
+                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -739,9 +740,9 @@ class AnalyticsService:
                 'total_revenue':   r['total_revenue'],
                 'spam_rate':       round((r['spam_count'] / t_total) * 100, 2),
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
-                'duplicate_calls': r['connected_calls'] - r['unique_answered'],
-                'dupe': r['connected_calls'] - r['unique_answered'],
-                'duplicates': r['connected_calls'] - r['unique_answered'],
+                'duplicate_calls': r['repeat_answered'],
+                'dupe': r['repeat_answered'],
+                'duplicates': r['repeat_answered'],
                 'connected_calls': r['connected_calls'],
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
