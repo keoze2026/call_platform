@@ -893,10 +893,13 @@ class AnalyticsService:
         qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
         writer = csv.writer(PseudoBuffer())
         
+        # Qualified and Duplicate were absent, so the two columns most often
+        # queried against this export could not be checked from it at all.
+        # Call ID lets a row be matched back to the call detail view.
         yield writer.writerow([
-            'Date', 'Caller', 'State', 'Called Number',
+            'Date', 'Call ID', 'Caller', 'State', 'Carrier', 'Called Number',
             'Campaign', 'Buyer', 'Publisher',
-            'Status', 'Duration (s)', 'Converted',
+            'Status', 'Duration (s)', 'Qualified', 'Converted', 'Duplicate',
             'Revenue', 'Payout', 'Profit', 'Recording'
         ])
 
@@ -907,9 +910,13 @@ class AnalyticsService:
                 clean_caller = clean_caller[1:]
             yield writer.writerow([
                 r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
-                clean_caller, r.caller_state, r.called_number,
+                str(r.id),
+                clean_caller, r.caller_state, r.carrier or '', r.called_number,
                 r.campaign_name, r.buyer_name, r.publisher_name,
-                r.status, r.duration_seconds, r.is_converted,
+                r.status, r.duration_seconds,
+                'Yes' if r.is_qualified else 'No',
+                'Yes' if r.is_converted else 'No',
+                'Yes' if r.is_duplicate else 'No',
                 r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit, r.recording_url,
             ])
 
