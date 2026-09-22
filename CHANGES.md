@@ -26,6 +26,10 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-017](#ch-017) | 2026-09-21 | Accounts | Invitation and reset email actually sent | Done — commit `6c11aff5` |
 | [CH-018](#ch-018) | 2026-09-21 | Config | Domains and sender addresses made configurable | Done — commit `3d907f16` |
 | [CH-019](#ch-019) | 2026-09-21 | **Security** | **Open registration closed, access requests locked to staff** | Done — commit `ea3a7fdd` |
+| [CH-020](#ch-020) | 2026-09-21 | **Security** | Rate limiting made effective, secret-key guard, invite validation | Done — commit `ee74f76a` |
+| [CH-021](#ch-021) | 2026-09-21 | Analytics | Per-call detail view and routing decision trace | Done — commit `50162d79` |
+| [CH-022](#ch-022) | 2026-09-22 | Notifications | Alert detection, rule validation | Done — commit `7c67d112` |
+| [CH-023](#ch-023) | 2026-09-22 | Analytics | Qualified, Dupe and Paid redefined; export columns | Done — commit `583f8ea4` |
 | [CH-006](#ch-006) | 2026-09-17 | Analytics | Dynamic Dashboard Pricing & PhoneNumber Formatting | Done |
 
 ## Open items (not done yet)
@@ -931,6 +935,154 @@ $23.65` — unchanged, because all 43 ran past the threshold.
 `makemigrations --dry-run` reports **No changes detected**: Django's state and
 the database finally agree.
 
+
+---
+
+<a name="ch-020"></a>
+## CH-020 — Rate limiting made effective, secret-key guard, invite validation
+
+**Commits:** `8c39e6d9`, `ee74f76a` · Deployed 2026-09-21
+
+**Rate limiting existed but barely applied.** No `CACHES` was configured, so Django
+fell back to per-process local memory. `django_ratelimit` counts attempts in the
+cache, so every worker kept its own count and every restart cleared it. Now backed
+by the Redis already running for Celery.
+
+**The default `SECRET_KEY` is committed to this repository**, and `SIMPLE_JWT` signs
+tokens with it — anyone holding the code could mint a valid token for any account
+if the environment variable went missing. Startup now fails with `DEBUG=False`
+rather than running on it. Production was confirmed already using its own key.
+
+**Three auth endpoints had no limit.** `verify-mfa` had none, and a six-digit code is
+trivially brute-forced. Password reset request (mailbox flooding) and confirm
+(token guessing) had none either.
+
+**Workspace invite accepted any text as an email.** `x Koreaavortyx@mailnesia.com` —
+an address with a space in it — was stored and shown as an active member while
+the invitation went nowhere. Now validated, trimmed and lowercased.
+
+`scripts/security_check.py` reports the settings actually in force. 10/10 passing
+on production; one account holds platform staff.
+
+---
+
+<a name="ch-021"></a>
+## CH-021 — Per-call detail view and routing decision trace
+
+**Commits:** `f7317982`, `d6c3bf9c`, `50162d79` · Deployed 2026-09-21
+
+`GET /api/analytics/calls/{id}/detail` returns everything known about one call:
+caller profile, routing, financials, recording and a timeline. Built from
+`CallLog` rather than the analytics mirror, since the mirror carries only terminal
+calls and drops routing detail.
+
+**The first live response exposed four gaps, all fixed:**
+
+- `fraud_score` showed 0 on every call. Telnyx does not supply it — its wrapper sets
+  0 meaning "not provided" — so a clean-looking score was shown for a value nobody
+  measured. Now null.
+- `area_code`, `region` and `country` were always null. Only the Twilio path set
+  them, and all live traffic arrives through Asterisk.
+- `rule_id` and `rule_name` were always null. `route_call` returns the rule it
+  chose and the handler discarded it.
+- The timeline rendered out of order: `answered_at` is derived as hangup minus
+  duration and can land before `created_at`.
+
+**Routing decision trace.** `RoutingEngine` decided where a call went and discarded
+its reasoning. `RouteTrace` now records every guardrail outcome, every destination
+considered with why it was rejected, and the one chosen, stored on
+`CallLog.routing_trace`. It is passive — it records and never influences a
+decision. The summary separates `evaluated` from `not_reached`, since routing stops
+at the first success and destinations after the winner were never examined.
+
+Fields the lookup provider does not supply — city, zip, timezone, fraud score —
+are null by design and need a different provider.
+
+Also fixed a doubled `@staticmethod` left by an earlier edit, which ran on Python
+3.12 and would break on anything older.
+
+The billing account now returns `per_minute_rate`, `markup_percent`,
+`tfn_purchase_fee`, `monthly_portal_fee` and `portal_fee_next_due`. The $49.99
+monthly fee was verified charging correctly on production.
+
+---
+
+<a name="ch-022"></a>
+## CH-022 — Alert detection and notification rule validation
+
+**Commits:** `c6b3d8ca`, `7c67d112` · Deployed 2026-09-22
+
+The alert types could be switched on in settings but nothing ever looked for
+them. `notifications/detectors.py` now watches for campaign, buyer and destination
+caps, buyers missing calls, and handle time dropping, every five minutes.
+
+Cap alerts fire at **80%** as well as at the limit, so there is warning before calls
+start being refused. Each alert is silent for 24 hours after firing. The
+behavioural ones need evidence first: a buyer needs 3 calls in the window before a
+miss rate counts, and handle time is compared against the campaign's own previous
+seven days. Verified on production — ADC11 at 155/154 fired `buyer.cap_reached`.
+
+**Notification rules accepted values that do not exist.** The two rules on
+production used event `webhook.failing` and channel `in_app`; neither is defined.
+Dispatch had no branch for an unknown channel, so the rules looked configured and
+delivered nothing. Create and update now reject undefined values, and dispatch
+logs a warning instead of skipping silently.
+
+**Delivery needs rules.** Detection works, but no rule exists for any alert type, so
+alerts currently reach nobody. Rules are created in the Notifications screen.
+
+---
+
+<a name="ch-023"></a>
+## CH-023 — Qualified, Dupe and Paid redefined; export columns
+
+**Commits:** `3b6e6ae2`, `d82857da`, `583f8ea4` · Deployed 2026-09-22
+
+The reference platform showed Connected 104, Qualified 81, Paid 78, Converted 100,
+Dupe 23 — four different figures — where this platform showed one figure in four
+columns. They were all the same calculation.
+
+**Definitions, as given and as implemented:**
+
+| Column | Means |
+|---|---|
+| Connected | every answered call, repeats included |
+| Dupe | answered, from a caller who rang before |
+| Qualified | answered, from a new caller — Connected minus Dupe |
+| Converted | answered and past the campaign minimum duration |
+| Paid | every converted call, repeats included |
+
+The reference figures confirm Qualified: 104 connected less 81 qualified is exactly
+the 23 dupes shown.
+
+**Paid was confirmed, not guessed.** An inferred rule — paying only a new caller's
+first converted call — fitted the reference 78 exactly. Asked directly before
+changing money logic: both calls are payable. So Paid equals Converted, and billing
+was already correct. The reference 78 must come from a filter that platform applies
+and this one does not.
+
+**Repeats look back across days.** The first version counted a repeat only within
+the day viewed, giving 6 against a reference 23. Now uses the `is_duplicate` flag
+stored at arrival, which looks back across the campaign's
+`duplicate_call_block_hours`. That window is per campaign and adjustable without a
+code change.
+
+For the 21st: **103 connected, 89 qualified, 14 dupe.** The remaining gap is data,
+not definition — counting every call ever made, this platform holds at most 18
+repeat callers for that day, so the reference platform has calls this one does not.
+
+The per-call `is_qualified` flag carries the same definition, recomputed on existing
+records by data migration `analytics/0008`, so the Qualified drill-down lists
+exactly the calls the column counts.
+
+**Export.** The backend export gained Qualified, Duplicate, Carrier and the call id.
+The export the operators actually download is built by the frontend and does not
+use it — see Still open.
+
+**The Tag column is invented.** `CallLog.tags` is never written by anything, so the
+Qualified, Repeat, VIP and High intent values in the frontend export are fabricated
+client-side. Counting Qualified from that column cannot match anything.
+
 ---
 
 ## Still open
@@ -1220,6 +1372,11 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
 
 **Backend**
 
+- **Notification rules.** Detection works but no rule exists for any alert type, so
+  alerts reach nobody. Two junk rules (`webhook.failing`, `in_app`) should be
+  deleted.
+- **Role enforcement.** Five roles, none checked. Needs a decision on what each role
+  may do.
 - **2026-09-22 — delete `routing/twilio_handler.py` (agreed, scheduled).** 496
   lines of Twilio call handling that nothing uses: Asterisk handles inbound,
   `call_ended` handles hangups, and recordings come from Asterisk to
@@ -1239,7 +1396,6 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
   the category that hid the duplicate-record and payout bugs.
 - The Asterisk dialplan does not reliably reach `call_ended`. CH-012 treats the
   symptom.
-- `destination.cap_reached`, `buyer.missed` and `aht.low` have no detection logic.
 - The `Plan` model and 7 other model fields are dead code.
 - Buyers have empty `phone_number`. Harmless on the current routing path, but the
   RTB path returns `auction.winner.phone_number` as the destination.
@@ -1247,6 +1403,13 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
 
 **Frontend**
 
+- **The Call Log export is built client-side** and invents a Tag column. Should use
+  `GET /api/analytics/calls/export`, which has real Qualified, Duplicate and Carrier.
+- Call detail panel and routing trace to build against
+  `GET /api/analytics/calls/{id}/detail`.
+- Billing page should show the per-client rates now on `/api/billing/account`.
+- Connected includes live calls while Qualified and Dupe do not, so Qualified +
+  Dupe = Connected only once live calls finish.
 - `Cost` column is fabricated — no backend field feeds it.
 - TCL renders as `mm:ss` rather than `hh:mm:ss`. The value is correct.
 - Routing plan builder cannot show or edit rules; endpoints exist.
