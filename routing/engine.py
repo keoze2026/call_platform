@@ -102,6 +102,7 @@ class RoutingEngine:
             campaign_id=campaign_id,
             caller_number=caller_number,
             created_at__gte=cutoff,
+            status__in=['completed', 'in_progress', 'ringing', 'initiated']
         ).exists()
     
     # @staticmethod
