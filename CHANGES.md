@@ -1372,6 +1372,16 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
 
 **Backend**
 
+- **2026-09-25 — texora runs out.** Balance $50.00 against a $49.99 portal fee due
+  18 October. It drops to $0.01 that day and stops routing calls, with no warning
+  to the client. Either fund it or set its portal fee to 0.
+- **2026-09-25 — two scratch files in the repository root.** `test_export.py` and
+  `scripts/fix_historical_duplicates.py`, committed by another developer in
+  `dd61ab2c`. The test file in particular looks like a working file rather than
+  something meant to ship.
+- **Campaign pricing.** Revenue is $1.00 per converted call while the platform
+  charges $0.45 per minute, so a seven-minute call earns $1.00 and costs $3.15.
+  Raised and confirmed as intended, recorded here so it is not re-raised.
 - **Notification rules.** Detection works but no rule exists for any alert type, so
   alerts reach nobody. Two junk rules (`webhook.failing`, `in_app`) should be
   deleted.
