@@ -77,6 +77,7 @@ def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(..
 @router.get("/calls/{call_id}/recording", response={200: dict, 404: dict})
 def get_recording(request: HttpRequest, call_id: str):
     from routing.models import CallLog
+    from routing.recordings import public_recording_url
     try:
         call = CallLog.objects.get(
             id=call_id,
@@ -86,7 +87,7 @@ def get_recording(request: HttpRequest, call_id: str):
             return 404, {"detail": "No recording available for this call"}
         return 200, {
             'call_id': str(call.id),
-            'recording_url': call.recording_url,
+            'recording_url': public_recording_url(call.recording_url),
             'recording_sid': getattr(call, 'recording_sid', '') or '',
             'duration': call.duration or 0,
             'caller_number': call.caller_number,

@@ -71,8 +71,7 @@ def format_destination(d, start_date=None, end_date=None):
     from datetime import timedelta
     # 1. Real-time live calls for this destination
     base_live_q = (
-        Q(status__in=['in_progress', 'ringing', 'queued'], ended_at__isnull=True) |
-        Q(created_at__gte=now - timedelta(seconds=30))
+        Q(status__in=['in_progress', 'ringing', 'queued'], ended_at__isnull=True)
     )
     live_q = base_live_q & Q(created_at__gte=now - timedelta(hours=4))
 

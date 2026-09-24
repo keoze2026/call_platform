@@ -329,6 +329,13 @@ PUBLIC_SITE_URL = config('PUBLIC_SITE_URL', default='https://avortyx.com').rstri
 # user with no approval, bypassing the access-request flow entirely.
 OPEN_REGISTRATION = config('OPEN_REGISTRATION', default=False, cast=bool)
 MEDIA_BASE_URL = config('MEDIA_BASE_URL', default=FRONTEND_URL).rstrip('/')
+
+# Domain that recording links are served under. Asterisk writes a full URL when
+# a call ends, so without this the platform's own domain appears in every
+# recording link, export and API response. Empty means serve them unchanged, so
+# nothing moves until the replacement domain is actually serving the files.
+# The file path is untouched, so existing recordings keep working.
+RECORDING_BASE_URL = config('RECORDING_BASE_URL', default='').strip().rstrip('/')
 # Every outgoing platform email sends from here, and admin notifications land in
 # PLATFORM_SUPPORT_EMAIL. Both were hardcoded in nine places across four files.
 #

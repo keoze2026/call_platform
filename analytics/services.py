@@ -14,6 +14,7 @@ import io
 
 from .models import CallRecord
 from routing.models import CallLog
+from routing.recordings import public_recording_url
 from accounts.models import User
 
 
@@ -524,7 +525,7 @@ class AnalyticsService:
             'routing_trace': call.routing_trace or {},
 
             'recording': {
-                'url': call.recording_url or None,
+                'url': public_recording_url(call.recording_url) or None,
                 'transcription': call.transcription_text or None,
                 'sentiment': call.sentiment or None,
             },
@@ -880,7 +881,7 @@ class AnalyticsService:
             'payout':           r.dynamic_payout,
             'profit':           r.dynamic_profit,
             'winning_bid':      r.winning_bid,
-            'recording_url':    r.recording_url,
+            'recording_url':    public_recording_url(r.recording_url),
             'carrier_name':     r.carrier_name,
             'carrier':          r.carrier or 'Unknown',
             'started_at':       dt_start,
@@ -925,7 +926,8 @@ class AnalyticsService:
                 'Yes' if r.is_qualified else 'No',
                 'Yes' if r.is_converted else 'No',
                 'Yes' if r.is_duplicate else 'No',
-                r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit, r.recording_url,
+                r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit,
+                public_recording_url(r.recording_url),
             ])
 
 
