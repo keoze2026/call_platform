@@ -1916,9 +1916,70 @@ address matter more here than for an ordinary web app.
 protected by a shared secret, HMAC compared, failing closed. The Nginx config
 says so at the top so the exemption is not removed by someone tidying up.
 
+### Deployed and verified 2026-09-25
+
+    postgres  127.0.0.1:5432
+    redis     127.0.0.1:6379
+    web       127.0.0.1:8000
+
+Portal 200, support chat 201, web log clean, and
+`POST /api/twilio/asterisk/active-channels/ 200` — Asterisk reaching the API
+through the new firewall, which is better proof the call path survived than a
+test call would have been.
+
+### SIP was open to the internet, and the fix nearly broke calls
+
+`ufw` had `5060/udp ALLOW Anywhere` at rule 5, above a `DENY Anywhere` at 14. UFW
+matches top-down, so the blanket allow won and the deny never applied. Someone
+had restricted SIP to the carrier correctly and it was being shadowed.
+
+Deleting the blanket rule would have dropped calls. The carrier allow-list held
+**one** IP; Asterisk's `identify` section matches **two**:
+
+    match=45.79.4.41,100.53.112.140
+    contact=sip:100.53.112.140:5060
+
+The missing address is the one the carrier's contact actually points at. It was
+added above the deny before anything was removed.
+
+Verified from the kernel's own evaluation order rather than by placing a call:
+
+    15  ACCEPT  100.53.112.140  tcp 5060
+    16  ACCEPT  100.53.112.140  udp 5060
+    17  ACCEPT  45.79.4.41      tcp 5060
+    18  ACCEPT  45.79.4.41      udp 5060
+    19  DROP    everything else tcp 5060
+    20  DROP    everything else udp 5060
+
+`10000:20000/udp` (RTP) deliberately left open — media arrives from varying
+addresses and restricting it is the usual cause of one-way audio.
+
+### Incident: support chat 500, caused by the CH-027 rate limit
+
+The guard added to `start_chat` and `send_message` reads `settings`, but the
+module-level import was never added. The patch checked whether
+`from django.conf import settings` appeared in the file — it does, inside
+`send_telegram_support` — so the check passed, the import was skipped, and both
+endpoints raised `NameError` on every request.
+
+Every visitor using the widget got a 500. Found only because the new generic
+error handler surfaced in the widget; the old handler would have shown the
+visitor a raw `NameError`.
+
+Same pattern as the `contact_api.py` bug: a name imported inside one function and
+used at another scope. A scan of the rest of the codebase comes back clean.
+
+**Lesson for the patch scripts**: "is this import present anywhere in the file"
+is the wrong question. Function-local imports satisfy it without putting the name
+in module scope.
+
 **Still open**
 - Postgres and Redis passwords need rotating. Closing the ports removes the
   exposure; it does not undo a password that has been in a public repository.
+- Two dead duplicate ACCEPT rules sit after the SIP DROP and never match.
+  Harmless, worth tidying.
+- The frontend polls hard: dashboard, campaigns and a 100KB destinations list
+  every ~15s. Within the 600/m limit, but worth reducing.
 - Cloudflare not enabled. When it is, Nginx needs `real_ip_header
   CF-Connecting-IP` or every rate limit will count the whole internet as one
   visitor, and the origin needs locking to Cloudflare's ranges so the proxy
