@@ -3,7 +3,7 @@ from django.db.models import (
     FloatField, DecimalField
 )
 from django.db.models.functions import (
-    TruncDay, TruncHour, TruncWeek, TruncMonth, Coalesce
+    TruncDay, TruncHour, TruncWeek, TruncMonth, Coalesce, Ceil, Cast
 )
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -179,6 +179,13 @@ class AnalyticsService:
             total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
             total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
             avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
+            billable_minutes=Coalesce(
+                Sum(
+                    Ceil(Cast('duration_seconds', FloatField()) / 60.0),
+                    filter=Q(duration_seconds__gt=0),
+                ),
+                0.0,
+            ),
         )
 
         if filters and any([getattr(filters, 'date_from', None), getattr(filters, 'date_to', None), getattr(filters, 'created_at__gte', None), getattr(filters, 'created_at__lte', None), getattr(filters, 'start_date', None), getattr(filters, 'end_date', None)]):
@@ -200,6 +207,13 @@ class AnalyticsService:
             'total_revenue':     agg['total_revenue'],
             'total_payout':      agg['total_payout'],
             'total_profit':      agg['total_profit'],
+            # What this client is actually billed for the talk time, on the same
+            # rule the invoice uses: each call to a whole minute, times the
+            # account's own rate and markup.
+            'total_cost':        AnalyticsService._cost_from_minutes(
+                agg['billable_minutes'],
+                *AnalyticsService._billing_rate(org)),
+            'billable_minutes':  int(agg['billable_minutes'] or 0),
             'avg_call_duration': round(agg['avg_duration'] or 0, 1),
             'balance':           _account_balance(org),
             'currency':          _account_currency(org),
@@ -280,6 +294,33 @@ class AnalyticsService:
     # ── campaign performance ─────────────────────────────────────────────────
 
     @staticmethod
+    def _billing_rate(organization):
+        """The client's own per-minute rate and markup, as billing applies them.
+
+        The Cost column had no backing field at all - nothing writes
+        CallLog.twilio_cost, so the frontend was deriving cost from total talk
+        time and getting a number that matched neither the invoice nor the
+        ledger. It missed two things: each call bills to a whole minute, and the
+        account's markup applies.
+        """
+        from billing.models import BillingAccount
+        try:
+            account = BillingAccount.objects.only(
+                'per_minute_rate', 'markup_percent'
+            ).get(organization=organization)
+        except BillingAccount.DoesNotExist:
+            return Decimal('0'), Decimal('1')
+        rate = Decimal(account.per_minute_rate or 0)
+        markup = Decimal('1') + (Decimal(account.markup_percent or 0) / Decimal('100'))
+        return rate, markup
+
+    @staticmethod
+    def _cost_from_minutes(billable_minutes, rate, markup) -> Decimal:
+        """Billable minutes to money, matching BillingService.call_cost."""
+        minutes = Decimal(str(billable_minutes or 0))
+        return (minutes * rate * markup).quantize(Decimal('0.01'))
+
+    @staticmethod
     def get_campaign_performance(user: User, filters) -> list:
         qs = AnalyticsService._base_qs(user, filters)
         live_qs = AnalyticsService._live_qs(user, filters)
@@ -313,9 +354,18 @@ class AnalyticsService:
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
                 total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                billable_minutes=Coalesce(
+                    Sum(
+                        Ceil(Cast('duration_seconds', FloatField()) / 60.0),
+                        filter=Q(duration_seconds__gt=0),
+                    ),
+                    0.0,
+                ),
             )
         )
 
+        # One lookup per request, not per row.
+        rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
         for r in rows:
             cid = r['campaign_id']
@@ -331,6 +381,9 @@ class AnalyticsService:
                 'conversion_rate': round((r['converted_calls'] / t_total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
                 'total_payout':    r['total_payout'],
+                'total_cost':      AnalyticsService._cost_from_minutes(
+                    r['billable_minutes'], rate, markup),
+                'billable_minutes': int(r['billable_minutes'] or 0),
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
@@ -359,6 +412,8 @@ class AnalyticsService:
                     'conversion_rate': 0.0,
                     'total_revenue': Decimal('0'),
                     'total_payout': Decimal('0'),
+                    'total_cost': Decimal('0'),
+                    'billable_minutes': 0,
                     'total_profit': Decimal('0'),
                     'avg_duration': 0.0,
                     'spam_blocked': 0,
@@ -587,10 +642,19 @@ class AnalyticsService:
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
                 total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                billable_minutes=Coalesce(
+                    Sum(
+                        Ceil(Cast('duration_seconds', FloatField()) / 60.0),
+                        filter=Q(duration_seconds__gt=0),
+                    ),
+                    0.0,
+                ),
             )
             .order_by('-total_calls')
         )
 
+        # One lookup per request, not per row.
+        rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
         for r in rows:
             total = r['total_calls'] or 1
@@ -603,6 +667,9 @@ class AnalyticsService:
                 'conversion_rate': round((r['converted_calls'] / total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
                 'total_payout':    r['total_payout'],
+                'total_cost':      AnalyticsService._cost_from_minutes(
+                    r['billable_minutes'], rate, markup),
+                'billable_minutes': int(r['billable_minutes'] or 0),
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
@@ -644,10 +711,19 @@ class AnalyticsService:
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
                 total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                billable_minutes=Coalesce(
+                    Sum(
+                        Ceil(Cast('duration_seconds', FloatField()) / 60.0),
+                        filter=Q(duration_seconds__gt=0),
+                    ),
+                    0.0,
+                ),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
         )
 
+        # One lookup per request, not per row.
+        rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
         for r in rows:
             bid = r['buyer_id']
@@ -661,6 +737,9 @@ class AnalyticsService:
                 'won_calls':      r['converted'],
                 'avg_bid':        r['avg_bid'],
                 'total_payout':   r['total_payout'],
+                'total_cost':     AnalyticsService._cost_from_minutes(
+                    r['billable_minutes'], rate, markup),
+                'billable_minutes': int(r['billable_minutes'] or 0),
                 'avg_duration':   round(r['avg_duration'] or 0, 1),
                 'conversion_rate': round((r['converted'] / t_total) * 100, 2),
                 'duplicate_calls': r['repeat_answered'],
@@ -684,6 +763,8 @@ class AnalyticsService:
                     'won_calls': 0,
                     'avg_bid': Decimal('0'),
                     'total_payout': Decimal('0'),
+                    'total_cost': Decimal('0'),
+                    'billable_minutes': 0,
                     'avg_duration': 0.0,
                     'conversion_rate': 0.0,
                                     'connected_calls': lc,
@@ -728,10 +809,19 @@ class AnalyticsService:
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
                 total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                billable_minutes=Coalesce(
+                    Sum(
+                        Ceil(Cast('duration_seconds', FloatField()) / 60.0),
+                        filter=Q(duration_seconds__gt=0),
+                    ),
+                    0.0,
+                ),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
         )
 
+        # One lookup per request, not per row.
+        rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
         for r in rows:
             pid = r['publisher_id']
@@ -916,10 +1006,16 @@ class AnalyticsService:
             'Date', 'Call ID', 'Caller', 'State', 'Carrier', 'Called Number',
             'Campaign', 'Buyer', 'Publisher',
             'Status', 'Duration (s)', 'Qualified', 'Converted', 'Duplicate',
-            'Revenue', 'Payout', 'Profit', 'Recording'
+            'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
         ])
 
+        # Same rule as the invoice: each call rounds up to a whole minute, at
+        # this client's own rate and markup.
+        rate, markup = AnalyticsService._billing_rate(user.organization)
+
         for r in qs.iterator(chunk_size=2000):
+            secs = int(r.duration_seconds or 0)
+            billed_minutes = -(-secs // 60) if secs > 0 else 0   # ceiling division
             raw_caller = r.caller_number or ''
             clean_caller = raw_caller.lstrip('+')
             if clean_caller.startswith('1') and len(clean_caller) == 11:
@@ -934,6 +1030,8 @@ class AnalyticsService:
                 'Yes' if r.is_converted else 'No',
                 'Yes' if r.is_duplicate else 'No',
                 r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit,
+                billed_minutes,
+                AnalyticsService._cost_from_minutes(billed_minutes, rate, markup),
                 public_recording_url(r.recording_url),
             ])
 
