@@ -1,8 +1,25 @@
+# Every port below is bound to 127.0.0.1 on purpose.
+#
+# Postgres, Redis and Daphne were published on 0.0.0.0, which means the public
+# internet, not just this machine. Redis had no password and the Postgres one was
+# committed to the repository. Containers reach each other over the compose
+# network by service name and never needed a host port at all.
+#
+# Binding to 127.0.0.1 keeps local access working - psql, redis-cli and Nginx on
+# this host are unaffected - while removing it from the internet. To reach a
+# database from a laptop, tunnel over SSH:
+#   ssh -L 5432:127.0.0.1:5432 root@<this server>
 services:
   redis:
     image: redis:7-alpine
+    command: >
+      sh -c 'if [ -n "$$REDIS_PASSWORD" ];
+             then redis-server --requirepass "$$REDIS_PASSWORD";
+             else redis-server; fi'
+    environment:
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-}"
     ports:
-      - "6379:6379"
+      - "127.0.0.1:6379:6379"
     restart: unless-stopped
 
   postgres:
@@ -10,11 +27,15 @@ services:
     environment:
       POSTGRES_DB: call_platform
       POSTGRES_USER: call_platform
-      POSTGRES_PASSWORD: changeme_in_production
+      # Was the literal string 'changeme_in_production', committed to the repo.
+      # Now read from .env. Note this only sets the password when the data
+      # directory is first created - an existing database keeps its old one until
+      # it is changed with ALTER USER.
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-changeme_in_production}"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     restart: unless-stopped
 
   web:
@@ -27,7 +48,10 @@ services:
     # loses the backend. To run replicas, use docker-compose.scale.yml (see
     # docs/SCALING.md), which overrides this alongside the matching Nginx config.
     ports:
-      - "8000:8000"
+      # Nginx proxies to 127.0.0.1:8000. Published on 0.0.0.0 this let anyone
+      # reach Daphne directly and skip Nginx, and with it every rate limit,
+      # header and TLS check configured there.
+      - "127.0.0.1:8000:8000"
     env_file:
       - .env
     depends_on:
@@ -75,14 +99,14 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_USER: call_platform
-      DB_PASSWORD: changeme_in_production
+      DB_PASSWORD: "${POSTGRES_PASSWORD:-changeme_in_production}"
       DB_NAME: call_platform
       POOL_MODE: transaction
       MAX_CLIENT_CONN: "500"
       DEFAULT_POOL_SIZE: "25"
       AUTH_TYPE: scram-sha-256
     ports:
-      - "6432:6432"
+      - "127.0.0.1:6432:6432"
     depends_on:
       - postgres
     restart: unless-stopped

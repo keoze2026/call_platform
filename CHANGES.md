@@ -1822,3 +1822,76 @@ not be re-raised as a bug.
   `duration_seconds`, which is what `BillingService.call_cost` is called with, so
   cost matches the invoice. Worth deciding whether `billable_seconds` should be
   the billing basis, or dropped like `twilio_cost`.
+
+---
+
+## CH-029 — Ports closed, and a flood-protection plan
+
+Asked how to protect the system from a DDoS. Looking at the exposure first turned
+up something worse than a flood.
+
+### The database and Redis were on the public internet
+
+`docker compose ps` showed:
+
+    postgres  0.0.0.0:5432->5432/tcp
+    redis     0.0.0.0:6379->6379/tcp
+    web       0.0.0.0:8000->8000/tcp
+
+`0.0.0.0` is every interface, not just this machine. Redis had no password. The
+Postgres password was the literal string `changeme_in_production`, committed to
+the repository — so the credential for an internet-reachable database was
+published in git.
+
+Every host binding is now `127.0.0.1`. Containers reach each other over the
+compose network by service name and never needed a host port. Local access is
+unaffected; a laptop reaches the database over an SSH tunnel.
+
+Daphne on `0.0.0.0:8000` was a bypass as well: anyone could hit the application
+directly and skip Nginx, and with it every limit, header and TLS check set there.
+The API rate limits added in CH-027 still applied, but nothing in front of them
+did.
+
+`POSTGRES_PASSWORD` and `REDIS_PASSWORD` now come from `.env`. The running
+database keeps its old password until `ALTER USER` is run — the environment
+variable only applies when the data directory is first created. Command is in
+`deploy/DDOS.md`.
+
+### Flood protection, in order of what it buys
+
+`deploy/DDOS.md` has the steps; `deploy/nginx-rate-limits.conf` is the config.
+
+| step | stops | where |
+|---|---|---|
+| close the ports | direct database attack | done above |
+| firewall | a missed binding becoming an open door | `ufw` |
+| Nginx limits | slow-loris, request floods | this repo |
+| fail2ban on SIP | toll fraud, registration brute force | server |
+| Cloudflare | genuinely volumetric floods | DNS |
+| app rate limits | scraping, credential stuffing | CH-027 |
+
+Two things worth stating plainly.
+
+**The application limits do not stop a DDoS.** They run after the request reaches
+Django. A volumetric flood saturates the network and Nginx workers long before
+that. They are the last layer, not the first.
+
+**For a call platform the likelier attack is SIP, not the web.** Flooding a
+dashboard costs an attacker money and earns nothing. Stealing minutes earns them
+money directly, which is why fail2ban and restricting SIP to the carrier's
+address matter more here than for an ordinary web app.
+
+### The Asterisk callbacks are exempt from rate limiting, deliberately
+
+`/api/twilio/asterisk/route/` decides where a live call goes and
+`call-ended` closes and bills it. Rate limiting either drops calls. They are
+protected by a shared secret, HMAC compared, failing closed. The Nginx config
+says so at the top so the exemption is not removed by someone tidying up.
+
+**Still open**
+- Postgres and Redis passwords need rotating. Closing the ports removes the
+  exposure; it does not undo a password that has been in a public repository.
+- Cloudflare not enabled. When it is, Nginx needs `real_ip_header
+  CF-Connecting-IP` or every rate limit will count the whole internet as one
+  visitor, and the origin needs locking to Cloudflare's ranges so the proxy
+  cannot be bypassed.
