@@ -27,15 +27,43 @@ from spam_protection.shields_api import router as shields_router
 from buyers.destinations_api import router as destinations_router
 from referrals.api import router as referrals_router
 
+from django.conf import settings
 from django.http import JsonResponse
+from ninja.throttling import AnonRateThrottle, AuthRateThrottle
 
-api = NinjaAPI(title="Call Platform API", version="1.0.0")
+import logging
+
+logger = logging.getLogger(__name__)
+
+# Only login and a few public forms were rate limited, so every other endpoint -
+# including the ones that read the whole call log or purchase numbers - could be
+# called as fast as a client could manage. These are per-IP for anonymous
+# callers and per-user once authenticated, counted in Redis so the limit holds
+# across workers and survives a restart.
+api = NinjaAPI(
+    title="Call Platform API",
+    version="1.0.0",
+    throttle=[
+        AnonRateThrottle(settings.API_THROTTLE_ANON),
+        AuthRateThrottle(settings.API_THROTTLE_USER),
+    ],
+)
+
 
 @api.exception_handler(Exception)
 def global_exception_handler(request, exc):
-    import traceback
-    traceback.print_exc()
-    return JsonResponse({"detail": str(exc), "code": "internal_error"}, status=500)
+    # The exception text used to be returned to the caller, which handed out
+    # SQL fragments, file paths and library internals to anyone who could make a
+    # request fail. The detail goes to the log; the caller gets a reference.
+    logger.exception('unhandled API error on %s %s', request.method, request.path)
+    if settings.DEBUG:
+        return JsonResponse({"detail": str(exc), "code": "internal_error"}, status=500)
+    return JsonResponse(
+        {"detail": "Something went wrong on our side. Quote this reference if you contact support.",
+         "code": "internal_error",
+         "reference": request.headers.get('X-Request-ID', '') or ''},
+        status=500,
+    )
 
 api.add_router("/accounts/", accounts_router)
 api.add_router("/campaigns/", campaigns_router)

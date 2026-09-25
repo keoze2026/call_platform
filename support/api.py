@@ -36,6 +36,11 @@ def send_telegram_support(text, session_id):
 
 @router.post("/chat", auth=None, response={201: dict, 422: dict})
 def start_chat(request, payload: StartSessionSchema):
+    from django_ratelimit.decorators import is_ratelimited
+    if is_ratelimited(request, group='support_chat_start', key='ip',
+                      rate=getattr(settings, 'SUPPORT_CHAT_RATE', '5/m'),
+                      method='POST', increment=True):
+        return 422, {"detail": "Too many chats started. Please wait a moment."}
     from support.models import SupportSession, SupportMessage
     if not payload.message.strip():
         return 422, {"detail": "Message is required"}
@@ -74,6 +79,11 @@ def start_chat(request, payload: StartSessionSchema):
 
 @router.post("/chat/{session_id}", auth=None, response={200: dict, 404: dict})
 def send_message(request, session_id: str, payload: SendMessageSchema):
+    from django_ratelimit.decorators import is_ratelimited
+    if is_ratelimited(request, group='support_chat_msg', key='ip',
+                      rate=getattr(settings, 'SUPPORT_MESSAGE_RATE', '30/m'),
+                      method='POST', increment=True):
+        return 404, {"detail": "Too many messages. Please slow down."}
     from support.models import SupportSession, SupportMessage
     try:
         session = SupportSession.objects.get(id=session_id)

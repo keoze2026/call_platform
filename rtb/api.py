@@ -7,6 +7,9 @@ from .models import RTBAuction, RTBBid
 from .schemas import RTBAuctionOutSchema, BidResponseSchema, MessageSchema
 
 from accounts.api import JWTAuth
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = Router(tags=['RTB'], auth=JWTAuth())
 
@@ -48,9 +51,11 @@ def get_auction(request, auction_id: uuid.UUID):
 
 @router.post('/bid', response={200: MessageSchema, 400: MessageSchema}, auth=None)
 def submit_bid(request, payload: BidResponseSchema):
-    """
-    Buyers POST their bid to this endpoint when they receive a ping.
-    Auth is None — buyers authenticate via auction_id which is a secret UUID.
+    """Buyers POST their bid here after receiving a ping.
+
+    Auth is None: the auction id is a secret UUID issued in the ping. The bid is
+    scoped to one buyer, because the auction id alone is shared with every buyer
+    invited to that auction - it identifies the auction, not the bidder.
     """
     try:
         auction = RTBAuction.objects.get(
@@ -60,8 +65,11 @@ def submit_bid(request, payload: BidResponseSchema):
     except RTBAuction.DoesNotExist:
         return 400, {'message': 'Auction not found or already closed'}
 
+    # Scoped to this buyer's own pending bid. Filtering on the auction alone
+    # overwrote every bidder's amount with whatever the last caller sent.
     updated = RTBBid.objects.filter(
         auction=auction,
+        buyer_id=payload.buyer_id,
         status=RTBBid.Status.PENDING,
     ).update(
         bid_amount=payload.bid_amount,
@@ -69,7 +77,11 @@ def submit_bid(request, payload: BidResponseSchema):
     )
 
     if not updated:
-        return 400, {'message': 'No pending bid found for this auction'}
+        logger.warning(
+            'rtb bid rejected: auction=%s buyer=%s has no pending bid',
+            payload.auction_id, payload.buyer_id,
+        )
+        return 400, {'message': 'No pending bid found for this buyer in this auction'}
 
     return 200, {'message': 'Bid received'}
 

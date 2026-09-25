@@ -19,8 +19,14 @@ class PingRequestSchema(Schema):
 # ─── Bid Response (received from buyers) ─────────────────────────────────────
 
 class BidResponseSchema(Schema):
-    """Buyer responds with this to accept and place a bid."""
+    """Buyer responds with this to accept and place a bid.
+
+    buyer_id identifies which bid is being set. Without it the endpoint had no
+    way to tell bidders apart and wrote the amount onto every pending bid in the
+    auction, so whoever posted last set the price for all of them.
+    """
     auction_id : uuid.UUID
+    buyer_id   : uuid.UUID
     bid_amount : Decimal
     accept     : bool = True
 

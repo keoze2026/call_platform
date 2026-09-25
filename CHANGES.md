@@ -1664,3 +1664,80 @@ The first three rewrote source files in place against hardcoded
 **Still open**
 - Delete `routing/twilio_handler.py` once the legacy-path logs show nothing
   reaching it. `click_to_call` is the only piece whose use is unconfirmed.
+
+---
+
+## CH-027 — Security audit: rate limits, endpoint auth, posted data
+
+Answering three questions with a scan rather than from memory.
+
+### Rate limiting — was partial, now global
+
+Only six endpoints were limited: login, MFA, both password-reset steps, contact
+and access request. Everything else — including the endpoints that read the
+whole call log, purchase numbers or move money — could be called as fast as a
+client could manage.
+
+Now applied at the API root: `60/m` per IP before authentication, `600/m` per
+user after. Counted in Redis, so the limit is shared across workers and survives
+a restart. Both are settings (`API_THROTTLE_ANON`, `API_THROTTLE_USER`), so they
+change without a deploy.
+
+Support chat was the worst gap: unauthenticated, and every message is forwarded
+to Telegram. An open relay into the team's chat. Now 5 chats and 30 messages a
+minute per IP.
+
+### Endpoint auth — 28 routers, 25 public endpoints, all deliberate
+
+Every router declares auth. 25 endpoints carry `auth=None`, and each was checked
+for its own protection:
+
+| group | how it is protected |
+|---|---|
+| login, register, refresh, password reset | public by necessity, rate limited |
+| Stripe / CoinGate / Capitalist webhooks | signature verified before anything is credited |
+| Asterisk route / call-ended / active-channels | shared secret, HMAC compared, fails closed |
+| conversion postback | secret token in the URL |
+| DNI assign + snippet | pool id is the public key, by design |
+| IVR webhooks | flow id only |
+| white-label config | public branding, by design |
+| set-password | one-time token |
+| support chat | now rate limited |
+
+Two with a weaker story: the IVR webhooks are guarded only by knowing a flow id,
+and the RTB bid endpoint by knowing an auction id.
+
+### A real hole in RTB bidding
+
+`POST /api/rtb/bid` took only an auction id and then ran:
+
+    RTBBid.objects.filter(auction=auction, status=PENDING).update(bid_amount=...)
+
+The auction id is sent to **every buyer invited to that auction**, so it
+identifies the auction, not the bidder. Any invited buyer could set every other
+buyer's bid, and the last caller decided the price for all of them.
+
+The bid now carries `buyer_id` and updates only that buyer's own pending row.
+
+Worth knowing: the live auction path in `rtb/engine.py` collects bids from the
+ping responses directly, so this callback is a second, asynchronous way in. It
+is reachable, which is what matters.
+
+### Posted data
+
+Every endpoint takes a Ninja schema, so types are validated before a handler
+runs. Money and call paths go further — signatures on payment webhooks, shared
+secret on Asterisk, token on conversions.
+
+### Error responses were leaking internals
+
+The global exception handler returned `str(exc)` to the caller, handing out SQL
+fragments, file paths and library internals to anyone who could make a request
+fail. The detail now goes to the log and the caller gets a generic message.
+Full text still returned when `DEBUG` is on.
+
+**Still open**
+- IVR webhooks are guarded only by a flow id. Fine while Asterisk handles
+  routing, worth a shared secret if they are ever used in anger.
+- No per-endpoint limits on the expensive reads (CSV export of the full call
+  log). The global limit covers abuse, not cost.

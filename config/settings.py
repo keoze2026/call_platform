@@ -261,6 +261,13 @@ ASTERISK_SYNC_GRACE_SECONDS = config('ASTERISK_SYNC_GRACE_SECONDS', default=120,
 # confirm nothing reaches them.
 LEGACY_TWILIO_ROUTING = config('LEGACY_TWILIO_ROUTING', default=True, cast=bool)
 
+# ── API rate limits ───────────────────────────────────────────────────────────
+# Applied to every endpoint, not just login. Per IP before authentication and
+# per user after, counted in Redis so the limit is shared across workers.
+# Raise or lower without a deploy.
+API_THROTTLE_ANON = config('API_THROTTLE_ANON', default='60/m')
+API_THROTTLE_USER = config('API_THROTTLE_USER', default='600/m')
+
 # ── Notifications ─────────────────────────────────────────────────────────────
 # Which alerts a workspace gets without asking. Every workspace had no rules at
 # all, so detected alerts were dropped; these are created automatically and
