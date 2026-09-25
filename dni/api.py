@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 from django.http import HttpRequest, HttpResponse
 from typing import List
@@ -20,6 +21,7 @@ router = Router(tags=["DNI"], auth=JWTAuth())
 
 @router.post("/pools", response={201: DNIPoolOutSchema, 400: dict})
 def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
+    require(request.auth, Capability.CREATE)
     try:
         pool = DNIService.create_pool(data, request.auth)
         pool = DNIService.get_pool(str(pool.id), request.auth)
@@ -47,6 +49,7 @@ def get_pool(request: HttpRequest, pool_id: str):
 
 @router.patch("/pools/{pool_id}", response={200: DNIPoolOutSchema, 400: dict})
 def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
+    require(request.auth, Capability.EDIT)
     try:
         DNIService.update_pool(pool_id, data, request.auth)
         pool = DNIService.get_pool(pool_id, request.auth)
@@ -57,6 +60,7 @@ def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
 
 @router.delete("/pools/{pool_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_pool(request: HttpRequest, pool_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         DNIService.delete_pool(pool_id, request.auth)
         return 200, {"message": "Pool deleted", "success": True}
@@ -68,6 +72,7 @@ def delete_pool(request: HttpRequest, pool_id: str):
 
 @router.post("/pools/{pool_id}/numbers", response={201: dict, 400: dict})
 def add_number(request: HttpRequest, pool_id: str, data: AddNumberToPoolSchema):
+    require(request.auth, Capability.CREATE)
     try:
         number = DNIService.add_number(pool_id, data, request.auth)
         return 201, {'id': str(number.id), 'number': number.number, 'status': number.status}
@@ -77,6 +82,7 @@ def add_number(request: HttpRequest, pool_id: str, data: AddNumberToPoolSchema):
 
 @router.delete("/pools/{pool_id}/numbers/{number_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_number(request: HttpRequest, pool_id: str, number_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         DNIService.remove_number(pool_id, number_id, request.auth)
         return 200, {"message": "Number removed", "success": True}

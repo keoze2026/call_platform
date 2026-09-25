@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -17,6 +18,7 @@ router = Router(tags=["Webhooks"], auth=JWTAuth())
 
 @router.post("", response={201: WebhookOutSchema, 400: dict})
 def create_webhook(request: HttpRequest, data: CreateWebhookSchema):
+    require(request.auth, Capability.CREATE)
     try:
         webhook = WebhookService.create(data, request.auth)
         return 201, WebhookService.format(webhook) 
@@ -36,6 +38,7 @@ def list_webhooks(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.post("/test-url", response={200: dict})
 def test_webhook_url(request: HttpRequest):
+    require(request.auth, Capability.CREATE)
     import json as _json
     import time
     import hmac
@@ -79,6 +82,7 @@ def get_webhook(request: HttpRequest, webhook_id: str):
 
 @router.patch("/{webhook_id}", response={200: WebhookOutSchema, 400: dict, 404: dict})
 def update_webhook(request: HttpRequest, webhook_id: str, data: UpdateWebhookSchema):
+    require(request.auth, Capability.EDIT)
     try:
         webhook = WebhookService.update(webhook_id, data, request.auth)
         return 200, WebhookService.format(webhook)
@@ -88,6 +92,7 @@ def update_webhook(request: HttpRequest, webhook_id: str, data: UpdateWebhookSch
 
 @router.delete("/{webhook_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_webhook(request: HttpRequest, webhook_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         WebhookService.delete(webhook_id, request.auth)
         return 200, {"message": "Webhook deleted successfully", "success": True}
@@ -97,6 +102,7 @@ def delete_webhook(request: HttpRequest, webhook_id: str):
 
 @router.post("/{webhook_id}/rotate-secret", response={200: dict, 404: dict})
 def rotate_secret(request: HttpRequest, webhook_id: str):
+    require(request.auth, Capability.CREATE)
     from webhooks.models import Webhook
     import secrets as _secrets
     try:
@@ -133,6 +139,7 @@ def list_deliveries(request: HttpRequest, webhook_id: str, page: int = 1, page_s
 
 @router.post("/{webhook_id}/test", response={200: dict, 400: dict, 404: dict})
 def test_webhook(request: HttpRequest, webhook_id: str):
+    require(request.auth, Capability.CREATE)
     try:
         webhook = WebhookService.get(webhook_id, request.auth)
         delivery = WebhookService.deliver(webhook, 'test', {
@@ -179,6 +186,7 @@ def receive_conversion(request, token: str):
 
 @router.post("/pixels/", response={201: ConversionPixelOutSchema, 400: dict})
 def create_pixel(request, data: CreateConversionPixelSchema):
+    require(request.auth, Capability.CREATE)
     from webhooks.services import ConversionPixelService
     try:
         pixel = ConversionPixelService.create_pixel(data, request.auth)
@@ -206,6 +214,7 @@ def get_pixel(request, pixel_id: str):
 
 @router.patch("/pixels/{pixel_id}/", response={200: ConversionPixelOutSchema, 400: dict, 404: dict})
 def update_pixel(request, pixel_id: str, data: UpdateConversionPixelSchema):
+    require(request.auth, Capability.EDIT)
     from webhooks.services import ConversionPixelService
     try:
         pixel = ConversionPixelService.update_pixel(pixel_id, data, request.auth)
@@ -216,6 +225,7 @@ def update_pixel(request, pixel_id: str, data: UpdateConversionPixelSchema):
 
 @router.delete("/pixels/{pixel_id}/", response={200: dict, 404: dict})
 def delete_pixel(request, pixel_id: str):
+    require(request.auth, Capability.DELETE)
     from webhooks.services import ConversionPixelService
     try:
         ConversionPixelService.delete_pixel(pixel_id, request.auth)

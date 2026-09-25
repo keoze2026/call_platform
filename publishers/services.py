@@ -2,6 +2,7 @@ from django.utils import timezone
 from .models import Publisher, PublisherCap, PublisherCampaign
 from .schemas import CreatePublisherSchema, UpdatePublisherSchema
 from accounts.models import User
+from accounts.permissions import scope_queryset
 
 
 class PublisherService:
@@ -54,8 +55,10 @@ class PublisherService:
     @staticmethod
     def list_publishers(user: User):
         """List all publishers for the user organization"""
-        return Publisher.objects.filter(
-            organization=user.organization
+        return scope_queryset(
+            user,
+            Publisher.objects.filter(organization=user.organization),
+            buyer_field=None, publisher_field='id',
         ).exclude(status='archived').order_by('-created_at')
 
     @staticmethod

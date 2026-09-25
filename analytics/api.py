@@ -2,6 +2,7 @@ from ninja import Router, Query
 from django.http import HttpRequest, HttpResponse
 from typing import List
 from accounts.api import JWTAuth
+from accounts.permissions import scope_queryset
 from .schemas import (
     AnalyticsFilterSchema,
     DashboardSchema,
@@ -79,7 +80,7 @@ def get_recording(request: HttpRequest, call_id: str):
     from routing.models import CallLog
     from routing.recordings import public_recording_url
     try:
-        call = CallLog.objects.get(
+        call = scope_queryset(request.auth, CallLog.objects.all()).get(
             id=call_id,
             organization=request.auth.organization
         )
@@ -109,9 +110,9 @@ def call_detail(request: HttpRequest, call_id: str):
     from routing.models import CallLog
 
     try:
-        call = CallLog.objects.select_related(
+        call = scope_queryset(request.auth, CallLog.objects.select_related(
             'campaign', 'buyer', 'publisher', 'routing_rule'
-        ).get(id=call_id, organization=request.auth.organization)
+        )).get(id=call_id, organization=request.auth.organization)
     except CallLog.DoesNotExist:
         return 404, {"detail": "Call not found"}
 
@@ -123,10 +124,10 @@ def live_calls(request: HttpRequest):
     from routing.models import CallLog
     from django.utils import timezone
 
-    calls = CallLog.objects.filter(
+    calls = scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
         status='in_progress'
-    ).select_related('campaign', 'buyer', 'publisher').order_by('-created_at')
+    ).select_related('campaign', 'buyer', 'publisher')).order_by('-created_at')
 
     return 200, [
         {

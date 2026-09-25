@@ -16,6 +16,7 @@ from .models import CallRecord
 from routing.models import CallLog
 from routing.recordings import public_recording_url
 from accounts.models import User
+from accounts.permissions import scope_queryset
 
 
 def _map_twilio_status(status_str):
@@ -86,6 +87,12 @@ class AnalyticsService:
             value = getattr(filters, flag, None)
             if value is not None:
                 qs = qs.filter(**{flag: value})
+
+        # A buyer or publisher login sees only its own calls. Applied here
+        # rather than per endpoint so every report, chart, drill-down and export
+        # built on this queryset is narrowed the same way - one place to be
+        # right, and nothing new can leak by forgetting to filter.
+        qs = scope_queryset(user, qs)
             
         # Revenue and payout are earned per *converted* call, so an unconverted
         # call contributes zero. Applying campaign pricing to every row credited
@@ -140,7 +147,7 @@ class AnalyticsService:
         if getattr(filters, 'publisher_id', None): qs = qs.filter(publisher_id=filters.publisher_id)
         if getattr(filters, 'status', None) and filters.status not in ['in_progress', 'ringing', 'initiated']:
             qs = qs.none()
-        return qs
+        return scope_queryset(user, qs)
 
     @staticmethod
     def _zero_decimal():

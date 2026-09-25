@@ -1,3 +1,5 @@
+from accounts.permissions import require, Capability
+from accounts.permissions import scope_queryset
 from ninja import Router
 from django.http import HttpRequest
 from typing import List, Optional
@@ -18,6 +20,7 @@ router = Router(tags=["Routing"], auth=JWTAuth())
 
 @router.post("/rules", response={201: RoutingRuleOutSchema, 400: dict})
 def create_rule(request: HttpRequest, data: CreateRoutingRuleSchema):
+    require(request.auth, Capability.CREATE)
     try:
         rule = RoutingService.create_rule(data, request.auth)
         return 201, RoutingService.format_rule(rule)
@@ -58,6 +61,7 @@ def get_rule(request: HttpRequest, rule_id: str):
 
 @router.patch("/rules/{rule_id}", response={200: RoutingRuleOutSchema, 400: dict, 404: dict})
 def update_rule(request: HttpRequest, rule_id: str, data: UpdateRoutingRuleSchema):
+    require(request.auth, Capability.EDIT)
     try:
         rule = RoutingService.update_rule(rule_id, data, request.auth)
         return 200, RoutingService.format_rule(rule)
@@ -67,6 +71,7 @@ def update_rule(request: HttpRequest, rule_id: str, data: UpdateRoutingRuleSchem
 
 @router.delete("/rules/{rule_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_rule(request: HttpRequest, rule_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         RoutingService.delete_rule(rule_id, request.auth)
         return 200, {"message": "Rule deleted successfully", "success": True}
@@ -76,6 +81,7 @@ def delete_rule(request: HttpRequest, rule_id: str):
 
 @router.post("/rules/{rule_id}/conditions", response={201: dict, 400: dict, 404: dict})
 def add_condition(request: HttpRequest, rule_id: str, data: CreateConditionSchema):
+    require(request.auth, Capability.CREATE)
     try:
         condition = RoutingService.add_condition(rule_id, data, request.auth)
         return 201, {
@@ -88,6 +94,7 @@ def add_condition(request: HttpRequest, rule_id: str, data: CreateConditionSchem
 
 @router.post("/rules/{rule_id}/destinations", response={201: dict, 400: dict, 404: dict})
 def add_destination(request: HttpRequest, rule_id: str, data: CreateDestinationSchema):
+    require(request.auth, Capability.CREATE)
     try:
         destination = RoutingService.add_destination(rule_id, data, request.auth)
         return 201, RoutingService.format_destination(destination)
@@ -106,6 +113,7 @@ def list_destinations(request: HttpRequest, rule_id: str):
 
 @router.patch("/rules/{rule_id}/destinations/{destination_id}", response={200: dict, 400: dict, 404: dict})
 def update_destination(request: HttpRequest, rule_id: str, destination_id: str, data: UpdateDestinationSchema):
+    require(request.auth, Capability.EDIT)
     import json as _json
     try:
         body = _json.loads(request.body)
@@ -125,6 +133,7 @@ def update_destination(request: HttpRequest, rule_id: str, destination_id: str, 
 
 @router.delete("/rules/{rule_id}/destinations/{destination_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_destination(request: HttpRequest, rule_id: str, destination_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         RoutingService.delete_destination(rule_id, destination_id, request.auth)
         return 200, {"message": "Destination deleted successfully", "success": True}
@@ -133,10 +142,10 @@ def delete_destination(request: HttpRequest, rule_id: str, destination_id: str):
 
 @router.get("/calls/live", response={200: List[CallLogListSchema]})
 def live_calls(request: HttpRequest):
-    calls = CallLog.objects.filter(
+    calls = scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
         status=CallLog.Status.IN_PROGRESS
-    ).select_related('campaign', 'buyer', 'publisher').order_by('-created_at')
+    ).select_related('campaign', 'buyer', 'publisher')).order_by('-created_at')
 
     return 200, [RoutingService.format_call(c) for c in calls]
 
@@ -173,13 +182,15 @@ def hangup_call(request: HttpRequest, call_id: str):
     parties hang up. Its purpose is clearing rows stuck as live because no
     end-of-call webhook arrived.
     """
+    require(request.auth, Capability.CREATE)
     from django.conf import settings
     from django.utils import timezone
 
     try:
-        call_log = CallLog.objects.select_related('campaign', 'buyer', 'publisher').get(
-            id=call_id, organization=request.auth.organization
-        )
+        call_log = scope_queryset(
+            request.auth,
+            CallLog.objects.select_related('campaign', 'buyer', 'publisher'),
+        ).get(id=call_id, organization=request.auth.organization)
     except CallLog.DoesNotExist:
         return 404, {"detail": "Call not found"}
 
@@ -249,6 +260,7 @@ def hangup_call(request: HttpRequest, call_id: str):
 
 @router.post("/rules/{rule_id}/simulate", response={200: dict, 404: dict})
 def simulate_caller(request, rule_id: str):
+    require(request.auth, Capability.CREATE)
     import json as _json
     from routing.models import RoutingRule
     try:

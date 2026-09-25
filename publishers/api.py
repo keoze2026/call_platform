@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -15,6 +16,7 @@ router = Router(tags=["Publishers"], auth=JWTAuth())
 
 @router.post("", response={201: PublisherOutSchema, 400: dict})
 def create_publisher(request: HttpRequest, data: CreatePublisherSchema):
+    require(request.auth, Capability.CREATE)
     try:
         publisher = PublisherService.create(data, request.auth)
         publisher = PublisherService.get_publisher(str(publisher.id), request.auth)
@@ -53,6 +55,7 @@ def get_publisher(request: HttpRequest, publisher_id: str):
 
 @router.patch("/{publisher_id}", response={200: PublisherOutSchema, 400: dict, 404: dict})
 def update_publisher(request: HttpRequest, publisher_id: str, data: UpdatePublisherSchema):
+    require(request.auth, Capability.EDIT)
     try:
         PublisherService.update(publisher_id, data, request.auth)
         publisher = PublisherService.get_publisher(publisher_id, request.auth)
@@ -63,6 +66,7 @@ def update_publisher(request: HttpRequest, publisher_id: str, data: UpdatePublis
 
 @router.delete("/{publisher_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_publisher(request: HttpRequest, publisher_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         PublisherService.delete(publisher_id, request.auth)
         return 200, {"message": "Publisher archived successfully", "success": True}
@@ -72,6 +76,7 @@ def delete_publisher(request: HttpRequest, publisher_id: str):
 
 @router.post("/{publisher_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_publisher(request: HttpRequest, publisher_id: str):
+    require(request.auth, Capability.CREATE)
     try:
         PublisherService.pause(publisher_id, request.auth)
         return 200, {"message": "Publisher paused successfully", "success": True}
@@ -81,6 +86,7 @@ def pause_publisher(request: HttpRequest, publisher_id: str):
 
 @router.post("/{publisher_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_publisher(request: HttpRequest, publisher_id: str):
+    require(request.auth, Capability.CREATE)
     try:
         PublisherService.activate(publisher_id, request.auth)
         return 200, {"message": "Publisher activated successfully", "success": True}
@@ -90,6 +96,7 @@ def activate_publisher(request: HttpRequest, publisher_id: str):
 
 @router.patch("/{publisher_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, publisher_id: str, data: PublisherCapSchema):
+    require(request.auth, Capability.EDIT)
     try:
         cap = PublisherService.update_cap(publisher_id, data, request.auth)
         return 200, {
@@ -104,6 +111,7 @@ def update_cap(request: HttpRequest, publisher_id: str, data: PublisherCapSchema
 
 @router.post("/{publisher_id}/campaigns", response={200: dict, 400: dict, 404: dict})
 def assign_campaign(request: HttpRequest, publisher_id: str, data: AssignCampaignSchema):
+    require(request.auth, Capability.CREATE)
     try:
         assignment = PublisherService.assign_campaign(publisher_id, data, request.auth)
         return 200, {
@@ -119,6 +127,7 @@ def assign_campaign(request: HttpRequest, publisher_id: str, data: AssignCampaig
 
 @router.delete("/{publisher_id}/campaigns/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_campaign(request: HttpRequest, publisher_id: str, campaign_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         PublisherService.remove_campaign(publisher_id, campaign_id, request.auth)
         return 200, {"message": "Publisher removed from campaign successfully", "success": True}

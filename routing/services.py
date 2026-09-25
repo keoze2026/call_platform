@@ -2,6 +2,7 @@ from django.db.models import Q
 from .models import RoutingRule, RuleCondition, RuleDestination, CallLog
 from .schemas import CreateRoutingRuleSchema, UpdateRoutingRuleSchema
 from accounts.models import User
+from accounts.permissions import scope_queryset
 
 
 class RoutingService:
@@ -29,6 +30,9 @@ class RoutingService:
                 qs = qs.filter(status__in=['converted', 'CONVERTED'])
             else:
                 qs = qs.filter(status__iexact=status)
+
+        # A buyer or publisher login sees only its own calls
+        qs = scope_queryset(user, qs)
 
         return qs.order_by('-created_at')[:100]
 
@@ -214,13 +218,11 @@ class RoutingService:
         }
 
     @staticmethod
-        
-    @staticmethod
     def get_call(call_id: str, user: User) -> CallLog:
         try:
-            return CallLog.objects.select_related(
+            return scope_queryset(user, CallLog.objects.select_related(
                 'campaign', 'buyer', 'publisher', 'routing_rule'
-            ).get(
+            )).get(
                 id=call_id,
                 organization=user.organization
             )

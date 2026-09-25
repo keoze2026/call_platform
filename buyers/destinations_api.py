@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from django.core.exceptions import ValidationError
 from ninja import Router, Schema
 from typing import Optional, List, Union
@@ -219,6 +220,7 @@ def get_destination_stats(request):
 
 @router.post("/", response={201: dict, 400: dict})
 def create_destination(request, payload: DestinationSchema):
+    require(request.auth, Capability.CREATE)
     from buyers.destination import Destination
     from buyers.models import Buyer
 
@@ -267,6 +269,7 @@ def get_destination(request, destination_id: str):
 
 @router.patch("/{destination_id}/", response={200: dict, 400: dict, 404: dict})
 def update_destination(request, destination_id: str, payload: DestinationUpdateSchema):
+    require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
     from buyers.models import Buyer
     try:
@@ -300,6 +303,7 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
 
 @router.delete("/{destination_id}/", response={200: dict, 404: dict})
 def delete_destination(request, destination_id: str):
+    require(request.auth, Capability.DELETE)
     from buyers.destination import Destination
     try:
         Destination.objects.get(id=destination_id, organization=request.auth.organization).delete()

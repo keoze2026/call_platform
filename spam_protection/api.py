@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from accounts.api import JWTAuth
 import uuid
 from typing import List
@@ -59,6 +60,7 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
 @router.post('/blacklist', response={201: BlacklistOutSchema})
 def create_blacklist(request, payload: BlacklistCreateSchema):
     """Add a number to the blacklist."""
+    require(request.auth, Capability.CREATE)
     entry = Blacklist.objects.create(
         organization_id=request.auth.organization_id,
         phone_number=payload.phone_number or payload.number,
@@ -81,6 +83,7 @@ def get_blacklist_entry(request, entry_id: uuid.UUID):
 
 @router.patch('/blacklist/{entry_id}', response={200: BlacklistOutSchema, 400: dict})
 def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdateSchema):
+    require(request.auth, Capability.EDIT)
     if payload.phone_number is not None:
         return 400, {"detail": "phone_number is immutable after creation. Delete and recreate to change the number."}
     entry = get_object_or_404(
@@ -95,6 +98,7 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
 
 @router.delete('/blacklist/{entry_id}', response=MessageSchema)
 def delete_blacklist_entry(request, entry_id: uuid.UUID):
+    require(request.auth, Capability.DELETE)
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -105,6 +109,7 @@ def delete_blacklist_entry(request, entry_id: uuid.UUID):
 @router.post('/blacklist/{entry_id}/deactivate', response=BlacklistOutSchema)
 def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
     """Soft-disable a blacklist entry without deleting it."""
+    require(request.auth, Capability.CREATE)
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -132,6 +137,7 @@ def list_whitelist(request, campaign_id: uuid.UUID = None, active_only: bool = T
 @router.post('/whitelist', response={201: WhitelistOutSchema})
 def create_whitelist(request, payload: WhitelistCreateSchema):
     """Add a trusted number that bypasses all spam checks."""
+    require(request.auth, Capability.CREATE)
     entry = Whitelist.objects.create(
         organization_id=request.auth.organization_id,
         phone_number=payload.phone_number or payload.number,
@@ -152,6 +158,7 @@ def get_whitelist_entry(request, entry_id: uuid.UUID):
 
 @router.patch('/whitelist/{entry_id}', response=WhitelistOutSchema)
 def update_whitelist_entry(request, entry_id: uuid.UUID, payload: WhitelistUpdateSchema):
+    require(request.auth, Capability.EDIT)
     entry = get_object_or_404(
         Whitelist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -163,6 +170,7 @@ def update_whitelist_entry(request, entry_id: uuid.UUID, payload: WhitelistUpdat
 
 @router.delete('/whitelist/{entry_id}', response=MessageSchema)
 def delete_whitelist_entry(request, entry_id: uuid.UUID):
+    require(request.auth, Capability.DELETE)
     entry = get_object_or_404(
         Whitelist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -185,6 +193,7 @@ def list_anonymous_blocks(request):
 @router.post('/anonymous-block', response={201: AnonymousBlockOutSchema})
 def create_anonymous_block(request, payload: AnonymousBlockCreateSchema):
     """Enable anonymous call blocking for a campaign."""
+    require(request.auth, Capability.CREATE)
     block, _ = AnonymousCallBlock.objects.update_or_create(
         organization_id=request.auth.organization_id,
         campaign_id=payload.campaign_id,
@@ -195,6 +204,7 @@ def create_anonymous_block(request, payload: AnonymousBlockCreateSchema):
 
 @router.patch('/anonymous-block/{campaign_id}', response=AnonymousBlockOutSchema)
 def update_anonymous_block(request, campaign_id: uuid.UUID, payload: AnonymousBlockUpdateSchema):
+    require(request.auth, Capability.EDIT)
     block = get_object_or_404(
         AnonymousCallBlock,
         campaign_id=campaign_id,
@@ -283,6 +293,7 @@ def get_anonymous_block(request):
 
 @router.post("/anonymous-block", response={200: dict})
 def create_anonymous_block(request):
+    require(request.auth, Capability.CREATE)
     import json
     from django.core.cache import cache
     data = json.loads(request.body)
@@ -292,6 +303,7 @@ def create_anonymous_block(request):
 
 @router.patch("/anonymous-block/{campaign_id}", response={200: dict})
 def update_anonymous_block(request, campaign_id: str):
+    require(request.auth, Capability.EDIT)
     import json
     from django.core.cache import cache
     data = json.loads(request.body)

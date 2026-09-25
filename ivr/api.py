@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -16,6 +17,7 @@ router = Router(tags=["IVR"], auth=JWTAuth())
 
 @router.post("/flows", response={201: IVRFlowOutSchema, 400: dict})
 def create_flow(request: HttpRequest, data: CreateIVRFlowSchema):
+    require(request.auth, Capability.CREATE)
     try:
         flow = IVRService.create_flow(data, request.auth)
         flow = IVRService.get_flow(str(flow.id), request.auth)
@@ -53,6 +55,7 @@ def get_flow(request: HttpRequest, flow_id: str):
 
 @router.patch("/flows/{flow_id}", response={200: IVRFlowOutSchema, 400: dict, 404: dict})
 def update_flow(request: HttpRequest, flow_id: str, data: UpdateIVRFlowSchema):
+    require(request.auth, Capability.EDIT)
     try:
         IVRService.update_flow(flow_id, data, request.auth)
         flow = IVRService.get_flow(flow_id, request.auth)
@@ -63,6 +66,7 @@ def update_flow(request: HttpRequest, flow_id: str, data: UpdateIVRFlowSchema):
 
 @router.delete("/flows/{flow_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_flow(request: HttpRequest, flow_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         IVRService.delete_flow(flow_id, request.auth)
         return 200, {"message": "IVR flow deleted successfully", "success": True}
@@ -72,6 +76,7 @@ def delete_flow(request: HttpRequest, flow_id: str):
 
 @router.post("/flows/{flow_id}/nodes", response={201: dict, 400: dict, 404: dict})
 def add_node(request: HttpRequest, flow_id: str, data: CreateIVRNodeSchema):
+    require(request.auth, Capability.CREATE)
     try:
         node = IVRService.add_node(flow_id, data, request.auth)
         return 201, {
@@ -88,6 +93,7 @@ def add_node(request: HttpRequest, flow_id: str, data: CreateIVRNodeSchema):
 
 @router.post("/flows/{flow_id}/transitions", response={201: dict, 400: dict, 404: dict})
 def add_transition(request: HttpRequest, flow_id: str, data: CreateIVRTransitionSchema):
+    require(request.auth, Capability.CREATE)
     try:
         transition = IVRService.add_transition(flow_id, data, request.auth)
         return 201, {

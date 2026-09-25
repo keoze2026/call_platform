@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -15,6 +16,7 @@ router = Router(tags=["Phone Numbers"], auth=JWTAuth())
 
 @router.post("/search", response={200: List[AvailableNumberSchema], 400: dict})
 def search_numbers(request: HttpRequest, data: SearchNumberSchema):
+    require(request.auth, Capability.CREATE)
     try:
         numbers = PhoneNumberService.search_available_numbers(data, request.auth)
         return 200, numbers
@@ -24,6 +26,7 @@ def search_numbers(request: HttpRequest, data: SearchNumberSchema):
 
 @router.post("/purchase", response={201: PhoneNumberOutSchema, 400: dict})
 def purchase_number(request: HttpRequest, data: PurchaseNumberSchema):
+    require(request.auth, Capability.CREATE)
     try:
         phone_number = PhoneNumberService.purchase_number(data, request.auth)
         trunk_warning = getattr(phone_number, 'trunk_warning', None)
@@ -37,6 +40,7 @@ def purchase_number(request: HttpRequest, data: PurchaseNumberSchema):
 
 @router.post("/import", response={201: PhoneNumberOutSchema, 400: dict})
 def import_number(request: HttpRequest, data: PurchaseNumberSchema):
+    require(request.auth, Capability.CREATE)
     try:
         phone_number = PhoneNumberService.import_existing_number(data, request.auth)
         phone_number = PhoneNumberService.get_number(str(phone_number.id), request.auth)
@@ -75,6 +79,7 @@ def get_number(request: HttpRequest, number_id: str):
 
 @router.patch("/{number_id}", response={200: PhoneNumberOutSchema, 400: dict, 404: dict})
 def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema):
+    require(request.auth, Capability.EDIT)
     try:
         import json as _json
         try:
@@ -94,6 +99,7 @@ def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema
 
 @router.post("/{number_id}/assign", response={200: PhoneNumberOutSchema, 400: dict, 404: dict})
 def assign_number(request: HttpRequest, number_id: str, data: AssignNumberSchema):
+    require(request.auth, Capability.CREATE)
     try:
         phone_number = PhoneNumberService.assign_number(number_id, data, request.auth)
         return 200, PhoneNumberService.format_number(phone_number)
@@ -103,6 +109,7 @@ def assign_number(request: HttpRequest, number_id: str, data: AssignNumberSchema
 
 @router.delete("/{number_id}/release", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def release_number(request: HttpRequest, number_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         PhoneNumberService.release_number(number_id, request.auth)
         return 200, {"message": "Number released successfully", "success": True}

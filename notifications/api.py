@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -14,6 +15,7 @@ router = Router(tags=["Notifications"], auth=JWTAuth())
 
 @router.post("/rules", response={201: NotificationRuleOutSchema, 400: dict})
 def create_rule(request: HttpRequest, data: CreateNotificationRuleSchema):
+    require(request.auth, Capability.CREATE)
     try:
         rule = NotificationService.create_rule(data, request.auth)
         return 201, NotificationService.format_rule(rule)
@@ -40,6 +42,7 @@ def get_rule(request: HttpRequest, rule_id: str):
 
 @router.patch("/rules/{rule_id}", response={200: NotificationRuleOutSchema, 400: dict, 404: dict})
 def update_rule(request: HttpRequest, rule_id: str, data: UpdateNotificationRuleSchema):
+    require(request.auth, Capability.EDIT)
     try:
         rule = NotificationService.update_rule(rule_id, data, request.auth)
         return 200, NotificationService.format_rule(rule)
@@ -49,6 +52,7 @@ def update_rule(request: HttpRequest, rule_id: str, data: UpdateNotificationRule
 
 @router.delete("/rules/{rule_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_rule(request: HttpRequest, rule_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         NotificationService.delete_rule(rule_id, request.auth)
         return 200, {"message": "Rule deleted successfully", "success": True}
@@ -108,6 +112,7 @@ def update_preferences(request: HttpRequest):
 
     Body: {"popups_enabled": bool, "popup_events": [str], "sound_enabled": bool}
     """
+    require(request.auth, Capability.EDIT)
     import json as _json
     from notifications.services import NotificationService
 
@@ -124,6 +129,7 @@ def update_preferences(request: HttpRequest):
 
 @router.post("/test", response={200: dict, 400: dict})
 def test_notification(request: HttpRequest):
+    require(request.auth, Capability.CREATE)
     try:
         NotificationService.dispatch('call.missed', request.auth.organization, {
             'caller_number': '+254700392123',

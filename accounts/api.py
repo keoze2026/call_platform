@@ -1,5 +1,6 @@
 # accounts/api.py
 
+from accounts.permissions import require, Capability
 from django.conf import settings
 from ninja import Router, Form
 from ninja.security import HttpBearer
@@ -25,6 +26,38 @@ class JWTAuth(HttpBearer):
             return user
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
+
+class CapabilityAuth(HttpBearer):
+    """Authenticate, then require a capability for the whole router.
+
+    For routers where every endpoint needs the same permission - billing being
+    the clear case. Returning None makes Ninja answer 401; a role that simply
+    lacks the capability is not an authentication failure, but the distinction
+    does not help a caller who cannot proceed either way.
+    """
+
+    capability = None
+
+    def authenticate(self, request, token):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+        from accounts.permissions import has
+        from .models import User
+        try:
+            validated = AccessToken(token)
+            user = User.objects.get(id=validated['user_id'])
+        except (InvalidToken, TokenError, User.DoesNotExist):
+            return None
+
+        if self.capability and not has(user, self.capability):
+            return None
+        return user
+
+
+class BillingAuth(CapabilityAuth):
+    from accounts.permissions import Capability as _Cap
+    capability = _Cap.BILLING
+
 
 class StaffAuth(HttpBearer):
     """Platform staff only — Django superuser or staff.
@@ -394,6 +427,7 @@ def get_workspace(request: HttpRequest):
 
 @router.patch("/workspace", response={200: dict, 400: dict})
 def update_workspace(request: HttpRequest):
+    require(request.auth, Capability.SETTINGS)
     import json
     org = request.auth.organization
     try:
@@ -437,6 +471,7 @@ def list_members(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.post("/workspace/members/invite", response={201: dict, 400: dict})
 def invite_member(request: HttpRequest):
+    require(request.auth, Capability.MEMBERS)
     import json
     import secrets
     try:
@@ -520,6 +555,7 @@ def invite_member(request: HttpRequest):
 
 @router.delete("/workspace/members/{user_id}", response={200: dict, 404: dict})
 def remove_member(request: HttpRequest, user_id: str):
+    require(request.auth, Capability.MEMBERS)
     try:
         user = User.objects.get(id=user_id, organization=request.auth.organization)
         if user.id == request.auth.id:
@@ -532,6 +568,7 @@ def remove_member(request: HttpRequest, user_id: str):
 
 @router.patch("/workspace/members/{user_id}/role", response={200: dict, 400: dict, 404: dict})
 def update_member_role(request: HttpRequest, user_id: str):
+    require(request.auth, Capability.MEMBERS)
     import json
     try:
         data = json.loads(request.body)
@@ -703,6 +740,7 @@ def list_roles_catalog(request: HttpRequest):
 
 @router.post("/workspace/roles", response={201: dict, 400: dict})
 def create_role(request: HttpRequest):
+    require(request.auth, Capability.MEMBERS)
     import json as _json
     from accounts.models import CustomRole
     try:
@@ -730,6 +768,7 @@ def create_role(request: HttpRequest):
 
 @router.patch("/workspace/roles/{role_id}", response={200: dict, 404: dict})
 def update_role(request: HttpRequest, role_id: str):
+    require(request.auth, Capability.MEMBERS)
     import json as _json
     from accounts.models import CustomRole
     try:
@@ -756,6 +795,7 @@ def update_role(request: HttpRequest, role_id: str):
 
 @router.delete("/workspace/roles/{role_id}", response={204: None, 400: dict, 404: dict})
 def delete_role(request: HttpRequest, role_id: str):
+    require(request.auth, Capability.MEMBERS)
     from accounts.models import CustomRole
     try:
         role = CustomRole.objects.get(id=role_id, organization=request.auth.organization)

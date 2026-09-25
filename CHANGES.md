@@ -1425,3 +1425,84 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
 - Routing plan builder cannot show or edit rules; endpoints exist.
 - `trunk_warning` not surfaced on number purchase.
 - Hangup button not wired to `POST /api/routing/calls/{id}/hangup`.
+
+---
+
+## CH-024 — Roles actually enforced (capability + row scoping)
+
+**Problem**
+The five roles (admin, manager, agent, buyer, publisher) were labels on a column
+and nothing else. Every logged-in account could reach every endpoint: an agent
+could delete a campaign, open billing, change another user's role. A buyer login
+could read the whole organization's calls, including other buyers' numbers,
+payouts and recordings.
+
+**Two separate problems, fixed separately**
+
+| | question | fix |
+|---|---|---|
+| capability | what a role may **do** | a guard on the endpoint |
+| scope | what a role may **see** | a filter on the rows |
+
+A capability guard alone is not enough for buyers and publishers: their login
+sits *inside* the organization, so their data is beside everyone else's. Rows
+have to be filtered, not just endpoints blocked.
+
+**New file: `accounts/permissions.py`** — the only place roles are defined.
+
+- `Capability` — VIEW, EDIT, CREATE, DELETE, BILLING, MEMBERS, SETTINGS
+- `ROLE_CAPABILITIES` — role → set of capabilities
+- `require(user, capability)` — raises 403 naming the capability *and* the role,
+  so a blocked request explains itself
+- `scope_queryset(user, qs, buyer_field, publisher_field)` — narrows rows
+
+Who can do what:
+
+| role | view | edit | create | delete | billing | members | settings |
+|---|---|---|---|---|---|---|---|
+| admin / reseller | Y | Y | Y | Y | Y | Y | Y |
+| manager | Y | Y | Y | Y | - | - | - |
+| agent | Y | Y | - | - | - | - | - |
+| buyer / publisher | own rows only | - | - | - | - | - | - |
+
+A role missing from the table gets VIEW only, so adding a role to the model is
+harmless until its capabilities are granted deliberately.
+
+**New fields: `User.buyer`, `User.publisher`** (migration `accounts/0009`)
+`role='buyer'` told us the login was a buyer but not *which* buyer, so there was
+nothing to filter on. Both are `SET_NULL`, `related_name='logins'`. A buyer login
+with no link sees **nothing** rather than falling through to everything — the
+safe direction if someone forgets to set it.
+
+**87 capability guards** across accounts, campaigns, buyers, publishers,
+phone_numbers, routing, dni, ivr, webhooks, destinations, spam_protection,
+notifications. POST→CREATE, DELETE→DELETE, PATCH/PUT→EDIT, plus MEMBERS on
+member management and SETTINGS on workspace settings. Billing is gated at the
+router (`BillingAuth`), not per endpoint, so a new billing endpoint is covered
+the day it is written.
+
+**12 row-scoping points** — every path that can return call data:
+`routing/services.py` (list + get by id), `routing/api.py` (live calls, hangup),
+`analytics/services.py` (`_base_qs`, `_live_qs` — this covers the dashboard,
+reports and the CSV export), `analytics/api.py` (recording, detail, live),
+`routing/consumers.py` (the websocket live feed), and the buyer/publisher
+listings so a buyer cannot enumerate the competition.
+
+Fetch-by-id was scoped too, not just the lists. Blocking the list while leaving
+`GET /calls/{id}` open would have meant a buyer could still read any call by
+guessing or reusing an id.
+
+**Routing untouched.** No change to `routing/engine.py`, the dialplan, the
+Asterisk handlers or the webhooks. Scoping applies to reading, never to the
+call path — an inbound call has no logged-in user.
+
+**Public endpoints unchanged.** The DNI snippet endpoint, `assign_number`, the
+IVR gather webhook and the conversion postback carry `auth=None` and got no
+guard — a guard there would have broken live traffic. Verified by a scan that
+walks each `auth=None` decorator and its body.
+
+**Still open**
+- The frontend should hide what a role cannot do. The backend now returns 403
+  with a readable reason, so the UI can show the message rather than guess.
+- Existing buyer/publisher logins need their `buyer`/`publisher` link set once,
+  in the admin. Until linked they see no calls — deliberately.

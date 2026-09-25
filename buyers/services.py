@@ -2,6 +2,7 @@ from django.utils import timezone
 from .models import Buyer, BuyerCap, BuyerCampaign
 from .schemas import CreateBuyerSchema, UpdateBuyerSchema
 from accounts.models import User
+from accounts.permissions import scope_queryset
 
 
 class BuyerService:
@@ -63,8 +64,10 @@ class BuyerService:
     @staticmethod
     def list_buyers(user: User):
         """List all buyers for the user organization"""
-        return Buyer.objects.filter(
-            organization=user.organization
+        return scope_queryset(
+            user,
+            Buyer.objects.filter(organization=user.organization),
+            buyer_field='id', publisher_field=None,
         ).exclude(status='archived').order_by('-created_at')
 
     @staticmethod

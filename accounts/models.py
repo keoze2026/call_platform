@@ -51,6 +51,20 @@ class User(AbstractUser):
 
     # Telegram account link. chat_id is set by the bot's /start handler once the
     # user opens the deep link; username is what they type on the Profile page.
+    # A buyer or publisher login is tied to the record it represents, so their
+    # view can be filtered to their own calls. Without this a user with
+    # role='buyer' is just a label - nothing says which buyer they are.
+    buyer = models.ForeignKey(
+        'buyers.Buyer', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='logins',
+        help_text='For role=buyer: the buyer this login represents',
+    )
+    publisher = models.ForeignKey(
+        'publishers.Publisher', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='logins',
+        help_text='For role=publisher: the publisher this login represents',
+    )
+
     telegram_chat_id = models.CharField(max_length=64, blank=True, default='', db_index=True)
     telegram_username = models.CharField(max_length=64, blank=True, default='')
     

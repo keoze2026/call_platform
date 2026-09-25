@@ -61,13 +61,14 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
     def get_live_calls(self):
         from .models import CallLog
         from accounts.models import User
+        from accounts.permissions import scope_queryset
 
         try:
             user = User.objects.get(id=self.user_id)
-            calls = CallLog.objects.filter(
+            calls = scope_queryset(user, CallLog.objects.filter(
                 organization=user.organization,
                 status=CallLog.Status.IN_PROGRESS
-            ).select_related('campaign', 'buyer').order_by('-created_at')
+            ).select_related('campaign', 'buyer')).order_by('-created_at')
 
             return [
                 {

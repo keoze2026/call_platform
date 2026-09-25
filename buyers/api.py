@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from django.conf import settings
 from ninja import Router
 from django.http import HttpRequest
@@ -17,6 +18,7 @@ router = Router(tags=["Buyers"], auth=JWTAuth())
 
 @router.post("", response={201: BuyerOutSchema, 400: dict})
 def create_buyer(request: HttpRequest, data: CreateBuyerSchema):
+    require(request.auth, Capability.CREATE)
     try:
         buyer = BuyerService.create(data, request.auth)
         buyer = BuyerService.get_buyer(str(buyer.id), request.auth)
@@ -55,6 +57,7 @@ def get_buyer(request: HttpRequest, buyer_id: str):
 
 @router.patch("/{buyer_id}", response={200: BuyerOutSchema, 400: dict, 404: dict})
 def update_buyer(request: HttpRequest, buyer_id: str, data: UpdateBuyerSchema):
+    require(request.auth, Capability.EDIT)
     try:
         BuyerService.update(buyer_id, data, request.auth)
         buyer = BuyerService.get_buyer(buyer_id, request.auth)
@@ -65,6 +68,7 @@ def update_buyer(request: HttpRequest, buyer_id: str, data: UpdateBuyerSchema):
 
 @router.delete("/{buyer_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_buyer(request: HttpRequest, buyer_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         BuyerService.delete(buyer_id, request.auth)
         return 200, {"message": "Buyer archived successfully", "success": True}
@@ -74,6 +78,7 @@ def delete_buyer(request: HttpRequest, buyer_id: str):
 
 @router.post("/{buyer_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_buyer(request: HttpRequest, buyer_id: str):
+    require(request.auth, Capability.CREATE)
     try:
         BuyerService.pause(buyer_id, request.auth)
         return 200, {"message": "Buyer paused successfully", "success": True}
@@ -83,6 +88,7 @@ def pause_buyer(request: HttpRequest, buyer_id: str):
 
 @router.post("/{buyer_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_buyer(request: HttpRequest, buyer_id: str):
+    require(request.auth, Capability.CREATE)
     try:
         BuyerService.activate(buyer_id, request.auth)
         return 200, {"message": "Buyer activated successfully", "success": True}
@@ -92,6 +98,7 @@ def activate_buyer(request: HttpRequest, buyer_id: str):
 
 @router.patch("/{buyer_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, buyer_id: str, data: BuyerCapSchema):
+    require(request.auth, Capability.EDIT)
     try:
         cap = BuyerService.update_cap(buyer_id, data, request.auth)
         return 200, {
@@ -107,6 +114,7 @@ def update_cap(request: HttpRequest, buyer_id: str, data: BuyerCapSchema):
 
 @router.post("/{buyer_id}/campaigns", response={200: dict, 400: dict, 404: dict})
 def assign_campaign(request: HttpRequest, buyer_id: str, data: AssignCampaignSchema):
+    require(request.auth, Capability.CREATE)
     try:
         assignment = BuyerService.assign_campaign(buyer_id, data, request.auth)
         return 200, {
@@ -123,6 +131,7 @@ def assign_campaign(request: HttpRequest, buyer_id: str, data: AssignCampaignSch
 
 @router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    require(request.auth, Capability.DELETE)
     try:
         BuyerService.remove_campaign(buyer_id, campaign_id, request.auth)
         return 200, {"message": "Buyer removed from campaign successfully", "success": True}
@@ -140,6 +149,7 @@ def get_stats(request: HttpRequest, buyer_id: str):
 
 @router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: dict, 404: dict})
 def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    require(request.auth, Capability.DELETE)
     from buyers.models import BuyerCampaign
     try:
         # Scoped to the caller's organization: without it any authenticated user
@@ -157,6 +167,7 @@ def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
 
 @router.post("/{buyer_id}/invite", response={200: dict, 400: dict, 404: dict})
 def invite_buyer(request: HttpRequest, buyer_id: str):
+    require(request.auth, Capability.CREATE)
     import secrets
     from django.core.mail import send_mail
     from buyers.models import Buyer as BuyerModel
@@ -193,6 +204,7 @@ def get_reporting_config(request: HttpRequest, buyer_id: str):
 
 @router.put("/{buyer_id}/reporting-config", response={200: dict, 404: dict})
 def update_reporting_config(request: HttpRequest, buyer_id: str):
+    require(request.auth, Capability.EDIT)
     import json as _json
     from buyers.models import Buyer
     from django.core.cache import cache

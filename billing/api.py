@@ -1,3 +1,4 @@
+from accounts.permissions import require, Capability
 from ninja import Router
 import logging
 logger = logging.getLogger(__name__)
@@ -13,11 +14,12 @@ from .schemas import (
     BillingAccountOutSchema, TransactionOutSchema,
     InvoiceOutSchema, MessageResponseSchema
 )
+from accounts.api import BillingAuth
 from .services import BillingService
 
 from .models import BillingAccount, Transaction, Invoice
 
-router = Router(tags=["Billing"], auth=JWTAuth())
+router = Router(tags=["Billing"], auth=BillingAuth())
 
 
 @router.get("/account", response={200: BillingAccountOutSchema})
