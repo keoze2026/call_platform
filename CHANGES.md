@@ -2014,3 +2014,99 @@ verified with a real query. Backup kept on the server as
   CF-Connecting-IP` or every rate limit will count the whole internet as one
   visitor, and the origin needs locking to Cloudflare's ranges so the proxy
   cannot be bypassed.
+
+---
+
+## CH-030 — Open for 2026-09-26
+
+Recorded at the end of 25 September. Nothing here blocks calls; routing, billing
+and reporting all work.
+
+### 1. The per-minute rate may be wrong by a factor of ten — decide first
+
+`per_minute_rate` is **$0.45**. Two of the boss's messages on the evening of the
+25th compute with **$0.045**, and an earlier screenshot of his showed `0.40`.
+
+His platform's own figures give an implied rate, derived from four campaigns:
+
+| campaign | minutes | calls | cost | $/min |
+|---|---|---|---|---|
+| C-02 | 11,333.20 | 1,047 | 416.359 | 0.03674 |
+| C-03 | 1,401.67 | 123 | 51.310 | 0.03661 |
+| C-05 | 394.27 | 32 | 14.315 | 0.03631 |
+| C-11 | 498.85 | 77 | 18.900 | 0.03789 |
+| total | 13,627.98 | 1,279 | 500.884 | 0.03675 |
+
+A two-variable fit gives **$0.03502/min + $0.01854/call**, matching every row to
+within 0.6% — carrier billing, per minute plus a per-call setup fee, not a flat
+per-minute rate.
+
+For that same traffic:
+
+    $0.45  /min  ->  $6,132.59     <- what our system would charge
+    $0.045 /min  ->  $613.26
+    their figure ->  $500.88
+
+So our rate is roughly **12x** theirs. Either $0.45 is correct and we are a
+platform charging well above carrier cost, or it should be $0.045 and every call
+billed since 18 September has been charged ten times over.
+
+**This is the first thing to settle**, because it decides whether the 383 charges
+already taken need correcting. The rate itself is a setting:
+
+    docker compose exec web python manage.py set_rate --org "Avortyx" --rate 0.045
+
+No deploy, and no code change either way.
+
+Also worth putting to him: his platform's cost has a per-call component. Ours is
+purely per-minute. If the two must agree exactly, a per-call fee field is needed.
+
+### 2. Frontend — the backend is complete for all of these
+
+- **Cost column** still calculated in the browser. Shows $232.62 where the API
+  returns $251.55, because it sums raw talk time instead of rounding each call up.
+- **`grossProfit` and `net` columns** are frontend inventions; neither exists in
+  the API. `net` subtracts Cost from Profit and displays -$209.20. Profit is
+  Revenue - Payout, with Cost as its own column.
+- Both columns render raw translation keys
+  (`toolsUI.reports.summary.columns.net`) instead of labels.
+- The `$499/month Growth` plan card on the Billing page is invented. Real charges
+  are $49.99/month, $0.45/min, $20/number, all returned by
+  `GET /api/billing/account`.
+- The six Expenses categories (Rent Numbers, VoIP Shield, ...) do not exist.
+  `/api/billing/expenses` buckets by transaction type.
+- "Jordan Kim · Solutions engineer · Replying now" and the online-teammates count
+  in the support widget are fabricated. There is no agent identity or presence in
+  the backend, and a visitor is being told a named person is answering when the
+  message goes to a Telegram group.
+- Dashboard polls every ~15s including a 100KB destinations list that does not
+  change. Limit is 600 req/min per user.
+- Intermittent 401s on `/api/analytics/dashboard`, consistent with a token
+  refresh race.
+
+### 3. Duplicate window — decision needed
+
+Ours counts a repeat caller within `duplicate_call_block_hours`, currently 24, per
+campaign. On 23 JUNE that is 4 duplicates against their 30. Both calculations are
+internally consistent; the rule differs. Matching theirs would drop our Qualified
+from 73 to about 48, which is a large visible change, so it is a decision rather
+than a fix.
+
+### 4. Before any DDoS testing
+
+- `deploy/nginx-rate-limits.conf` written but **not applied**: `nginx -t &&
+  systemctl reload nginx`.
+- Cloudflare not enabled on `avortyx.io` and `rec.v0l1.com`.
+- Contabo must be told in writing before any volumetric test, or they will
+  blackhole the IP and take SIP down with it.
+- Application-layer testing is safe now. Volumetric is not, until the two above
+  are done.
+
+### 5. Smaller items
+
+- Delete `routing/twilio_handler.py` once the `LEGACY TWILIO PATH USED` log stays
+  clean for a few days. Removes 8 swallowed exceptions with it.
+- Two dead duplicate ACCEPT rules sit after the SIP DROP in ufw.
+- Delete `.env.backup-2026-09-25-212615` from the server once the rotation has
+  proven stable — it holds the old password.
+- IVR webhooks are guarded only by knowing a flow id.
