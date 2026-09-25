@@ -1094,7 +1094,11 @@ client-side. Counting Qualified from that column cannot match anything.
 
 **Backend**
 
-- **2026-09-19 — Asterisk channel cross-check (agreed, scheduled).** Stuck live
+- ~~**2026-09-19 — Asterisk channel cross-check.**~~ **Resolved in CH-012** —
+  `scripts/asterisk_channel_sync.sh` and the `active_channels` endpoint ship, so
+  a stuck live call closes in about a minute rather than 75. Original note below.
+
+- **(historical)** Stuck live
   calls are currently bounded, not eliminated: `tasks.close_stale_calls` sweeps
   every 15 minutes and closes anything past 60 minutes, so a row can show as Live
   for up to ~75 minutes after the call really ended. The exact fix is to ask
@@ -1105,12 +1109,14 @@ client-side. Counting Qualified from that column cannot match anything.
 - The platform's own fee equals the publisher payout the client configured. If
   Avortyx's fee is meant to be a separate number, set `per_minute_rate` per
   client — no code change needed.
-- `get_dashboard(filters=None)` builds `type('Obj', (object,), {})()` and crashes
-  on the missing `date_from`. Production never hits it (`Query(...)` makes filters
-  required) but it is a landmine for any internal caller.
-- The worker runs as root; Celery warns on every start.
-- `callplatform-worker.service` has no `-n` flag, so a second worker would
-  collide on the default node name.
+- ~~`get_dashboard(filters=None)` crashes on the missing `date_from`.~~
+  **Resolved in CH-028** — `_base_qs` and `_live_qs` read every filter field
+  through a helper that tolerates `filters` being None. Hit while verifying cost
+  from the shell, which is exactly the internal caller it was a landmine for.
+- ~~The worker runs as root; Celery warns on every start.~~
+- ~~`callplatform-worker.service` has no `-n` flag.~~
+  Both **obsolete** — the systemd units were replaced by Docker Compose in
+  CH-005. Kept struck through so they are not re-raised.
 
 **Frontend** — backend is complete for all of these
 

@@ -45,6 +45,11 @@ def _account_currency(organization) -> str:
         return 'USD'
 
 
+def _f(filters, name, default=None):
+    """Read a filter field, tolerating filters being None."""
+    return getattr(filters, name, default) if filters is not None else default
+
+
 class AnalyticsService:
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -57,14 +62,18 @@ class AnalyticsService:
         
         qs = CallRecord.objects.filter(organization=user.organization)
 
-        val_from = filters.date_from or getattr(filters, 'start_date', None) or getattr(filters, 'created_at__gte', None)
+        # get_dashboard takes filters=None, and every read below assumed an
+        # object. Production never hit it because the API declares filters as a
+        # required Query, but any internal caller - a task, a management command,
+        # a shell check - crashed on the first attribute.
+        val_from = _f(filters, 'date_from') or _f(filters, 'start_date') or _f(filters, 'created_at__gte')
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__gte=dt)
 
-        val_to = filters.date_to or getattr(filters, 'end_date', None) or getattr(filters, 'created_at__lte', None)
+        val_to = _f(filters, 'date_to') or _f(filters, 'end_date') or _f(filters, 'created_at__lte')
         if val_to:
             dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
             if timezone.is_naive(dt):
@@ -130,13 +139,13 @@ class AnalyticsService:
             organization=user.organization,
             status__in=['in_progress', 'ringing', 'initiated']
         )
-        val_from = filters.date_from or getattr(filters, 'start_date', None) or getattr(filters, 'created_at__gte', None)
+        val_from = _f(filters, 'date_from') or _f(filters, 'start_date') or _f(filters, 'created_at__gte')
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
             if timezone.is_naive(dt): dt = timezone.make_aware(dt)
             qs = qs.filter(created_at__gte=dt)
 
-        val_to = filters.date_to or getattr(filters, 'end_date', None) or getattr(filters, 'created_at__lte', None)
+        val_to = _f(filters, 'date_to') or _f(filters, 'end_date') or _f(filters, 'created_at__lte')
         if val_to:
             dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
             if timezone.is_naive(dt): dt = timezone.make_aware(dt)
