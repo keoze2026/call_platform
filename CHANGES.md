@@ -1798,11 +1798,39 @@ export, with `billable_minutes` beside it so any figure can be checked by hand.
     billable_minutes = 5162
     total_cost       = 2322.90      (5162 x $0.45, markup 0%)
 
-**Definition decided, not escalated**
+**Definition decided, not escalated — later confirmed**
 
-Profit stays `Revenue − Payout`, with Cost as its own column beside it. This
-matches the reference platform. Cost is the per-minute charge; it is not
-subtracted from Profit.
+Profit stays `Revenue − Payout`, with Cost as its own column beside it. Cost is
+the per-minute charge; it is not subtracted from Profit.
+
+Confirmed afterwards: *"Cost has nothing to do with revenue... Cost should be
+debited. According to min cost we will charging from user, which is $0.45."*
+Cost is the per-minute rate debited from the client's balance, independent of
+revenue and payout, and settable per account — a screenshot showed it at $0.40,
+which is `per_minute_rate` and changes with `manage.py set_rate`, no deploy.
+
+**Displayed cost vs the ledger — checked, and left as calculated**
+
+Since Cost is what gets debited, the column has to agree with the balance.
+Verified against the transaction ledger:
+
+| | |
+|---|---|
+| chargeable calls before 18 Sep | 332 — never charged |
+| chargeable calls since 18 Sep | 383 |
+| ledger charges | 383 |
+
+Charging shipped 18 September in CH-007, and every chargeable call since has been
+debited. The 332 are exactly the calls from 26 August to 17 September, before the
+feature existed. All fifteen most recent calls are charged.
+
+Kept as a calculation rather than read from the ledger: from the day billing
+shipped the two agree exactly, the formula is the one the invoice uses, and
+sourcing from the ledger would show $0 for every call before 18 September, which
+reads as broken rather than honest.
+
+Not backfilled. Charging clients now for calls made before billing existed is a
+commercial decision, not a technical one.
 
 **Not changed: payout**
 
