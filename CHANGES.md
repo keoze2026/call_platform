@@ -1978,18 +1978,22 @@ in module scope.
 The rotation was attempted twice and took the site down both times. The database
 password changed and the application kept sending the old one.
 
-**First attempt.** The guard checked that `changeme_in_production` appeared
-*somewhere* in `.env`. It did — in another variable — so the check passed while
-`DATABASE_URL` held a different password and was never rewritten.
+**One cause, not two.** `docker compose restart` **does not re-read `env_file`**.
+A container's environment is baked in when it is created, so restart reuses the
+old values. `.env` was correct both times and the container never saw it: the
+database had the new password while the application kept sending the old one.
 
-**Second attempt.** `DATABASE_URL` was rewritten wholesale, correctly, and it
-still failed: `docker compose restart` **does not re-read `env_file`**. The
-environment is baked in when a container is created. `.env` was right and the
-container never saw it. `up -d` is required, which is the same thing that made
-the port bindings need `down && up -d` earlier the same evening.
+`up -d` is required — the same thing that made the port bindings need
+`down && up -d` earlier the same evening, and which I had explained to the user
+an hour before failing to apply it here.
 
-Both are the same error: testing for presence in a file instead of in the place
-that decides the outcome — the same mistake as the support chat import above.
+At the time I attributed the first failure to a different cause: that the guard
+had checked whether the old password appeared anywhere in `.env` rather than
+inside `DATABASE_URL`. The rotation script disproved that — it read
+`changeme_in_production` straight out of `DATABASE_URL` (22 characters, one
+occurrence), so the first attempt's rewrite had been correct all along. The
+explanation was a guess that fit the symptom, and it was wrong. Corrected here
+rather than left standing.
 
 Recovery each time was the backup plus `ALTER USER` back to the old password.
 
@@ -1998,9 +2002,10 @@ out of `DATABASE_URL` rather than assuming it, replaces it everywhere it appears
 uses `up -d`, verifies with a real query, and rolls itself back if that query
 fails.
 
-**Still open**
-- Run `deploy/rotate_db_password.sh`. The port is closed, so the exposure is
-  contained; the password being in a public repository is not undone by that.
+**Done 2026-09-25.** Rotated successfully with the script: read the old password
+out of `DATABASE_URL`, rewrote it, recreated the containers with `up -d`, and
+verified with a real query. Backup kept on the server as
+`.env.backup-2026-09-25-212615`.
 - Two dead duplicate ACCEPT rules sit after the SIP DROP and never match.
   Harmless, worth tidying.
 - The frontend polls hard: dashboard, campaigns and a 100KB destinations list
