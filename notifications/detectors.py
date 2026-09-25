@@ -172,6 +172,96 @@ def check_destination_caps(organization):
     return events
 
 
+# ── balance running out ──────────────────────────────────────────────────────
+
+def check_low_balance(organization):
+    """Warn before an account runs dry, rather than after calls stop.
+
+    Three separate warnings, because they mean different things:
+
+      empty     nothing left; calls are already being refused
+      low       under the account's own low_balance_threshold
+      fee_due   enough today, but the monthly portal fee would empty it
+
+    The third is the one that catches people out: a balance that looks healthy
+    against per-call costs and then vanishes on the billing date, stopping calls
+    with no warning to the client.
+    """
+    from datetime import timedelta
+    from decimal import Decimal
+
+    from django.utils import timezone
+
+    from billing.models import BillingAccount
+    from routing.engine import RoutingEngine
+
+    events = []
+
+    try:
+        account = BillingAccount.objects.get(organization=organization)
+    except BillingAccount.DoesNotExist:
+        return events
+
+    balance = Decimal(account.balance or 0)
+    available = balance + Decimal(account.credit_limit or 0)
+
+    # Cheapest call this organization could route, so "can it route at all"
+    try:
+        from campaigns.models import Campaign
+        rates = [
+            RoutingEngine.required_call_balance(c)
+            for c in Campaign.objects.filter(organization=organization, status='active')
+        ]
+        cheapest = min([r for r in rates if r > 0], default=Decimal('0'))
+    except Exception:
+        cheapest = Decimal('0')
+
+    def event(level, detail):
+        return ('low.balance', {
+            'type': 'balance',
+            'name': organization.name,
+            'balance': str(balance),
+            'level': level,
+            **detail,
+        })
+
+    if cheapest > 0 and available < cheapest:
+        if not _already_sent(f'balance_empty:{organization.id}'):
+            events.append(event('empty', {
+                'needed_per_call': str(cheapest),
+                'message': 'Calls are being refused — the balance cannot cover one call.',
+            }))
+        return events
+
+    threshold = Decimal(account.low_balance_threshold or 0)
+    if threshold > 0 and balance <= threshold:
+        if not _already_sent(f'balance_low:{organization.id}'):
+            events.append(event('low', {
+                'threshold': str(threshold),
+                'message': f'Balance is at or below the ${threshold} warning level.',
+            }))
+
+    # The portal fee is the usual reason a healthy-looking balance disappears
+    fee = Decimal(account.monthly_portal_fee or 0)
+    if fee > 0 and account.portal_fee_charged_at:
+        due = account.portal_fee_charged_at + timedelta(days=30)
+        days_away = (due - timezone.now()).days
+        if 0 <= days_away <= 7 and balance - fee < max(threshold, cheapest):
+            if not _already_sent(f'balance_fee_due:{organization.id}:{due:%Y%m}'):
+                events.append(event('fee_due', {
+                    'fee': str(fee),
+                    'due_on': due.date().isoformat(),
+                    'days_away': days_away,
+                    'balance_after': str(balance - fee),
+                    'message': (
+                        f'The ${fee} portal fee is due on {due:%d %b} and would '
+                        f'leave ${balance - fee}, below what a call needs.'
+                    ),
+                }))
+
+    return events
+
+
 # ── buyers missing calls ─────────────────────────────────────────────────────
 
 def check_buyer_missed(organization, window_minutes=60, min_calls=3, miss_rate=0.5):
@@ -283,6 +373,7 @@ def check_low_aht(organization, window_minutes=60, min_calls=5, drop_ratio=0.6):
 
 
 DETECTORS = (
+    check_low_balance,
     check_campaign_caps,
     check_buyer_caps,
     check_destination_caps,

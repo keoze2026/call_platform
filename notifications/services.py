@@ -285,7 +285,14 @@ class NotificationService:
                 f"{data.get('recent_aht_seconds', 0)}s vs "
                 f"{data.get('baseline_aht_seconds', 0)}s usual"
             ),
-            'low.balance': f"Low Balance Alert - {data.get('balance', '')}",
+            'low.balance': {
+                'empty': f"CALLS STOPPED{suffix} - balance ${data.get('balance', '')}",
+                'low': f"Low Balance{suffix} - ${data.get('balance', '')} left",
+                'fee_due': (
+                    f"Balance Will Not Cover the Portal Fee{suffix} - "
+                    f"${data.get('fee', '')} due {data.get('due_on', '')}"
+                ),
+            }.get(data.get('level'), f"Low Balance Alert - {data.get('balance', '')}"),
             'campaign.paused': f"Campaign Paused{suffix}",
             'daily.summary': "Daily Summary Report",
             'call.started': f"New Call{suffix}",
