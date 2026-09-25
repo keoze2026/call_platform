@@ -1,6 +1,7 @@
 # accounts/api.py
 
 from accounts.permissions import require, Capability
+from django.db.models import Count
 from django.conf import settings
 from ninja import Router, Form
 from ninja.security import HttpBearer
@@ -594,17 +595,52 @@ def update_member_role(request: HttpRequest, user_id: str):
 
 @router.get("/workspace/roles", response={200: list})
 def list_roles(request: HttpRequest):
+    """The roles this workspace can assign, and what each one may do.
+
+    Built from ROLE_CAPABILITIES rather than written out by hand. The hand-written
+    version had drifted: it offered a "viewer" role the model does not have, left
+    out "reseller", and listed capabilities that were never the ones enforced. The
+    frontend builds its permission screens from this, so a list that disagrees with
+    the guards shows people access they do not have.
+    """
     from accounts.models import User, CustomRole
+    from accounts.permissions import ROLE_CAPABILITIES, SCOPED_ROLES
+
+    DESCRIPTIONS = {
+        'admin':     "Full access. Can manage members and billing.",
+        'reseller':  "Full access to their own workspace and its sub-accounts.",
+        'manager':   "Runs the operation. No billing, no member management.",
+        'agent':     "Works the queue. Can change what exists, cannot add or remove.",
+        'buyer':     "Outside login. Sees only their own calls.",
+        'publisher': "Outside login. Sees only their own calls.",
+    }
+
+    counts = {
+        row['role']: row['n']
+        for row in User.objects
+            .filter(organization=request.auth.organization)
+            .values('role').annotate(n=Count('id'))
+    }
+
     builtin = [
-        {"id": "admin", "slug": "admin", "name": "Admin", "description": "Full access. Can manage members and billing.", "is_builtin": True, "capabilities": ["call.view", "buyer.edit", "campaign.create", "campaign.edit", "campaign.delete", "buyer.create", "buyer.delete", "publisher.create", "publisher.delete", "billing.manage", "members.manage", "settings.manage"], "member_count": User.objects.filter(organization=request.auth.organization, role='admin').count()},
-        {"id": "manager", "slug": "manager", "name": "Manager", "description": "Can manage campaigns, buyers and publishers.", "is_builtin": True, "capabilities": ["call.view", "buyer.edit", "campaign.create", "campaign.edit", "buyer.create", "publisher.create", "publisher.edit"], "member_count": User.objects.filter(organization=request.auth.organization, role='manager').count()},
-        {"id": "agent", "slug": "agent", "name": "Agent", "description": "Can view and manage assigned campaigns.", "is_builtin": True, "capabilities": ["call.view", "campaign.view", "campaign.edit"], "member_count": User.objects.filter(organization=request.auth.organization, role='agent').count()},
-        {"id": "buyer", "slug": "buyer", "name": "Buyer", "description": "Can view buyer dashboard and stats.", "is_builtin": True, "capabilities": ["call.view", "buyer.view"], "member_count": User.objects.filter(organization=request.auth.organization, role='buyer').count()},
-        {"id": "publisher", "slug": "publisher", "name": "Publisher", "description": "Can view publisher dashboard and stats.", "is_builtin": True, "capabilities": ["call.view", "publisher.view"], "member_count": User.objects.filter(organization=request.auth.organization, role='publisher').count()},
-        {"id": "viewer", "slug": "viewer", "name": "Viewer", "description": "Read-only access to all resources.", "is_builtin": True, "capabilities": ["call.view"], "member_count": User.objects.filter(organization=request.auth.organization, role='viewer').count()},
+        {
+            "id": role,
+            "slug": role,
+            "name": dict(User.Role.choices).get(role, role.title()),
+            "description": DESCRIPTIONS.get(role, ""),
+            "is_builtin": True,
+            # Sorted so the order is stable between calls and the UI does not reshuffle
+            "capabilities": sorted(caps),
+            "scoped_to_own_records": role in SCOPED_ROLES,
+            "member_count": counts.get(role, 0),
+        }
+        for role, caps in ROLE_CAPABILITIES.items()
     ]
+
     custom = [
-        {"id": str(r.id), "slug": str(r.id), "name": r.name, "description": r.description, "capabilities": r.capabilities, "is_builtin": False, "member_count": 0}
+        {"id": str(r.id), "slug": str(r.id), "name": r.name, "description": r.description,
+         "capabilities": r.capabilities, "is_builtin": False,
+         "scoped_to_own_records": False, "member_count": 0}
         for r in CustomRole.objects.filter(organization=request.auth.organization)
     ]
     return 200, builtin + custom

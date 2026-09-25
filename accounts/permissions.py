@@ -101,6 +101,11 @@ def scope_queryset(user, qs, buyer_field='buyer', publisher_field='publisher'):
     Pass None for a field the model does not have, so the same call works across
     call records, campaigns and reports.
     """
+    # A superuser is never scoped. Support has to see the whole workspace, and a
+    # stray role on a superuser account must not blank out their dashboard.
+    if getattr(user, 'is_superuser', False):
+        return qs
+
     role = getattr(user, 'role', '')
 
     if role == 'buyer':
