@@ -30,13 +30,18 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-021](#ch-021) | 2026-09-21 | Analytics | Per-call detail view and routing decision trace | Done — commit `50162d79` |
 | [CH-022](#ch-022) | 2026-09-22 | Notifications | Alert detection, rule validation | Done — commit `7c67d112` |
 | [CH-023](#ch-023) | 2026-09-22 | Analytics | Qualified, Dupe and Paid redefined; export columns | Done — commit `583f8ea4` |
+| [CH-024](#ch-024) | 2026-09-25 | **Security** | **Roles enforced: capability guards + row scoping** | Done — commit `517bf6c6` |
+| [CH-025](#ch-025) | 2026-09-25 | **Security** | Superuser never scoped; roles endpoint derived from the real table | Done — commit `cedf45da` |
+| [CH-026](#ch-026) | 2026-09-25 | Reliability | 14 swallowed failures logged; notification rules self-seed; scratch files removed | Done — commit `c8c457aa` |
+| [CH-027](#ch-027) | 2026-09-25 | **Security** | API-wide rate limiting; RTB bid scoping; error responses no longer leak internals | Done — commit `1f8e7b91` |
+| [CH-028](#ch-028) | 2026-09-25 | Billing / Analytics | Cost calculated in the backend for the first time | Done — commit `7a2668c9` |
 | [CH-006](#ch-006) | 2026-09-17 | Analytics | Dynamic Dashboard Pricing & PhoneNumber Formatting | Done |
 
 ## Open items (not done yet)
 
 | ID | Area | Summary | Priority |
 |----|------|---------|----------|
-| [OPEN-4](#open-4) | Repo | `phone_numbers/services.py.bak_trunk` committed by mistake | Low |
+| ~~[OPEN-4](#open-4)~~ | Repo | ~~`phone_numbers/services.py.bak_trunk` committed by mistake~~ | Resolved — file removed |
 
 ---
 
@@ -1111,7 +1116,9 @@ client-side. Counting Qualified from that column cannot match anything.
 
 1. Balance never displayed. `GET /api/analytics/dashboard` returns `balance` and
    `currency`; verified server-side as `Decimal('10050.00')`.
-2. `Cost` column is fabricated — no backend field feeds it.
+2. ~~`Cost` column is fabricated — no backend field feeds it.~~ **Resolved in
+   CH-028** — the API returns `total_cost` and `billable_minutes`. The frontend
+   must delete its own calculation.
 3. Caller Profile carriers were fabricated. `carrier_name` is now captured on new
    calls; historical rows are blank and cannot be recovered.
 4. Routing plan builder cannot show or edit rules. Endpoints exist at
@@ -1372,21 +1379,21 @@ reports 500s, bad auth and slow queries. **62/62 passing.**
 
 **Backend**
 
-- **2026-09-25 — texora runs out.** Balance $50.00 against a $49.99 portal fee due
-  18 October. It drops to $0.01 that day and stops routing calls, with no warning
-  to the client. Either fund it or set its portal fee to 0.
-- **2026-09-25 — two scratch files in the repository root.** `test_export.py` and
-  `scripts/fix_historical_duplicates.py`, committed by another developer in
-  `dd61ab2c`. The test file in particular looks like a working file rather than
-  something meant to ship.
+- ~~**2026-09-25 — texora runs out.**~~ **Resolved, and it was never a manual job.**
+  `tasks.charge_portal_fees` runs daily, charges each account on its own 30-day
+  cycle and retries tomorrow if the balance is short. No action needed for texora
+  or anyone else. Listing it as a task was the mistake. See CH-026.
+- ~~**2026-09-25 — two scratch files in the repository root.**~~ **Resolved in
+  CH-026** — eight were removed, including three that rewrote source files in
+  place against hardcoded `/opt/call_platform` paths.
 - **Campaign pricing.** Revenue is $1.00 per converted call while the platform
   charges $0.45 per minute, so a seven-minute call earns $1.00 and costs $3.15.
   Raised and confirmed as intended, recorded here so it is not re-raised.
-- **Notification rules.** Detection works but no rule exists for any alert type, so
-  alerts reach nobody. Two junk rules (`webhook.failing`, `in_app`) should be
-  deleted.
-- **Role enforcement.** Five roles, none checked. Needs a decision on what each role
-  may do.
+- ~~**Notification rules.**~~ **Resolved in CH-026** — rules are seeded per
+  workspace on every alert sweep and at signup, and undeliverable rules are
+  switched off automatically. No hand-building in the UI.
+- ~~**Role enforcement.**~~ **Resolved in CH-024 and CH-025** — 87 capability
+  guards, 12 row-scoping points, verified against production data.
 - **2026-09-22 — delete `routing/twilio_handler.py` (agreed, scheduled).** 496
   lines of Twilio call handling that nothing uses: Asterisk handles inbound,
   `call_ended` handles hangups, and recordings come from Asterisk to
@@ -1741,3 +1748,71 @@ Full text still returned when `DEBUG` is on.
   routing, worth a shared secret if they are ever used in anger.
 - No per-endpoint limits on the expensive reads (CSV export of the full call
   log). The global limit covers abuse, not cost.
+
+---
+
+## CH-028 — Cost calculated in the backend for the first time
+
+**What was wrong**
+
+Nothing in the backend ever returned a cost. `CallLog.twilio_cost` exists on the
+model but no code writes it, so it is `0.0000` on every row, and no summary
+response carried a cost field at all.
+
+The frontend filled the gap by multiplying total talk time by the rate. That is
+wrong twice:
+
+1. **No per-call rounding.** Billing charges `ceil(duration ÷ 60)` — a 90-second
+   call bills as 2 minutes. Summing raw seconds first discards every part-minute.
+2. **No markup.** The account's `markup_percent` was ignored entirely.
+
+Measured on the 23 JUNE campaign:
+
+| | minutes | cost |
+|---|---|---|
+| frontend method (raw talk time) | 4,762.18 | $2,142.98 |
+| correct (each call to a whole minute) | 5,126 | $2,306.70 |
+
+Understated by $163.72, or 7.6%. The 364-minute gap is the part-minutes we bill
+and the dashboard did not count.
+
+**The fix**
+
+`AnalyticsService._billing_rate()` reads the client's own rate and markup once
+per request; `_cost_from_minutes()` converts billable minutes to money on the
+same rule as `BillingService.call_cost`. Billable minutes are computed in SQL
+with `Ceil(duration_seconds / 60.0)`, per row, so the rounding matches the
+invoice rather than being applied to a total.
+
+Returned from the dashboard totals, all four summary breakdowns and the CSV
+export, with `billable_minutes` beside it so any figure can be checked by hand.
+
+**Verified on production**
+
+    billable_minutes = 5162
+    total_cost       = 2322.90      (5162 x $0.45, markup 0%)
+
+**Definition decided, not escalated**
+
+Profit stays `Revenue − Payout`, with Cost as its own column beside it. This
+matches the reference platform. Cost is the per-minute charge; it is not
+subtracted from Profit.
+
+**Not changed: payout**
+
+Checked while here, and it is correct. `earned = Q(is_converted=True)` gates
+before anything else in `dynamic_revenue` / `dynamic_payout`, so an unconverted
+call contributes zero everywhere — dashboard, summaries and export all read the
+dynamic annotations.
+
+The stored `CallRecord.payout` column is *not* gated, so 772 unanswered calls
+carry a stored $0.45. **Nothing reads that column**, so it reaches no total and
+no invoice. Recorded here because it looks alarming in a raw query and should
+not be re-raised as a bug.
+
+**Still open**
+- `billable_seconds` on CallRecord is populated on 635 of 1447 rows and its sum
+  (273,972) differs from `duration_seconds` (287,669). Cost uses
+  `duration_seconds`, which is what `BillingService.call_cost` is called with, so
+  cost matches the invoice. Worth deciding whether `billable_seconds` should be
+  the billing basis, or dropped like `twilio_cost`.
