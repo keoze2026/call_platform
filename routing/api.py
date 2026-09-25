@@ -14,6 +14,9 @@ from .schemas import (
     MessageResponseSchema
 )
 from .services import RoutingService
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = Router(tags=["Routing"], auth=JWTAuth())
 
@@ -245,7 +248,9 @@ def hangup_call(request: HttpRequest, call_id: str):
                 )
                 charged = str(amount) if tx else None
         except Exception:
-            pass
+            # The call happened either way. Swallowing this gives away the call
+            # for free with no trace of why.
+            logger.exception('call charge failed: call=%s', call_log.id)
 
     return 200, {
         "id": str(call_log.id),

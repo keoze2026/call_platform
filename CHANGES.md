@@ -1568,3 +1568,99 @@ roles see only their own rows.
 The first pass tested against a buyer with no calls, where correct filtering and
 a blanket block look identical. Re-run against the two busiest buyers, which
 distinguishes them.
+
+---
+
+## CH-026 — Stop the system needing a person to finish its work
+
+Three separate things, one theme: the system detected a condition, or took
+money, or purchased a number, and then depended on somebody noticing.
+
+### Portal fees were never a manual job
+
+Listed "fund texora before the 18th" as a task. Wrong — `tasks.charge_portal_fees`
+already runs daily, charges each account on its own 30-day cycle, and retries
+tomorrow if the balance is short. No action needed, for texora or anyone.
+
+### 14 silently swallowed failures
+
+`except Exception: pass` in places where the failure mattered. Two were money:
+
+| where | what was lost |
+|---|---|
+| `billing/api.py` Stripe webhook | customer pays, exception, **no credit applied**, no record |
+| `routing/api.py` call charge | call completes, exception, **never billed** |
+
+Two were routing correctness: the destination concurrency cap stopped applying
+with no sign, and the live-destination lookup fell back to a stale number, so
+calls went to the previous destination and looked normal.
+
+The rest: approval emails (`fail_silently=False` and then swallowed, so the
+approval looked successful while the person never got their password link),
+routing-rule sync after a destination change, scheduled reports reported as sent
+but never queued, support tickets saved with nobody pinged.
+
+Phone numbers took a different fix per situation, because the cost of failing
+differs:
+
+- `purchase_number` — Twilio has already charged. Raising would lose the number,
+  so it is kept and the response carries a warning that the campaign is
+  unassigned.
+- `import_existing_number` — number is kept, mismatch logged.
+- `update_number` — nothing irreversible has happened, so it now **refuses**
+  with "Campaign not found" instead of reporting success on an assignment it
+  silently discarded. This is why a number could look assigned in the UI while
+  routing saw no campaign at all.
+
+Left alone: two in `call_queue` that are genuinely expected (most calls are
+answered without being queued) and now say so in a comment, and eight inside
+the legacy Twilio handler, which is on its way out.
+
+### Alerts were detected and then dropped
+
+`NotificationService.dispatch` only sends if a rule exists for the event, and
+rules could only be built by hand in the UI. No workspace had any, so every
+detected alert died silently.
+
+New `notifications/defaults.py`:
+
+- creates the six default rules for a workspace, addressed to its admins
+- runs on **every alert sweep**, so existing workspaces repair themselves with
+  nobody on the server, and at signup so a new workspace is covered from its
+  first call
+- fills in recipients only when the list is empty, so removing yourself from an
+  alert stays removed
+- switches off rules pointing at an undeliverable event or channel (the
+  `webhook.failing` / `in_app` junk) rather than deleting them
+- never modifies a rule that already exists
+
+`dispatch` now logs when an event fires with no rule, so this cannot go quiet
+again. The event set is `DEFAULT_NOTIFICATION_EVENTS` in settings, so it changes
+without a deploy.
+
+### Legacy Twilio routing made visible instead of guessed at
+
+Numbers are attached to a SIP trunk and reach Asterisk over SIP, so the Twilio
+voice webhooks are never called. The risk was never that they run — it is that
+they are a **second routing implementation** with their own duplicate detection
+and billing. If a number fell off the trunk, calls would route through untested
+code and bill differently from every other call.
+
+Rather than delete on an assumption, each entry point now logs
+`LEGACY TWILIO PATH USED` with the caller, callee and SID.
+`LEGACY_TWILIO_ROUTING` can switch it off once the logs are clean. Defaults on,
+so nothing changes today.
+
+### Scratch files removed
+
+`fix_all.py`, `fix_services.py`, `patch_signal.py`, `sync_script.py`,
+`test_dashboard.py`, `test_export.py`, `test_ids.py`,
+`scripts/fix_historical_duplicates.py`.
+
+The first three rewrote source files in place against hardcoded
+`/opt/call_platform` paths — running one by accident would have overwritten
+`analytics/services.py`. Kept `locustfile.py`, which is the load-test harness.
+
+**Still open**
+- Delete `routing/twilio_handler.py` once the legacy-path logs show nothing
+  reaching it. `click_to_call` is the only piece whose use is unconfirmed.

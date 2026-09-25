@@ -149,7 +149,9 @@ def route_incoming_call(request):
             if live_dest and live_dest.tfn:
                 dest_number = live_dest.tfn
         except Exception:
-            pass
+            # Falls back to the number already resolved. If this keeps firing,
+            # calls are going to a stale destination and nobody would know.
+            logger.exception('live destination lookup failed for buyer=%s', buyer.id)
         call_log.destination_number = dest_number
     else:
         call_log.destination_number = dest_number

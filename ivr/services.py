@@ -2,6 +2,9 @@ from django.conf import settings
 from .models import IVRFlow, IVRNode, IVRNodeTransition
 from .twiml_builder import TwiMLBuilder
 from accounts.models import User
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class IVRService:
@@ -151,7 +154,9 @@ class IVRService:
                 if transition and transition.to_node:
                     return TwiMLBuilder.build_flow(flow, transition.to_node, base_url)
             except IVRNode.DoesNotExist:
-                pass
+                # Falls through to the flow's default handling below. Logged
+                # because it means a live menu is pointing at a deleted node.
+                logger.warning('ivr node missing mid-flow: node=%s flow=%s', node_id, flow.id)
 
         entry_node = flow.nodes.filter(is_entry_point=True).first()
         if not entry_node:

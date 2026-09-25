@@ -175,7 +175,12 @@ def stripe_webhook(request: HttpRequest):
                         stripe_payment_intent_id=intent['id']
                     )
             except Exception:
-                pass
+                # The customer has paid Stripe. Losing this silently means they
+                # are charged and never credited, so it must be findable.
+                logger.exception(
+                    'stripe deposit failed to apply: org=%s intent=%s amount=%s',
+                    organization_id, intent.get('id'), amount,
+                )
 
     return 200, {"status": "ok"}
 

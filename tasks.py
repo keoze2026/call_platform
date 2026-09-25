@@ -254,11 +254,17 @@ def check_alert_conditions():
     firing so one condition does not repeat all afternoon.
     """
     from accounts.models import Organization
+    from notifications.defaults import ensure_default_rules
     from notifications.detectors import run_all
     from notifications.services import NotificationService
 
     dispatched = 0
     for org in Organization.objects.filter(is_active=True):
+        # Detecting an alert is useless without a rule to deliver it, and rules
+        # could only be made by hand. Done here so a workspace is covered
+        # without anyone remembering to set it up.
+        ensure_default_rules(org)
+
         for event, payload in run_all(org):
             try:
                 NotificationService.dispatch(event, org, payload)

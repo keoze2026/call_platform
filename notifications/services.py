@@ -165,6 +165,15 @@ class NotificationService:
             is_active=True
         )
 
+        if not rules:
+            # The condition was detected and then dropped. Silence here is what
+            # made the alerts look broken when they were only undelivered.
+            logger.warning(
+                'no active rule for %s in %s - alert detected but not sent',
+                event, organization.name,
+            )
+            return
+
         for rule in rules:
             for recipient in rule.recipients:
                 if rule.channel == 'email':

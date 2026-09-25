@@ -146,7 +146,19 @@ class PhoneNumberService:
                     phone_number.campaign = campaign
                     phone_number.save(update_fields=['campaign', 'updated_at'])
                 except Campaign.DoesNotExist:
-                    pass
+                    # Twilio has already charged for this number, so raising would
+                    # lose it. The number is kept and the caller is told the
+                    # campaign link did not happen, rather than being shown a
+                    # success that silently did half the job.
+                    logger.warning(
+                        'number purchased but campaign not found: number=%s campaign_id=%s org=%s',
+                        purchased.phone_number, data.campaign_id, user.organization_id,
+                    )
+                    phone_number.trunk_warning = ' '.join(filter(None, [
+                        phone_number.trunk_warning,
+                        'Number purchased, but the campaign was not found so it '
+                        'is unassigned. Assign it from the number list.',
+                    ]))
 
             return phone_number
         except Exception as e:
@@ -190,7 +202,11 @@ class PhoneNumberService:
                 phone_number.campaign = campaign
                 phone_number.save(update_fields=['campaign', 'updated_at'])
             except Campaign.DoesNotExist:
-                pass
+                # The number is imported either way; only the link failed.
+                logger.warning(
+                    'number imported but campaign not found: number=%s campaign_id=%s org=%s',
+                    phone_number.number, data.campaign_id, user.organization_id,
+                )
 
         return phone_number
 
@@ -279,12 +295,17 @@ class PhoneNumberService:
         if getattr(data, '_detach_campaign', False):
             phone_number.campaign = None
         elif getattr(data, 'campaign_id', None):
+            # Nothing irreversible has happened yet, so refuse rather than
+            # report success on an assignment that did not occur. This silently
+            # discarded the campaign before, which is why numbers could appear
+            # assigned in the UI while routing saw no campaign at all.
+            from campaigns.models import Campaign
             try:
-                from campaigns.models import Campaign
-                campaign = Campaign.objects.get(id=data.campaign_id, organization=user.organization)
-                phone_number.campaign = campaign
-            except Exception:
-                pass
+                phone_number.campaign = Campaign.objects.get(
+                    id=data.campaign_id, organization=user.organization
+                )
+            except Campaign.DoesNotExist:
+                raise ValueError("Campaign not found")
         phone_number.save()
         return phone_number
 

@@ -3,6 +3,9 @@ from typing import Optional, List
 from accounts.api import JWTAuth
 from django.utils import timezone
 from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = Router(tags=["Scheduled Reports"], auth=JWTAuth())
 
@@ -154,7 +157,9 @@ def run_report_now(request, report_id: str):
             from analytics.tasks import send_scheduled_report
             send_scheduled_report.delay(str(report_id))
         except Exception:
-            pass
+            # The endpoint still reports success below, so without this the user
+            # is told the report was sent when it was never queued.
+            logger.exception('scheduled report failed to queue: report=%s', report_id)
 
         return 200, {"ok": True, "queued_at": queued_at.isoformat()}
     except ScheduledReport.DoesNotExist:

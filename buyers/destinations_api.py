@@ -6,6 +6,9 @@ from accounts.api import JWTAuth
 from django.db.models import Sum, Count, Q
 from django.db.models.functions import Coalesce
 from decimal import Decimal
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = Router(tags=["Destinations"], auth=JWTAuth())
 
@@ -295,7 +298,9 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
             if d.buyer_id:
                 RuleDestination.objects.filter(buyer_id=d.buyer_id).update(destination=d.tfn)
         except Exception:
-            pass
+            # The destination was saved but the routing rules still point at the
+            # old number, so calls keep going to the previous one.
+            logger.exception('failed to sync routing rules to new destination: dest=%s', d.id)
         return 200, format_destination(d)
     except Destination.DoesNotExist:
         return 404, {"detail": "Destination not found"}

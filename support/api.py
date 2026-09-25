@@ -94,7 +94,8 @@ def send_message(request, session_id: str, payload: SendMessageSchema):
             )
             send_telegram_support(tg_message, session_id)
         except Exception:
-            pass
+            # The ticket is saved, but nobody was pinged about it.
+            logger.exception('support telegram notification failed: session=%s', session_id)
         return 200, {"message": "Message sent"}
     except SupportSession.DoesNotExist:
         return 404, {"detail": "Session not found"}

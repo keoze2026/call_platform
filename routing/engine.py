@@ -200,7 +200,10 @@ class RoutingEngine:
                     if dest_active >= buyer_dest.concurrency_cap:
                         return False
             except Exception:
-                pass
+                # Failing open is deliberate: a broken cap check must not stop
+                # calls. But it means the cap is not being applied, so it is
+                # logged rather than hidden.
+                logger.exception('destination concurrency cap check failed for buyer=%s', buyer.id)
 
         if buyer.max_concurrency == 0:
             return True

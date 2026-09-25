@@ -255,6 +255,25 @@ STALE_CALL_MINUTES = config('STALE_CALL_MINUTES', default=60, cast=int)
 # call can exist here a moment before Asterisk reports its channel.
 ASTERISK_SYNC_GRACE_SECONDS = config('ASTERISK_SYNC_GRACE_SECONDS', default=120, cast=int)
 
+# Calls arrive over the SIP trunk into Asterisk, not through the Twilio voice
+# webhooks. Those webhooks are a second routing implementation with their own
+# billing, so they are kept switchable. Default on - turn off once the logs
+# confirm nothing reaches them.
+LEGACY_TWILIO_ROUTING = config('LEGACY_TWILIO_ROUTING', default=True, cast=bool)
+
+# ── Notifications ─────────────────────────────────────────────────────────────
+# Which alerts a workspace gets without asking. Every workspace had no rules at
+# all, so detected alerts were dropped; these are created automatically and
+# repaired on each alert sweep. Comma-separated in the environment, so the set
+# can change without a deploy.
+DEFAULT_NOTIFICATION_EVENTS = [
+    e.strip() for e in config(
+        'DEFAULT_NOTIFICATION_EVENTS',
+        default='low.balance,campaign.cap_reached,buyer.cap_reached,'
+                'destination.cap_reached,buyer.missed,aht.low',
+    ).split(',') if e.strip()
+]
+
 CELERY_BROKER_URL = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_RESULT_BACKEND = config('REDIS_URL', default='redis://localhost:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']

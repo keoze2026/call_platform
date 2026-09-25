@@ -5,6 +5,9 @@ from django.utils import timezone
 from datetime import timedelta
 from accounts.api import JWTAuth, StaffAuth
 import secrets
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = Router(tags=["Access Requests"])
 
@@ -70,7 +73,9 @@ def create_access_request(request, payload: AccessRequestSchema):
             fail_silently=True,
         )
     except Exception:
-        pass
+        # Not fatal - the request is already saved. Logged because a silent
+        # failure here is indistinguishable from an email that was never sent.
+        logger.warning('access request ack email failed for %s', payload.email, exc_info=True)
 
     # Notify admin
     try:
@@ -83,7 +88,7 @@ def create_access_request(request, payload: AccessRequestSchema):
             fail_silently=True,
         )
     except Exception:
-        pass
+        logger.warning('access request notification to support failed', exc_info=True)
 
     # Notify admin
     try:
@@ -175,7 +180,9 @@ def approve_access_request(request, request_id: str, payload: ApproveSchema):
             fail_silently=False,
         )
     except Exception:
-        pass
+        # fail_silently=False above, then swallowed here - the approval looked
+        # successful while the person never got their password link.
+        logger.error('approval email failed for %s - they cannot set a password', req.email, exc_info=True)
 
     # Update request
     req.status = 'approved'

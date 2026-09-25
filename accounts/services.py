@@ -62,7 +62,19 @@ class AuthService:
             user_agent=user_agent,
             metadata={'organization_name': org_name}
         )
-        
+
+        # A new workspace should be able to hear about its own caps and balance
+        # from the first call, not from whenever someone remembers to build the
+        # rules by hand. Never block signup over it.
+        try:
+            from notifications.defaults import ensure_default_rules
+            ensure_default_rules(organization)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'could not seed notification rules for new org %s', organization.id
+            )
+
         return user
    
    

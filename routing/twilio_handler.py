@@ -1,3 +1,18 @@
+"""Legacy Twilio call handling, kept behind a switch.
+
+Calls do not arrive this way any more. Purchased numbers are attached to a SIP
+trunk and routed to Asterisk over SIP, which never touches these webhooks - the
+live path is routing/asterisk_handler.py.
+
+The danger of leaving it wired up is not that it runs, but that it is a second
+routing implementation with its own duplicate detection and its own billing. If
+a number ever fell off the trunk, calls would quietly route through code nobody
+has exercised in months and bill differently from every other call.
+
+So each entry point now says loudly when it is used. LEGACY_TWILIO_ROUTING in
+settings can switch it off once the logs show nothing reaches it; it defaults to
+on, so nothing changes today.
+"""
 from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
@@ -17,10 +32,27 @@ def validate_twilio_request(request: HttpRequest) -> bool:
     return validator.validate(url, post_data, signature)
 
 
+def _legacy_hit(name: str, request: HttpRequest):
+    """Record that a path we believe is dead was actually used."""
+    logger.warning(
+        'LEGACY TWILIO PATH USED: %s from=%s to=%s sid=%s - '
+        'this call did not go through Asterisk',
+        name,
+        request.POST.get('From', ''),
+        request.POST.get('To', ''),
+        request.POST.get('CallSid', ''),
+    )
+
+
 @csrf_exempt
 def incoming_call(request: HttpRequest) -> HttpResponse:
     if request.method != 'POST':
         return HttpResponse(status=405)
+
+    _legacy_hit('incoming_call', request)
+    if not getattr(settings, 'LEGACY_TWILIO_ROUTING', True):
+        logger.error('legacy Twilio routing is disabled; rejecting inbound call')
+        return HttpResponse(status=410)
 
     call_sid = request.POST.get('CallSid', '')
     caller_number = request.POST.get('From', '')

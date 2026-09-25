@@ -85,6 +85,7 @@ class CallQueueService:
             entry.ended_at = timezone.now()
             entry.save()
         except CallQueue.DoesNotExist:
+            # Expected: most calls are answered without ever being queued.
             pass
 
     @staticmethod
@@ -95,6 +96,7 @@ class CallQueueService:
             entry.ended_at = timezone.now()
             entry.save()
         except CallQueue.DoesNotExist:
+            # Expected: the call was never queued.
             pass
 
     @staticmethod
