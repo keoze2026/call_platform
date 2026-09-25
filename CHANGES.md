@@ -1506,3 +1506,65 @@ walks each `auth=None` decorator and its body.
   with a readable reason, so the UI can show the message rather than guess.
 - Existing buyer/publisher logins need their `buyer`/`publisher` link set once,
   in the admin. Until linked they see no calls — deliberately.
+
+---
+
+## CH-025 — Two holes CH-024 left, found by looking at the live data
+
+Enforcing roles exposed the fact that the roles on the accounts were wrong.
+They had been wrong for a long time; nothing noticed because nothing read them.
+
+**1. Every client login was sitting on `buyer`**
+
+Five accounts — each the owner of their own workspace — carried `role='buyer'`:
+
+| account | workspace |
+|---|---|
+| haansjuma@gmail.com | Avortyx |
+| keoze2026@gmail.com | hans juma |
+| texora613@gmail.com | texora (paying client) |
+| devstarfive0812@gmail.com | Keoze |
+| testuser@test.com | Test Co |
+
+The moment capabilities went live these accounts could see nothing and create
+nothing. Set to `admin`, which is what an account that owns a workspace is.
+
+Not a registration bug — `accounts/services.py` sets `admin` on signup and the
+model default is `agent`. These were changed by hand back when role was
+decorative. New signups are unaffected.
+
+The lesson: enforcement should have been preceded by a look at what the column
+actually contained. Building the gate and checking the keys afterwards is the
+wrong order.
+
+**2. A superuser could be scoped**
+
+`scope_queryset` read `role` alone, so a superuser carrying a stray role would
+have had their dashboard filtered to nothing. Superusers are never scoped now —
+support has to see the whole workspace.
+
+**3. `/workspace/roles` disagreed with the guards**
+
+The endpoint was written out by hand and had drifted: it offered a `viewer` role
+the model does not have, omitted `reseller`, and listed capability names
+(`call.view`, `billing.manage`) that were never the ones checked. The frontend
+builds its permission screens from this, so it was showing people access they
+did not have.
+
+It now derives from `ROLE_CAPABILITIES` — the same table the guards read, so the
+two cannot disagree again. Added `scoped_to_own_records` so the UI knows which
+roles see only their own rows.
+
+**Verified against production data**
+
+| check | result |
+|---|---|
+| admin sees the whole workspace | 1484 of 1484 |
+| buyer with no link | 0 |
+| buyer linked to ADC11 | 1397, exactly ADC11's calls |
+| buyer linked to Test Buyer | 29, exactly theirs |
+| buyer capabilities | `['view']` |
+
+The first pass tested against a buyer with no calls, where correct filtering and
+a blanket block look identical. Re-run against the two busiest buyers, which
+distinguishes them.
