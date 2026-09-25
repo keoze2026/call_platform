@@ -1973,9 +1973,34 @@ used at another scope. A scan of the rest of the codebase comes back clean.
 is the wrong question. Function-local imports satisfy it without putting the name
 in module scope.
 
+### Incident: two failed password rotations, both the same mistake
+
+The rotation was attempted twice and took the site down both times. The database
+password changed and the application kept sending the old one.
+
+**First attempt.** The guard checked that `changeme_in_production` appeared
+*somewhere* in `.env`. It did — in another variable — so the check passed while
+`DATABASE_URL` held a different password and was never rewritten.
+
+**Second attempt.** `DATABASE_URL` was rewritten wholesale, correctly, and it
+still failed: `docker compose restart` **does not re-read `env_file`**. The
+environment is baked in when a container is created. `.env` was right and the
+container never saw it. `up -d` is required, which is the same thing that made
+the port bindings need `down && up -d` earlier the same evening.
+
+Both are the same error: testing for presence in a file instead of in the place
+that decides the outcome — the same mistake as the support chat import above.
+
+Recovery each time was the backup plus `ALTER USER` back to the old password.
+
+`deploy/rotate_db_password.sh` now does it properly: reads the current password
+out of `DATABASE_URL` rather than assuming it, replaces it everywhere it appears,
+uses `up -d`, verifies with a real query, and rolls itself back if that query
+fails.
+
 **Still open**
-- Postgres and Redis passwords need rotating. Closing the ports removes the
-  exposure; it does not undo a password that has been in a public repository.
+- Run `deploy/rotate_db_password.sh`. The port is closed, so the exposure is
+  contained; the password being in a public repository is not undone by that.
 - Two dead duplicate ACCEPT rules sit after the SIP DROP and never match.
   Harmless, worth tidying.
 - The frontend polls hard: dashboard, campaigns and a 100KB destinations list
