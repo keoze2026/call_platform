@@ -2022,7 +2022,25 @@ verified with a real query. Backup kept on the server as
 Recorded at the end of 25 September. Nothing here blocks calls; routing, billing
 and reporting all work.
 
-### 1. The per-minute rate may be wrong by a factor of ten — decide first
+### 1. CONFIRMED: the rate is $0.045, not $0.45 — clients were overcharged 10x
+
+Settled late on the 25th. Told the rate of $0.45 gives $6,132.59 for 13,628
+minutes, the boss replied *"it wont cost $6K"* and corrected himself to
+*"only 600ish"*. $0.045/min gives $613.26. That is the rate.
+
+**Two actions, in order:**
+
+1. Set it: `manage.py set_rate --org "Avortyx" --rate 0.045`
+2. Refund the difference. Every call charged since 18 September was billed at ten
+   times the correct rate — 383 charges. Because the rate is a straight
+   multiplier, the correction is exactly one tenth; no per-call recalculation is
+   needed. Ledger total at $0.45 was $1,105.20, so roughly $995 is owed back
+   across accounts.
+
+Charging stays correct going forward once the rate is set; only the historical
+383 need crediting.
+
+### 1b. Background to the rate question (kept for reference)
 
 `per_minute_rate` is **$0.45**. Two of the boss's messages on the evening of the
 25th compute with **$0.045**, and an earlier screenshot of his showed `0.40`.
