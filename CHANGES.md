@@ -2131,8 +2131,24 @@ than a fix.
 
 ### 4. Before any DDoS testing
 
-- `deploy/nginx-rate-limits.conf` written but **not applied**: `nginx -t &&
-  systemctl reload nginx`.
+- ~~`deploy/nginx-rate-limits.conf` not applied.~~ **Applied 2026-09-26.** Zones
+  in `/etc/nginx/conf.d/ratelimit-zones.conf`, location blocks in the
+  `callplatform` site. 30r/s burst 60 for the API, 10r/m for login and password
+  reset, 20 concurrent connections per address.
+
+  The site had no `/api/` location at all — everything fell through `location /`.
+  The Asterisk callbacks use `^~` so no regex location can take precedence over
+  them.
+
+  Verified under 40 concurrent connections:
+
+      /api/campaigns/                 401s turning to 429s   - limiting works
+      /api/twilio/asterisk/route/     200 requests, all 403, zero 429
+
+  The second is the one that mattered: rate limiting the endpoint that routes
+  live calls would drop them. Sequential `curl` does not reach 30r/s, so the
+  first attempt showed no 429 and proved nothing — the parallel run is what
+  settles it.
 - Cloudflare not enabled on `avortyx.io` and `rec.v0l1.com`.
 - Contabo must be told in writing before any volumetric test, or they will
   blackhole the IP and take SIP down with it.
