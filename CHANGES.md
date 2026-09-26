@@ -2105,6 +2105,17 @@ purely per-minute. If the two must agree exactly, a per-call fee field is needed
   in the support widget are fabricated. There is no agent identity or presence in
   the backend, and a visitor is being told a named person is answering when the
   message goes to a Telegram group.
+- **Destinations panel shows 0 calls and $0 revenue** while the dashboard above
+  it shows 1,513 calls for the same range. `/api/destinations/` is called as
+  `?page=1&page_size=500` with no dates, and with no dates the endpoint returns
+  **today only**. The column headers are labelled with the selected range, so the
+  panel claims 28 Aug – 26 Sep while showing today. Confirmed: 0 calls to
+  `+18779641530` today, 1,445 across the range. `start_date` and `end_date`
+  (YYYY-MM-DD) are already supported and just need passing.
+
+  Not a formatting problem. The destination's `tfn` and the call's
+  `destination_number` both store `+18779641530` and match exactly — stripping
+  the `+` would break the match, not fix it.
 - Dashboard polls every ~15s including a 100KB destinations list that does not
   change. Limit is 600 req/min per user.
 - Intermittent 401s on `/api/analytics/dashboard`, consistent with a token
