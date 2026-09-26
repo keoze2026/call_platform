@@ -2028,17 +2028,25 @@ Settled late on the 25th. Told the rate of $0.45 gives $6,132.59 for 13,628
 minutes, the boss replied *"it wont cost $6K"* and corrected himself to
 *"only 600ish"*. $0.045/min gives $613.26. That is the rate.
 
-**Two actions, in order:**
+**Both done, 2026-09-26.**
 
-1. Set it: `manage.py set_rate --org "Avortyx" --rate 0.045`
-2. Refund the difference. Every call charged since 18 September was billed at ten
-   times the correct rate — 383 charges. Because the rate is a straight
-   multiplier, the correction is exactly one tenth; no per-call recalculation is
-   needed. Ledger total at $0.45 was $1,105.20, so roughly $995 is owed back
-   across accounts.
+    rate set          Avortyx: $0.045/min (a 90s call bills as 2 min = $0.09)
+    call charges      395 between 18 and 26 September
+    charged at $0.45  $1,157.85
+    correct at $0.045 $115.78
+    credited back     $1,042.07   ref rate-correction-2026-09-26
+    new balance       $9,934.22
 
-Charging stays correct going forward once the rate is set; only the historical
-383 need crediting.
+Because the rate is a straight multiplier the correction is exactly one tenth, so
+no per-call recalculation was needed.
+
+**Fees were nearly refunded by mistake.** The first query bucketed everything with
+`transaction_type='charge'`, which includes the $49.99 monthly portal fee and the
+$20 number fees — `charge_fee` writes the same type as `charge_call`. Those are
+fixed amounts and have nothing to do with the per-minute rate, so dividing them by
+ten would have credited money that was charged correctly. Call charges carry a
+`call_sid` and fees do not; filtering on that separates them. Worth remembering:
+`transaction_type` alone does not distinguish a call from a fee.
 
 ### 1b. Background to the rate question (kept for reference)
 
