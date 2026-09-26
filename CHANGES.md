@@ -2157,9 +2157,18 @@ than a fix.
 
 ### 5. Smaller items
 
-- Delete `routing/twilio_handler.py` once the `LEGACY TWILIO PATH USED` log stays
-  clean for a few days. Removes 8 swallowed exceptions with it.
+- **Delete `routing/twilio_handler.py` on or after 2026-10-02.** Checked on the
+  26th and the log is clean, but that proves less than it looks: the
+  instrumentation only went in on the 25th and the containers were recreated
+  that night, so the evidence window is about a day, not the week the
+  `--since 168h` suggests. The architecture says it is unreachable — numbers sit
+  on the SIP trunk and reach Asterisk directly, never touching these webhooks —
+  but one day of logs is not enough to remove a routing path while calls are
+  live, and the file costs nothing while it waits. Removes 8 swallowed
+  exceptions with it.
+
+      docker compose logs --since 168h web celery_worker | grep "LEGACY TWILIO PATH USED"
+
 - Two dead duplicate ACCEPT rules sit after the SIP DROP in ufw.
-- Delete `.env.backup-2026-09-25-212615` from the server once the rotation has
-  proven stable — it holds the old password.
+- ~~Delete `.env.backup-2026-09-25-212615`.~~ Done 2026-09-26.
 - IVR webhooks are guarded only by knowing a flow id.
