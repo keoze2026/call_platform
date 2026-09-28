@@ -17,6 +17,9 @@ from routing.models import CallLog
 from routing.recordings import public_recording_url
 from accounts.models import User
 from accounts.permissions import scope_queryset
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def _map_twilio_status(status_str):
@@ -45,6 +48,25 @@ def _account_currency(organization) -> str:
         return 'USD'
 
 
+def _tz(filters):
+    """The zone to bucket days and hours in, defaulting to the server's.
+
+    A bare date like "2026-09-28" has to mean midnight-to-midnight where the
+    user is. Everything ran in UTC before, so an Eastern Time user's "today"
+    began at 8pm the evening before and their hourly chart was shifted by four
+    or five hours.
+    """
+    name = _f(filters, 'timezone')
+    if not name:
+        return timezone.get_current_timezone()
+    try:
+        from zoneinfo import ZoneInfo
+        return ZoneInfo(name)
+    except Exception:
+        logger.warning('unknown timezone %r, falling back to server time', name)
+        return timezone.get_current_timezone()
+
+
 def _f(filters, name, default=None):
     """Read a filter field, tolerating filters being None."""
     return getattr(filters, name, default) if filters is not None else default
@@ -66,18 +88,19 @@ class AnalyticsService:
         # object. Production never hit it because the API declares filters as a
         # required Query, but any internal caller - a task, a management command,
         # a shell check - crashed on the first attribute.
+        tz = _tz(filters)
         val_from = _f(filters, 'date_from') or _f(filters, 'start_date') or _f(filters, 'created_at__gte')
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
             if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt)
+                dt = timezone.make_aware(dt, tz)
             qs = qs.filter(created_at__gte=dt)
 
         val_to = _f(filters, 'date_to') or _f(filters, 'end_date') or _f(filters, 'created_at__lte')
         if val_to:
             dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
             if timezone.is_naive(dt):
-                dt = timezone.make_aware(dt)
+                dt = timezone.make_aware(dt, tz)
             qs = qs.filter(created_at__lte=dt)
 
         if getattr(filters, 'campaign_id', None):
@@ -91,6 +114,10 @@ class AnalyticsService:
 
         if getattr(filters, 'status', None):
             qs = qs.filter(status=filters.status)
+
+        # The "All destinations" dropdown had nothing behind it until now.
+        if _f(filters, 'destination'):
+            qs = qs.filter(destination_number=filters.destination)
 
         for flag in ('is_qualified', 'is_converted', 'is_duplicate', 'is_spam'):
             value = getattr(filters, flag, None)
@@ -245,20 +272,29 @@ class AnalyticsService:
             'month': TruncMonth,
         }
         trunc_fn = trunc_map.get(getattr(filters, 'granularity', 'day') or 'day', TruncDay)
+        tz = _tz(filters)
 
         live_rows = dict(
-            live_qs.annotate(period=trunc_fn('created_at'))
+            live_qs.annotate(period=trunc_fn('created_at', tzinfo=tz))
             .values_list('period')
             .annotate(calls=Count('id'))
         )
 
         rows = (
             qs
-            .annotate(period=trunc_fn('created_at'))
+            .annotate(period=trunc_fn('created_at', tzinfo=tz))
             .values('period')
             .annotate(
                 calls=Count('id'),
                 converted=Count('id', filter=Q(is_converted=True)),
+                # The "Calls by" chart plots connected against no answer. Without
+                # these it had only a total and had to guess the split.
+                connected=Count('id', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
+                no_answer=Count('id', filter=~Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])),
                 revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -277,6 +313,8 @@ class AnalyticsService:
             result.append({
                 'period':       period.isoformat() if period else '',
                 'calls':        r['calls'] + live_c,
+                'connected':    r['connected'] + live_c,   # a live call is connected
+                'no_answer':    r['no_answer'],
                 'converted':    r['converted'],
                 'revenue':      r['revenue'],
                 'payout':       r['payout'],
@@ -290,6 +328,8 @@ class AnalyticsService:
                 result.append({
                     'period':       period.isoformat() if period else '',
                     'calls':        live_c,
+                    'connected':    live_c,
+                    'no_answer':    0,
                     'converted':    0,
                     'revenue':      Decimal('0'),
                     'payout':       Decimal('0'),

@@ -32,6 +32,9 @@ class CallRecord(models.Model):
     caller_number     = models.CharField(max_length=20, blank=True)
     caller_state      = models.CharField(max_length=10, blank=True)
     called_number     = models.CharField(max_length=20, blank=True)
+    # Where the call was sent. Absent from the mirror, so the dashboard's
+    # "All destinations" dropdown had nothing to filter on.
+    destination_number = models.CharField(max_length=20, blank=True, default='', db_index=True)
 
     # Campaign / buyer / publisher (denormalized — store IDs and names)
     campaign = models.ForeignKey(

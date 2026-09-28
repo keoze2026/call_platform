@@ -26,6 +26,17 @@ class AnalyticsFilterSchema(Schema):
     is_duplicate: Optional[bool] = None
     is_spam:      Optional[bool] = None
 
+    # Which destination (tracking number's target) to report on. The dashboard's
+    # "All destinations" dropdown had nothing behind it - the filter was never
+    # accepted, so picking one changed nothing.
+    destination: Optional[str] = None
+
+    # IANA name, e.g. "America/New_York". Days and hours are bucketed in this
+    # zone, and a bare date like "2026-09-28" means midnight-to-midnight there.
+    # Without it everything was UTC, so an Eastern Time user saw a day that
+    # started at 8pm the previous evening.
+    timezone:     Optional[str] = None
+
     granularity:  Optional[str] = 'day'   # hour | day | week | month
     limit:        int = 100
     offset:       int = 0

@@ -64,11 +64,15 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
         from buyers.destination import Destination
         start = _f(filters, 'date_from') or _f(filters, 'start_date')
         end = _f(filters, 'date_to') or _f(filters, 'end_date')
+        dests = Destination.objects.filter(
+            buyer__organization=request.auth.organization
+        ).select_related('buyer')
+        # Honour the "All destinations" dropdown when one is picked.
+        chosen = _f(filters, 'destination')
+        if chosen:
+            dests = dests.filter(tfn=chosen)
         data["destinations"] = [
-            format_destination(d, start_date=start, end_date=end)
-            for d in Destination.objects.filter(
-                buyer__organization=request.auth.organization
-            ).select_related('buyer')
+            format_destination(d, start_date=start, end_date=end) for d in dests
         ]
     except Exception:
         logger.exception('snapshot: destinations section failed')
