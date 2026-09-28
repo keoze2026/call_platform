@@ -2172,3 +2172,79 @@ than a fix.
 - Two dead duplicate ACCEPT rules sit after the SIP DROP in ufw.
 - ~~Delete `.env.backup-2026-09-25-212615`.~~ Done 2026-09-26.
 - IVR webhooks are guarded only by knowing a flow id.
+
+---
+
+## CH-031 — Crypto payment has never worked
+
+Asked to confirm crypto payment was working. It is not, and never has been. No
+customer has ever successfully paid by any method: the only money that has
+reached the platform is four manual credits.
+
+### CoinGate is not configured
+
+`COINGATE_API_KEY` is empty and `COINGATE_ENVIRONMENT` is `sandbox`. It cannot
+take a payment. Zero orders have ever been created.
+
+### Capitalist builds a checkout, but the confirmation can never land
+
+31 payments, $16,392.03, every one at `pending`. **No callback has ever been
+received** — nothing in the Nginx access log has ever hit
+`/api/billing/capitalist-webhook`.
+
+Not money owed, though. Every pending payment is from June — the 9th, 10th and
+26th — and the amounts read as someone testing the page: $0.03, $10, $12, then
+$1000 four times within minutes, $10000, $500, $250. Abandoned test checkouts.
+Nothing since June.
+
+Three faults, all of which had to be fixed before a payment could complete:
+
+**The webhook looked the payment up by the wrong field.**
+
+    Transaction.objects.get(id=order_id, provider='capitalist')
+
+`order_id` is the order number we send Capitalist (`260928-001`); `id` is a
+UUID. The lookup could never match. Worse, the order number was never stored at
+all — `capitalist_payment_id` held the row's own UUID — so there was nothing to
+match against even with the right field. Both fixed: the order number is now
+stored and the lookup uses it.
+
+**Every refusal returned `{"received": true}`.** A bad signature, an unknown
+order and a successful credit were indistinguishable. Each path now logs what it
+refused and why, because a payment taken and not credited has to be findable.
+
+**The field names disagree.** Outgoing signs `merchantid` / `number`; the
+verifier expects `merchant_id` / `order_number`; the webhook read `order_id`. The
+webhook now accepts `order_number`, `order_id` or `number`, and `payment_state`
+or `status`.
+
+### Two credential pairs, only one read
+
+`CAPITALIST_MERCHANT_ID` / `CAPITALIST_SECRET` are what the code reads.
+`CAPITALIST_API_KEY` / `CAPITALIST_API_SECRET` also exist and are populated in
+the environment, and **no code reads them**. If those are the working
+credentials, every checkout ever built was signed with the wrong secret and
+Capitalist would have rejected it — which would explain a callback never
+arriving. Marked in settings rather than deleted, so the values are not lost.
+
+### New: `manage.py confirm_crypto_payment`
+
+Crediting someone who has genuinely paid used to mean a shell session.
+
+    python manage.py confirm_crypto_payment --list
+    python manage.py confirm_crypto_payment --order 260928-001
+    python manage.py confirm_crypto_payment --order 260928-001 --fail
+
+It credits on your say-so and does not verify with the provider, so check their
+side first.
+
+**Still open — needed before crypto can actually take money**
+- Confirm which Capitalist credential pair is the live one.
+- Set the callback URL to `https://avortyx.io/api/billing/capitalist-webhook` in
+  the Capitalist merchant dashboard. Nothing in the checkout parameters tells
+  them where to post, so it has to be configured on their side.
+- Get Capitalist's callback field names from their documentation. The webhook now
+  accepts three spellings, but the signature check still expects a fixed set.
+- CoinGate: either supply a live API key and set `COINGATE_ENVIRONMENT=live`, or
+  remove the option from the UI. It currently offers a payment method that cannot
+  work.

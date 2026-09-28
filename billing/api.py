@@ -328,7 +328,13 @@ def capitalist_deposit(request, amount: float, currency: str = 'USD'):
         description=f'Balance Recharge',
     )
 
-    txn.capitalist_payment_id = str(txn.id)
+    # The order number is what Capitalist echoes back, so it has to be stored.
+    # It was not: capitalist_payment_id held the row's own UUID, and the webhook
+    # then looked the row up by primary key using the order number. That lookup
+    # could never match, so every callback was discarded and all 31 payments sat
+    # at pending.
+    txn.capitalist_payment_id = order_number
+    txn.reference_id = order_number
     txn.capitalist_payment_url = checkout_url
     txn.save()
 
@@ -350,21 +356,34 @@ def capitalist_webhook(request):
         try:
             data = json.loads(request.body.decode('utf-8'))
         except Exception:
+            logger.warning('capitalist callback: body could not be parsed')
             return 200, {"received": True}
 
-    # Verify signature before trusting anything
+    # Every branch below returns 200 so Capitalist stops retrying, but a refused
+    # callback used to be indistinguishable from a successful one. A payment that
+    # is taken and not credited has to be findable.
     if not CapitalistService.verify_callback(data):
+        logger.error('capitalist callback REJECTED: signature mismatch. keys=%s',
+                     sorted(data.keys()))
         return 200, {"received": True}
 
-    order_id = data.get('order_id', '')
-    status = data.get('status', '')
+    # Their field name for our order reference has been seen as both. Accept
+    # either rather than silently dropping the one we did not expect.
+    order_ref = data.get('order_number') or data.get('order_id') or data.get('number') or ''
+    status = data.get('payment_state') or data.get('status') or ''
 
-    if not order_id:
+    if not order_ref:
+        logger.error('capitalist callback REJECTED: no order reference. keys=%s',
+                     sorted(data.keys()))
         return 200, {"received": True}
 
     try:
-        txn = Transaction.objects.get(id=order_id, provider='capitalist')
-    except (Transaction.DoesNotExist, ValueError):
+        txn = Transaction.objects.get(capitalist_payment_id=order_ref, provider='capitalist')
+    except Transaction.DoesNotExist:
+        logger.error('capitalist callback REJECTED: no payment matches order %r', order_ref)
+        return 200, {"received": True}
+    except Transaction.MultipleObjectsReturned:
+        logger.error('capitalist callback REJECTED: order %r matches several payments', order_ref)
         return 200, {"received": True}
 
     if status in ('paid', 'success', 'completed') and txn.status != Transaction.Status.COMPLETED:
@@ -377,9 +396,17 @@ def capitalist_webhook(request):
                 txn_locked.balance_after = locked.balance
                 txn_locked.status = Transaction.Status.COMPLETED
                 txn_locked.save()
+                logger.info('capitalist payment credited: order=%s amount=%s org=%s',
+                            order_ref, txn_locked.amount, txn_locked.organization_id)
     elif status in ('failed', 'canceled', 'cancelled', 'rejected'):
         txn.status = Transaction.Status.FAILED
         txn.save()
+        logger.info('capitalist payment %s: order=%s', status, order_ref)
+    else:
+        # Neither credited nor failed. Left pending on purpose, but recorded, so
+        # an unrecognised status is not mistaken for nothing having happened.
+        logger.warning('capitalist callback: unrecognised status %r for order %s',
+                       status, order_ref)
 
     return 200, {"received": True}
 

@@ -572,6 +572,11 @@ SECURE_BROWSER_XSS_FILTER = True
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = 'DENY'
 SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
+# NOT USED BY ANY CODE. billing/capitalist.py reads CAPITALIST_MERCHANT_ID and
+# CAPITALIST_SECRET above. Both pairs are populated in the environment, so if the
+# working credentials are these ones, every checkout we have ever built was
+# signed with the wrong secret and Capitalist would reject it. Kept rather than
+# deleted so the values are not lost, but nothing reads them.
 CAPITALIST_API_KEY = config('CAPITALIST_API_KEY', default='')
 CAPITALIST_API_SECRET = config('CAPITALIST_API_SECRET', default='')
 
