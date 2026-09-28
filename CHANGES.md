@@ -2248,3 +2248,50 @@ side first.
 - CoinGate: either supply a live API key and set `COINGATE_ENVIRONMENT=live`, or
   remove the option from the UI. It currently offers a payment method that cannot
   work.
+
+---
+
+## CH-032 — The dashboard was showing four different moments at once
+
+Reported as a data mismatch: the header read **Total 192** while the chart read
+**190**, and one panel showed **$44** where another showed **$45**.
+
+Nothing was wrong with the data. Measured at a single instant everything
+reconciles:
+
+    terminal calls   199
+    live calls         5
+    total            204
+    connected         47   converted 47   revenue $47
+    no answer        147
+
+And the screenshot reconciles too, for the moment it was taken: 141 no answer +
+49 connected = 190 exactly.
+
+The cause is that the page assembles itself from **four separate requests** —
+dashboard, campaigns, destinations and the revenue series — each landing a second
+or two apart. With calls arriving continuously, each request sees a different
+number. The header polled two calls later than the chart; the destinations panel
+loaded one conversion later than the revenue panel. Between the screenshot and
+the check, terminal calls moved 190 → 199 and revenue $44 → $47 on their own.
+
+Every figure was right for the instant it was taken. They were simply not the
+same instant.
+
+### `GET /api/analytics/snapshot`
+
+Returns `dashboard`, `campaigns`, `time_series` and `destinations` from one
+evaluation, with `taken_at` so the page can show what moment it is displaying.
+The destinations section is wrapped so a failure there costs that panel rather
+than the whole dashboard.
+
+The individual endpoints stay for anything that needs one section alone.
+
+**For the frontend**: replace the four polls with one call to `/snapshot`. That
+removes the mismatch and cuts the dashboard's request volume by four, which also
+helps with the rate limit.
+
+**Worth stating plainly**: this will keep being reported as a bug for as long as
+the page makes four requests, because during live traffic it will keep happening.
+It is not fixable from the backend alone — the endpoint exists, the frontend has
+to use it.

@@ -3,6 +3,14 @@ from django.http import HttpRequest, HttpResponse
 from typing import List
 from accounts.api import JWTAuth
 from accounts.permissions import scope_queryset
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def _f(filters, name, default=None):
+    """Read a filter field, tolerating filters being None."""
+    return getattr(filters, name, default) if filters is not None else default
 from .schemas import (
     AnalyticsFilterSchema,
     DashboardSchema,
@@ -21,6 +29,51 @@ router = Router(tags=["Analytics"], auth=JWTAuth())
 def dashboard(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Real-time dashboard — total calls, live calls, revenue, conversion rate."""
     data = AnalyticsService.get_dashboard(request.auth, filters)
+    return 200, data
+
+
+@router.get("/snapshot", response={200: dict})
+def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
+    """Everything the dashboard shows, from one moment in time.
+
+    The dashboard was assembling itself from four separate requests - totals,
+    campaigns, destinations and the revenue series - each landing a second or two
+    apart. While calls are arriving that is four different moments, so the header
+    read 192 while the chart read 190 and one panel showed $44 against another's
+    $45. Every figure was correct for the instant it was taken; they simply were
+    not the same instant.
+
+    This returns all of them from a single evaluation, so the page is internally
+    consistent even mid-call. The individual endpoints stay for anything that
+    wants one section on its own.
+    """
+    from django.utils import timezone
+
+    taken_at = timezone.now()
+    data = {
+        "taken_at": taken_at.isoformat(),
+        "dashboard": AnalyticsService.get_dashboard(request.auth, filters),
+        "campaigns": AnalyticsService.get_campaign_performance(request.auth, filters),
+        "time_series": AnalyticsService.get_time_series(request.auth, filters),
+    }
+
+    # Destinations live in another app; a failure there should cost that panel,
+    # not the whole dashboard.
+    try:
+        from buyers.destinations_api import format_destination
+        from buyers.destination import Destination
+        start = _f(filters, 'date_from') or _f(filters, 'start_date')
+        end = _f(filters, 'date_to') or _f(filters, 'end_date')
+        data["destinations"] = [
+            format_destination(d, start_date=start, end_date=end)
+            for d in Destination.objects.filter(
+                buyer__organization=request.auth.organization
+            ).select_related('buyer')
+        ]
+    except Exception:
+        logger.exception('snapshot: destinations section failed')
+        data["destinations"] = []
+
     return 200, data
 
 
