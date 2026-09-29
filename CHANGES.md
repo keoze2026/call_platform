@@ -2548,3 +2548,44 @@ attached. Widening the window by fifteen minutes would have shown it immediately
 **The rule**: when a log query comes back empty, widen the window before drawing
 any conclusion from it. An empty result from the wrong window looks identical to
 an empty result from the right one.
+
+---
+
+## CH-038 — The Live Monitor's counters were counting the wrong thing
+
+Reported as "details missing": the monitor showed **4 calls in flight** with
+Started, Completed, Missed and Revenue all at **0**.
+
+Nothing was wrong with the calls. The backend only ever returned the list of live
+calls — there was no endpoint supplying those four figures — so the page was
+tallying events it had seen since it connected. A call that began before the page
+was opened was never "started" as far as that tally knew, which is why four calls
+could be in flight with nothing counted.
+
+### `GET /api/analytics/live/summary`
+
+    {
+      "as_of":      "2026-09-29T21:57:00Z",
+      "in_flight":  4,
+      "started":    278,
+      "completed":  52,
+      "missed":     226,
+      "revenue":    "52.00",
+      "longest_active": {
+        "caller_number": "16623642999",
+        "campaign_name": "23 JUNE",
+        "started_at":    "...",
+        "seconds":       483
+      }
+    }
+
+Today's totals rather than a running tally, so the panel reads the same whenever
+it is opened and agrees with the dashboard. `missed` is everything that reached
+nobody — unanswered, refused or failed — which is the complement of completed
+once live calls are excluded.
+
+`longest_active` replaces whatever the page was deriving for its featured call.
+
+**For the frontend**: poll `/api/analytics/live/summary` for the four counters and
+the featured call, and keep the websocket for the radar. The counters then survive
+a page refresh, which is the actual complaint.

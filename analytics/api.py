@@ -3,6 +3,7 @@ from django.http import HttpRequest, HttpResponse
 from typing import List
 from accounts.api import JWTAuth
 from accounts.permissions import scope_queryset
+from django.db.models.functions import Coalesce
 import logging
 
 logger = logging.getLogger(__name__)
@@ -174,6 +175,63 @@ def call_detail(request: HttpRequest, call_id: str):
         return 404, {"detail": "Call not found"}
 
     return 200, AnalyticsService.format_call_detail(call)
+
+
+@router.get("/live/summary", response={200: dict})
+def live_summary(request: HttpRequest):
+    """The Live Monitor's counters, as real figures rather than a running tally.
+
+    The monitor showed four calls in flight with Started, Completed, Missed and
+    Revenue all at zero. Nothing was wrong with the calls: the backend only ever
+    returned the list of live calls, so the page was counting events it had seen
+    since it connected. A call that began before the page opened was never
+    "started" as far as that counter knew.
+
+    These are today's totals, so the panel reads the same whenever it is opened
+    and agrees with the dashboard.
+    """
+    from decimal import Decimal
+
+    from django.db.models import Count, Q, Sum
+    from django.utils import timezone
+
+    from routing.models import CallLog
+
+    LIVE = ['in_progress', 'ringing', 'initiated', 'queued']
+    org = request.auth.organization
+    start_of_day = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
+
+    today = scope_queryset(
+        request.auth,
+        CallLog.objects.filter(organization=org, created_at__gte=start_of_day),
+    )
+
+    counts = today.aggregate(
+        started=Count('id'),
+        completed=Count('id', filter=Q(status='completed')),
+        # Everything that reached nobody: unanswered, refused, or failed.
+        missed=Count('id', filter=~Q(status__in=LIVE + ['completed'])),
+        revenue=Coalesce(Sum('revenue', filter=Q(status='completed')), Decimal('0')),
+    )
+
+    live = today.filter(status__in=LIVE).order_by('created_at')
+    longest = live.first()
+
+    return 200, {
+        'as_of': timezone.now().isoformat(),
+        'in_flight': live.count(),
+        'started': counts['started'] or 0,
+        'completed': counts['completed'] or 0,
+        'missed': counts['missed'] or 0,
+        'revenue': counts['revenue'] or Decimal('0'),
+        'longest_active': {
+            'id': str(longest.id),
+            'caller_number': longest.caller_number,
+            'campaign_name': longest.campaign.name if longest.campaign_id else '',
+            'started_at': longest.created_at.isoformat(),
+            'seconds': int((timezone.now() - longest.created_at).total_seconds()),
+        } if longest else None,
+    }
 
 
 @router.get("/live", response={200: list})
