@@ -98,6 +98,9 @@ CHANNEL_LAYERS = {
 }
 
 MIDDLEWARE = [
+    # Must come first: everything below, including rate limiting, reads
+    # REMOTE_ADDR, which is the proxy's address until this rewrites it.
+    'config.real_ip.RealClientIPMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'whitenoise.middleware.WhiteNoiseMiddleware', 
     'corsheaders.middleware.CorsMiddleware',
@@ -260,6 +263,13 @@ ASTERISK_SYNC_GRACE_SECONDS = config('ASTERISK_SYNC_GRACE_SECONDS', default=120,
 # billing, so they are kept switchable. Default on - turn off once the logs
 # confirm nothing reaches them.
 LEGACY_TWILIO_ROUTING = config('LEGACY_TWILIO_ROUTING', default=True, cast=bool)
+
+# Networks whose X-Real-IP header is trusted - the proxy in front of the app.
+TRUSTED_PROXY_NETWORKS = [
+    n.strip() for n in config(
+        'TRUSTED_PROXY_NETWORKS', default='172.16.0.0/12,127.0.0.1,::1'
+    ).split(',') if n.strip()
+]
 
 # ── API rate limits ───────────────────────────────────────────────────────────
 # Applied to every endpoint, not just login. Per IP before authentication and
