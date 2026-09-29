@@ -109,7 +109,9 @@ def route_incoming_call(request):
     from routing.trace import RouteTrace
     trace = RouteTrace()
 
-    decision = RoutingEngine.route_call(str(campaign.id), {
+    # The engine writes its DNC result back into this dict, so it has to be a
+    # named variable rather than a literal - the result is read after routing.
+    call_data = {
         'caller_number': caller,
         'caller_area_code': area_code,
         'caller_state': caller_state,
@@ -120,7 +122,22 @@ def route_incoming_call(request):
         # Passive recorder: the engine writes its reasoning here and the trace
         # never influences a decision.
         'trace': trace,
-    })
+    }
+
+    decision = RoutingEngine.route_call(str(campaign.id), call_data)
+
+    # Recorded after routing, because the check runs inside the engine and the
+    # call log is created before it. An earlier version set these fields on
+    # CallLog.objects.create, where call_data does not exist yet - every routing
+    # request raised NameError and returned 500, so no call could be routed at
+    # all. The dialplan then hung up, which looked from the outside like the
+    # carrier sending nothing.
+    dnc = call_data.get('dnc') or {}
+    if dnc.get('checked'):
+        CallLog.objects.filter(pk=call_log.pk).update(
+            is_dnc=bool(dnc.get('listed')),
+            dnc_reason=(dnc.get('reason') or '')[:80],
+        )
 
     if not decision or decision.get('error') or not decision.get('destination'):
         reason = decision.get('error', 'no_destination') if decision else 'no_decision'

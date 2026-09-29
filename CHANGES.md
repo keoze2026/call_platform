@@ -2500,3 +2500,51 @@ outside, and this tells them apart.
   look at how many calls come back listed, then decide about blocking.
 - The frontend can now show city, zip and timezone on the caller profile, and the
   TCPA Shield has real data to display.
+
+---
+
+## CH-037 — Routing returned 500 on every call for two hours
+
+Every call to `/api/twilio/asterisk/route/` returned **500**. Asterisk got no
+routing decision, the dialplan fell through to `nobuyer`, played the goodbye
+prompt and hung up. Twenty-plus calls, each answered and dropped after one
+second.
+
+    NameError: name 'call_data' is not defined
+    routing/asterisk_handler.py line 90
+
+Introduced by me a few hours earlier, recording DNC status on the call:
+
+    is_dnc=bool((call_data.get('dnc') or {}).get('listed')),
+
+inserted into `CallLog.objects.create(...)`. `call_data` does not exist at that
+point — the call log is created **before** routing runs, and the DNC result is
+produced *inside* the engine afterwards. The lines were in the wrong place
+entirely, not just referencing the wrong name.
+
+**Fixed** by naming the dict passed into `route_call` and reading the result back
+after routing returns, which is the only point where it exists.
+
+### Why it shipped
+
+`py_compile` passed, because a `NameError` is a runtime failure, not a syntax
+one. I checked that the code compiled and treated that as checking it worked.
+
+An AST pass over the function for names that are used but never assigned would
+have caught it in a second, and that is now what I run on any edit inside the
+call path.
+
+### Why it took two hours to find
+
+Worse than the bug. I checked the web log with `--since 30m` at a point *before*
+the failing calls happened, saw nothing, and concluded no traffic was arriving.
+Everything after that — the firewall scan, the SIP capture, the message telling
+the client the carrier had stopped sending — was built on an empty result from a
+window that ended before the traffic started.
+
+The calls were in the log the whole time, returning 500, with the traceback
+attached. Widening the window by fifteen minutes would have shown it immediately.
+
+**The rule**: when a log query comes back empty, widen the window before drawing
+any conclusion from it. An empty result from the wrong window looks identical to
+an empty result from the right one.
