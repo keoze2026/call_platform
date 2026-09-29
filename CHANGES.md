@@ -2295,3 +2295,42 @@ helps with the rate limit.
 the page makes four requests, because during live traffic it will keep happening.
 It is not fixable from the backend alone — the endpoint exists, the frontend has
 to use it.
+
+---
+
+## CH-033 — Every visitor shared one rate-limit bucket
+
+The dashboard started failing with `429 Too Many Requests` on every request, and
+the browser reported most of them as CORS errors.
+
+Both were the same fault. Nginx terminates TLS and proxies to the container, so
+Django's `REMOTE_ADDR` was the Docker gateway — **one address for the entire
+internet**. The rate limiting added in CH-027 keys on that address, so every
+visitor shared a single 60-per-minute anonymous bucket. A few browser tabs
+exhausted it and everybody was locked out.
+
+The CORS errors were the 429s in disguise: a request rejected before the
+response headers are written has no `Access-Control-Allow-Origin`, so the browser
+blames CORS. The origins were configured correctly the whole time —
+`https://www.avortyx.com` was already in the list.
+
+### `config/real_ip.py`
+
+Middleware, registered first so everything below it sees the corrected address.
+It replaces `REMOTE_ADDR` with the address the proxy reports, and **only when the
+connection itself arrives from a proxy we run** — otherwise anyone could set
+`X-Real-IP` and appear to be someone else, evading their own limit or exhausting
+another visitor's. Trusted networks are a setting.
+
+Behind Cloudflare this is still the genuine visitor: Nginx resolves
+`CF-Connecting-IP` before setting `X-Real-IP`, so the two layers compose.
+
+**Verified after deploy**
+
+    150 parallel to /api/accounts/me       401s turning to 429s   - limit works, per IP
+    100 parallel to /api/twilio/asterisk/  100 x 403, zero 429    - call routing exempt
+    429s in normal dashboard use            0
+
+**Worth remembering**: the Daphne access log prints the connection it received,
+which is always Nginx. It is not what the rate limiter reads, so it cannot be
+used to check this — the first attempt to verify used it and proved nothing.
