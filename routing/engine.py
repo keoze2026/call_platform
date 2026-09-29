@@ -467,6 +467,28 @@ class RoutingEngine:
             return {'destination': None, 'rule': None, 'error': 'Caller is blacklisted'}
         if trace: trace.step('blacklist', True)
 
+        # Do-not-call, straight after the blacklist: both are about whether this
+        # caller may be contacted at all, before anything is spent on routing.
+        #
+        # The check is recorded whether or not it blocks. Running it in report-only
+        # mode first shows the exposure without turning traffic away, which is the
+        # safer order to switch it on. An unavailable lookup never blocks - see
+        # DNCLookup.check.
+        from django.conf import settings as _settings
+        from spam_protection.realvalidito import DNCLookup
+
+        dnc = DNCLookup.check(caller_number)
+        if dnc.get('checked'):
+            call_data['dnc'] = dnc
+            if dnc['listed']:
+                if getattr(_settings, 'DNC_BLOCK_LISTED', False):
+                    if trace: trace.step('dnc', False, dnc['reason'])
+                    return {'destination': None, 'rule': None,
+                            'error': f"Caller is on {dnc['reason']}"}
+                if trace: trace.step('dnc', True, f"listed ({dnc['reason']}), not blocking")
+            else:
+                if trace: trace.step('dnc', True)
+
         if campaign.duplicate_call_block:
             if RoutingEngine.is_duplicate(caller_number, str(campaign.id), campaign.duplicate_call_block_hours):
                 if trace: trace.step('duplicate', False, f'called within {campaign.duplicate_call_block_hours}h')

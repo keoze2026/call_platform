@@ -87,6 +87,8 @@ def route_incoming_call(request):
             caller_country='US' if area_code else '',
             twilio_call_sid=call_sid,
             is_duplicate=is_duplicate,
+            is_dnc=bool((call_data.get('dnc') or {}).get('listed')),
+            dnc_reason=((call_data.get('dnc') or {}).get('reason') or '')[:80],
             status=CallLog.Status.RINGING,
         )
     except IntegrityError:

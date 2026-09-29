@@ -2428,3 +2428,75 @@ The handler accepts both, so this can be done at any time.
 **How it went unnoticed**: the endpoint returned 400 with no logging, so a
 quarter of calls failing looked identical to nothing happening. Found only by
 grepping for the path while investigating something else.
+
+---
+
+## CH-036 — Caller profile and do-not-call, via RealValidito
+
+Two features existed in the interface with nothing behind them.
+
+**The caller profile** showed city, zip and timezone. Telnyx supplies a carrier
+name and a line type and nothing else, so those fields were empty on every call,
+and `fraud_score` was hardcoded to `0` — meaning any rule depending on it never
+fired.
+
+**The TCPA Shield** had no data source at all.
+
+### What the lookups give us
+
+`POST /phonelookup/validate` returns `city`, `state`, `zip`, `timezone`,
+`number_type` (Mobile / Landline / Toll-Free / VoIP), `network_name` and
+`network_type`. Used in the existing enrichment task, which already runs off the
+call path. Telnyx stays as the fallback when RealValidito is unconfigured or out
+of credits.
+
+`POST /dnclookup/validate` returns four lists: `federal_dnc`, `state_dnc` (six
+states), `tcpa_litigator` and `cleaned_number`. The litigator list is the
+valuable one — those are the numbers that generate lawsuits.
+
+### Where the DNC check runs
+
+Immediately after the blacklist, before anything is spent on routing. Both
+answer the same question: may this caller be contacted at all.
+
+Two switches, deliberately separate:
+
+    DNC_CHECK_ENABLED   look the number up and record the result
+    DNC_BLOCK_LISTED    refuse the call when it is listed
+
+Running with the first on and the second off records the exposure without turning
+traffic away. That is the order to switch them on — find out how many calls it
+would refuse before refusing any.
+
+Every call stores `is_dnc` and `dnc_reason` whether or not it was blocked, so the
+exposure is visible either way.
+
+### Nothing here can stop a call
+
+Every failure — no credentials, no credits, a timeout, a malformed response —
+returns a result that lets the call through, and `checked` is False so a caller
+can tell "this number is clean" from "we could not find out". Losing a call is
+worse than missing a check, and the check can be repeated.
+
+### Credits
+
+Both endpoints accept up to 1,000 numbers, but a call cannot wait for a batch, so
+lookups happen one at a time and every result is cached. A caller who rings ten
+times costs one credit, not ten. Profiles are held 30 days; DNC results 7, since
+a number can join the register at any time and a stale "clean" is the expensive
+direction to be wrong.
+
+    python manage.py lookup_credits
+    python manage.py lookup_credits --number 4705551234
+
+That prints the remaining balance on both services and tests the credentials. A
+wrong key and an empty balance both look like "the check did nothing" from
+outside, and this tells them apart.
+
+**Still open**
+- Credentials into `.env` on the server: `REALVALIDITO_API_KEY`,
+  `REALVALIDITO_API_SECRET`.
+- Switch on with `DNC_CHECK_ENABLED=True` and `DNC_BLOCK_LISTED=False` first,
+  look at how many calls come back listed, then decide about blocking.
+- The frontend can now show city, zip and timezone on the caller profile, and the
+  TCPA Shield has real data to display.

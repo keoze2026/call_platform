@@ -386,18 +386,45 @@ def enrich_call_carrier(call_log_id, caller_number):
 
     from routing.carriers import normalise_carrier
 
-    result = TelnyxLookupService.check_phone(caller_number)
-    raw_carrier = (result.get('carrier_name', '') or '')[:100]
+    # RealValidito first: it returns the location fields Telnyx has never
+    # supplied, so the caller profile stopped being empty. Telnyx remains the
+    # fallback when the lookup is unconfigured or out of credits.
+    from spam_protection.realvalidito import PhoneLookup
 
-    CallLog.objects.filter(id=call_log_id).update(
-        ipqs_checked=True,
-        ipqs_fraud_score=result.get('fraud_score', 0) or 0,
-        ipqs_is_voip=result.get('VOIP', False) or False,
-        ipqs_line_type=(result.get('line_type', '') or '')[:50],
-        carrier_name=raw_carrier,
-        carrier=normalise_carrier(raw_carrier),
-    )
-    return f"Enriched {call_log_id}: {result.get('carrier_name', '') or 'unknown carrier'}"
+    fields = {'ipqs_checked': True}
+    rv = PhoneLookup.lookup(caller_number)
+
+    if rv:
+        raw_carrier = (rv.get('network_name', '') or '')[:100]
+        line_type = (rv.get('number_type', '') or '')[:50]
+        fields.update(
+            carrier_name=raw_carrier,
+            carrier=normalise_carrier(raw_carrier),
+            ipqs_line_type=line_type,
+            ipqs_is_voip=line_type.lower() == 'voip',
+            caller_city=(rv.get('city', '') or '')[:100],
+            caller_zip=(rv.get('zip', '') or '')[:20],
+            caller_timezone=(rv.get('timezone', '') or '')[:60],
+        )
+        if rv.get('state'):
+            fields['caller_state'] = rv['state'][:50]
+        if rv.get('country'):
+            fields['caller_country'] = rv['country'][:50]
+        source = 'realvalidito'
+    else:
+        result = TelnyxLookupService.check_phone(caller_number)
+        raw_carrier = (result.get('carrier_name', '') or '')[:100]
+        fields.update(
+            ipqs_fraud_score=result.get('fraud_score', 0) or 0,
+            ipqs_is_voip=result.get('VOIP', False) or False,
+            ipqs_line_type=(result.get('line_type', '') or '')[:50],
+            carrier_name=raw_carrier,
+            carrier=normalise_carrier(raw_carrier),
+        )
+        source = 'telnyx'
+
+    CallLog.objects.filter(id=call_log_id).update(**fields)
+    return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}"
 
 
 @app.task(name='tasks.mirror_call_record')

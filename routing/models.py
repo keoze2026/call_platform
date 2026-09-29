@@ -146,6 +146,15 @@ class CallLog(models.Model):
     caller_area_code = models.CharField(max_length=5, blank=True)
     caller_state = models.CharField(max_length=50, blank=True)
     caller_country = models.CharField(max_length=50, blank=True)
+    # Filled by the RealValidito lookup. Empty before it was added - the caller
+    # profile in the interface had nothing behind these.
+    caller_city = models.CharField(max_length=100, blank=True, default='')
+    caller_zip = models.CharField(max_length=20, blank=True, default='')
+    caller_timezone = models.CharField(max_length=60, blank=True, default='')
+    # Do-not-call status at the time of the call. Recorded whether or not the
+    # call was refused, so the exposure is visible either way.
+    is_dnc = models.BooleanField(default=False, db_index=True)
+    dnc_reason = models.CharField(max_length=80, blank=True, default='')
 
     # Duration and cost
     duration = models.IntegerField(default=0)

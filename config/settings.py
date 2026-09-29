@@ -278,6 +278,26 @@ TRUSTED_PROXY_NETWORKS = [
 API_THROTTLE_ANON = config('API_THROTTLE_ANON', default='60/m')
 API_THROTTLE_USER = config('API_THROTTLE_USER', default='600/m')
 
+# ── RealValidito lookups ──────────────────────────────────────────────────────
+# Caller profile (city, zip, timezone, carrier) and do-not-call scrubbing.
+# Telnyx supplied a carrier name and nothing else, so the caller profile was
+# empty and the TCPA Shield had no data behind it.
+REALVALIDITO_API_KEY = config('REALVALIDITO_API_KEY', default='')
+REALVALIDITO_API_SECRET = config('REALVALIDITO_API_SECRET', default='')
+REALVALIDITO_TIMEOUT = config('REALVALIDITO_TIMEOUT', default=6, cast=float)
+
+# Cached so a repeat caller costs one credit rather than one per call. A profile
+# barely changes; a DNC listing can appear at any time, so it is held for less.
+REALVALIDITO_PHONE_CACHE_DAYS = config('REALVALIDITO_PHONE_CACHE_DAYS', default=30, cast=int)
+REALVALIDITO_DNC_CACHE_DAYS = config('REALVALIDITO_DNC_CACHE_DAYS', default=7, cast=int)
+REALVALIDITO_DNC_TIMEOUT = config('REALVALIDITO_DNC_TIMEOUT', default=4, cast=float)
+
+# Whether to check the do-not-call register before routing, and whether to
+# refuse a listed caller. Checking without blocking records the exposure without
+# turning traffic away, which is the safer order to switch them on.
+DNC_CHECK_ENABLED = config('DNC_CHECK_ENABLED', default=False, cast=bool)
+DNC_BLOCK_LISTED = config('DNC_BLOCK_LISTED', default=False, cast=bool)
+
 # ── Notifications ─────────────────────────────────────────────────────────────
 # Which alerts a workspace gets without asking. Every workspace had no rules at
 # all, so detected alerts were dropped; these are created automatically and
