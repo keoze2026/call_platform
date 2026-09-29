@@ -222,6 +222,7 @@ class AnalyticsService:
                 ),
                 0.0,
             ),
+            charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
         )
 
         if filters and any([getattr(filters, 'date_from', None), getattr(filters, 'date_to', None), getattr(filters, 'created_at__gte', None), getattr(filters, 'created_at__lte', None), getattr(filters, 'start_date', None), getattr(filters, 'end_date', None)]):
@@ -246,9 +247,8 @@ class AnalyticsService:
             # What this client is actually billed for the talk time, on the same
             # rule the invoice uses: each call to a whole minute, times the
             # account's own rate and markup.
-            'total_cost':        AnalyticsService._cost_from_minutes(
-                agg['billable_minutes'],
-                *AnalyticsService._billing_rate(org)),
+            'total_cost':        AnalyticsService._cost(
+                agg, *AnalyticsService._billing_rate(org)),
             'billable_minutes':  int(agg['billable_minutes'] or 0),
             'avg_call_duration': round(agg['avg_duration'] or 0, 1),
             'balance':           _account_balance(org),
@@ -365,9 +365,35 @@ class AnalyticsService:
 
     @staticmethod
     def _cost_from_minutes(billable_minutes, rate, markup) -> Decimal:
-        """Billable minutes to money, matching BillingService.call_cost."""
+        """Estimate a cost from minutes, for calls that were never charged.
+
+        Only used as a fallback. The real figure is `platform_cost`, written when
+        the charge succeeds, because recalculating has two faults:
+
+        the rate changes - calls billed at $0.45/min were being redisplayed at
+        $0.045 once the rate was corrected, so every historical date showed a
+        number that was never charged;
+
+        and the invoice rounds every call to the cent, while this rounds the
+        minute total once. 563 minutes came to $25.34 against $25.50 actually
+        taken - the part-cents of 52 calls.
+        """
         minutes = Decimal(str(billable_minutes or 0))
         return (minutes * rate * markup).quantize(Decimal('0.01'))
+
+    @staticmethod
+    def _cost(row, rate, markup) -> Decimal:
+        """The cost to display: what was charged, or an estimate if nothing was.
+
+        Calls before charging went live on 18 September have no charge against
+        them, so they fall back to the estimate rather than showing zero.
+        """
+        charged = row.get('charged_cost') or Decimal('0')
+        if charged:
+            return Decimal(charged).quantize(Decimal('0.01'))
+        return AnalyticsService._cost_from_minutes(
+            row.get('billable_minutes'), rate, markup
+        )
 
     @staticmethod
     def get_campaign_performance(user: User, filters) -> list:
@@ -410,6 +436,9 @@ class AnalyticsService:
                     ),
                     0.0,
                 ),
+                # What was actually charged, summed from the calls rather than
+                # recalculated. See _cost_from_minutes for why.
+                charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
             )
         )
 
@@ -430,8 +459,7 @@ class AnalyticsService:
                 'conversion_rate': round((r['converted_calls'] / t_total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
                 'total_payout':    r['total_payout'],
-                'total_cost':      AnalyticsService._cost_from_minutes(
-                    r['billable_minutes'], rate, markup),
+                'total_cost':      AnalyticsService._cost(r, rate, markup),
                 'billable_minutes': int(r['billable_minutes'] or 0),
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
@@ -698,6 +726,9 @@ class AnalyticsService:
                     ),
                     0.0,
                 ),
+                # What was actually charged, summed from the calls rather than
+                # recalculated. See _cost_from_minutes for why.
+                charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
             )
             .order_by('-total_calls')
         )
@@ -716,8 +747,7 @@ class AnalyticsService:
                 'conversion_rate': round((r['converted_calls'] / total) * 100, 2),
                 'total_revenue':   r['total_revenue'],
                 'total_payout':    r['total_payout'],
-                'total_cost':      AnalyticsService._cost_from_minutes(
-                    r['billable_minutes'], rate, markup),
+                'total_cost':      AnalyticsService._cost(r, rate, markup),
                 'billable_minutes': int(r['billable_minutes'] or 0),
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
@@ -767,6 +797,9 @@ class AnalyticsService:
                     ),
                     0.0,
                 ),
+                # What was actually charged, summed from the calls rather than
+                # recalculated. See _cost_from_minutes for why.
+                charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
             )
         )
@@ -786,8 +819,7 @@ class AnalyticsService:
                 'won_calls':      r['converted'],
                 'avg_bid':        r['avg_bid'],
                 'total_payout':   r['total_payout'],
-                'total_cost':     AnalyticsService._cost_from_minutes(
-                    r['billable_minutes'], rate, markup),
+                'total_cost':     AnalyticsService._cost(r, rate, markup),
                 'billable_minutes': int(r['billable_minutes'] or 0),
                 'avg_duration':   round(r['avg_duration'] or 0, 1),
                 'conversion_rate': round((r['converted'] / t_total) * 100, 2),
@@ -865,6 +897,9 @@ class AnalyticsService:
                     ),
                     0.0,
                 ),
+                # What was actually charged, summed from the calls rather than
+                # recalculated. See _cost_from_minutes for why.
+                charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
             )
         )
@@ -1080,7 +1115,10 @@ class AnalyticsService:
                 'Yes' if r.is_duplicate else 'No',
                 r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit,
                 billed_minutes,
-                AnalyticsService._cost_from_minutes(billed_minutes, rate, markup),
+                # What this call was charged. Falls back to an estimate only for
+                # calls that predate charging.
+                (r.platform_cost if r.platform_cost
+                 else AnalyticsService._cost_from_minutes(billed_minutes, rate, markup)),
                 public_recording_url(r.recording_url),
             ])
 

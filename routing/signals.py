@@ -88,6 +88,7 @@ def mirror_call_log(call_log_id) -> bool:
             'caller_state': call.caller_state or '',
             'called_number': call.called_number,
             'destination_number': call.destination_number or '',
+            'platform_cost': call.platform_cost or 0,
             'campaign_id': call.campaign_id,
             'campaign_name': call.campaign.name if call.campaign_id else '',
             'buyer_id': call.buyer_id,

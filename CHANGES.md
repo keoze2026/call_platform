@@ -2334,3 +2334,59 @@ Behind Cloudflare this is still the genuine visitor: Nginx resolves
 **Worth remembering**: the Daphne access log prints the connection it received,
 which is always Nginx. It is not what the rate limiter reads, so it cannot be
 used to check this — the first attempt to verify used it and proved nothing.
+
+---
+
+## CH-034 — Cost is now what was charged, not a recalculation
+
+The boss reported the cost figure wrong for a fifth time. He was right, and two
+separate faults were behind it.
+
+### The invoice rounds every call; the column rounded once
+
+`BillingService.call_cost` quantizes each call to the cent, so a one-minute call
+at $0.045 is charged $0.05. The column multiplied the minute total once and
+rounded at the end, losing the part-cents.
+
+For 28 September:
+
+    563 billable minutes x $0.045   = $25.34   shown
+    52 charges in the ledger        = $25.50   actually taken
+                                      $0.16    apart
+
+### The column used today's rate on yesterday's calls
+
+Worse, and not previously spotted. Every call before 26 September was charged at
+$0.45/min. Once the rate was corrected to $0.045, the column recalculated those
+same calls at the new rate — so every historical date displayed a figure that was
+never charged to anyone.
+
+### The fix: store what was charged
+
+`platform_cost` on `CallLog` and `CallRecord`, written the moment the charge
+succeeds, mirrored to analytics, and backfilled from the transaction ledger by
+`call_sid`. Every display path — dashboard totals, all four summary breakdowns
+and the CSV export — reads it.
+
+Recalculation survives only as a fallback for calls that predate charging going
+live on 18 September, so those show an estimate rather than zero.
+
+The column cannot drift from the invoice again, because it is no longer deriving
+the number. It is reporting it.
+
+### How this was missed for a week
+
+On 25 September I checked that every chargeable call had a charge — 383 calls,
+383 charges, no gaps — and then wrote that the displayed cost matched the ledger.
+Those are different claims. Counting rows proves nothing about summing amounts,
+and the check to prove it was one more line of the same query.
+
+The same shape caused three other failures the same week: the support chat
+outage (the import existed in the file, not at module scope), both failed
+password rotations (`.env` contained the password, but not inside `DATABASE_URL`;
+and `restart` does not reload `env_file`), and a refund that nearly returned the
+monthly portal fee (grouped by `transaction_type` rather than checking each row
+was a call).
+
+Each time the check was adjacent to the claim. Recorded because the claim was
+repeated to the client five times on the strength of it.

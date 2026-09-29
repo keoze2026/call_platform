@@ -337,6 +337,10 @@ def call_ended(request):
                     amount=amount,
                     call_sid=call_log.twilio_call_sid,
                 )
+                if charge is not None:
+                    # Record what was taken, so reporting never has to guess.
+                    CallLog.objects.filter(pk=call_log.pk).update(platform_cost=amount)
+
                 if charge is None:
                     # Balance ran out between dispatch and hangup (concurrent
                     # calls draining the same account). The call already

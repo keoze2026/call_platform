@@ -35,6 +35,9 @@ class CallRecord(models.Model):
     # Where the call was sent. Absent from the mirror, so the dashboard's
     # "All destinations" dropdown had nothing to filter on.
     destination_number = models.CharField(max_length=20, blank=True, default='', db_index=True)
+    # The amount charged for this call, copied from the call log rather than
+    # recalculated, so reporting always equals the invoice.
+    platform_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
 
     # Campaign / buyer / publisher (denormalized — store IDs and names)
     campaign = models.ForeignKey(

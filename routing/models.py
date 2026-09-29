@@ -150,6 +150,12 @@ class CallLog(models.Model):
     # Duration and cost
     duration = models.IntegerField(default=0)
     twilio_cost = models.DecimalField(max_digits=10, decimal_places=4, default=0.0000)
+    # What this call actually cost the client, written when the charge succeeds.
+    # Recomputing it from duration and the current rate meant the figure moved
+    # whenever the rate changed - calls billed at $0.45 were being redisplayed at
+    # $0.045 - and rounding the minute total once lost the part-cents the invoice
+    # charges per call. Storing the charged amount removes both problems.
+    platform_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, db_index=True)
     buyer_payout = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     publisher_payout = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     revenue = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
