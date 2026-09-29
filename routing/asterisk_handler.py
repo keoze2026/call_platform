@@ -4,6 +4,7 @@ Server-to-server calls (no JWT auth). Secured by a shared secret header.
 """
 import hmac
 import json
+import re
 import logging
 import uuid
 from django.db import IntegrityError
@@ -261,13 +262,31 @@ def call_ended(request):
     if not _check_secret(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
 
+    raw = request.body.decode('utf-8', errors='replace')
     try:
-        data = json.loads(request.body.decode('utf-8'))
+        data = json.loads(raw)
     except Exception:
-        return JsonResponse({"error": "Bad JSON"}, status=400)
+        # The dialplan sends "duration":${CDR(billsec)} unquoted, and billsec is
+        # empty when a call is never answered - producing "duration":, which is
+        # not valid JSON. 79 of 278 calls in one day were rejected here, so more
+        # than a quarter of calls never recorded their ending at all.
+        #
+        # Repaired rather than refused: the call has happened either way, and
+        # losing its outcome is worse than accepting a slightly malformed body.
+        repaired = re.sub(r':\s*(?=[,}])', ': 0', raw)
+        try:
+            data = json.loads(repaired)
+            logger.info('call_ended: repaired an empty value from the dialplan')
+        except Exception:
+            logger.error('call_ended: could not parse body: %r', raw[:500])
+            return JsonResponse({"error": "Bad JSON"}, status=400)
 
     call_log_id = data.get('call_log_id', '')
-    duration = int(data.get('duration', 0))
+    # Empty, missing or non-numeric all mean the call was never answered.
+    try:
+        duration = int(data.get('duration') or 0)
+    except (TypeError, ValueError):
+        duration = 0
     answered = bool(data.get('answered', False))
     recording_url = (
     data.get('recording_url', '') or 

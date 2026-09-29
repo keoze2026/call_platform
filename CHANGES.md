@@ -2390,3 +2390,41 @@ was a call).
 
 Each time the check was adjacent to the claim. Recorded because the claim was
 repeated to the client five times on the strength of it.
+
+---
+
+## CH-035 — A quarter of calls never recorded their ending
+
+`POST /api/twilio/asterisk/call-ended/` was returning 400 on **79 of 278 calls in
+a single day** — 28% of traffic.
+
+The dialplan posts:
+
+    "duration":${CDR(billsec)}
+
+unquoted. When a call is never answered `billsec` is empty, so the body becomes
+`"duration":,` — not valid JSON. The handler refused it, and those calls never
+reported their outcome at all. They only appeared as no-answer because the stale
+-call sweep closed them later.
+
+**Two fixes.**
+
+The handler now repairs an empty value rather than refusing it, and logs when it
+does. A refusal is only returned if the body is unparseable even then, and it now
+records what it could not read instead of a bare 400. Duration that is empty,
+missing or non-numeric is treated as zero, which is what an unanswered call is.
+
+Repairing rather than refusing is deliberate: the call has already happened, and
+losing its outcome is worse than accepting a slightly malformed body from our own
+switch behind a shared secret.
+
+**The dialplan should also be corrected** so the body is valid in the first place.
+In `/etc/asterisk/extensions.conf`, quote the value:
+
+    "duration":"${CDR(billsec)}"
+
+The handler accepts both, so this can be done at any time.
+
+**How it went unnoticed**: the endpoint returned 400 with no logging, so a
+quarter of calls failing looked identical to nothing happening. Found only by
+grepping for the path while investigating something else.
