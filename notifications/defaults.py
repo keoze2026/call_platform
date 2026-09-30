@@ -55,7 +55,10 @@ NAMES = {
 def admin_emails(organization) -> list:
     """Who hears about this workspace by default."""
     return list(
-        organization.members
+        # `members` does not exist - the related_name on User.organization is
+        # `users`. This raised AttributeError on every run since 25 September,
+        # so no default rule was ever created and no alert has ever been sent.
+        organization.users
         .filter(role__in=['admin', 'reseller'], is_active=True)
         .exclude(email='')
         .values_list('email', flat=True)

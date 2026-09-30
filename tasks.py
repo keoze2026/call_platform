@@ -201,7 +201,9 @@ def process_auto_recharge(account_id: str):
         )
 
         if intent.status == 'succeeded':
-            user = account.organization.members.filter(role='admin').first()
+            # `members` does not exist; the related_name is `users`. This threw on
+            # every auto-recharge, so a topped-up account was never credited.
+            user = account.organization.users.filter(role='admin').first()
             if user:
                 BillingService.deposit(
                     account.auto_recharge_amount,

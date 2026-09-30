@@ -2835,3 +2835,41 @@ Read-only: GET requests only, writes nothing, safe during live traffic.
 It will list some fields that are simply zero today. The ones that matter are
 those that can never be anything else — which is the judgement the list makes
 possible rather than makes for you.
+
+---
+
+## CH-045 — `organization.members` does not exist, and never did
+
+Found by the endpoint audit, which reported every notification rule as inactive.
+There were only two rules, both disabled junk, and none of the six defaults.
+
+    AttributeError: 'Organization' object has no attribute 'members'
+
+The related name on `User.organization` is **`users`**, not `members`. Three
+places used the wrong one, and all three failed silently:
+
+**`notifications/defaults.py`** — `ensure_default_rules` threw on every run since
+25 September. No default rule was ever created, so **no alert has ever been
+sent**: not low balance, not a cap being reached, not a buyer missing calls. The
+detection worked and the delivery worked; there was nothing in between.
+
+**`tasks.py`** — `process_auto_recharge` threw after taking payment from Stripe,
+so an account could be charged and never credited.
+
+**`billing/api.py`** — the Stripe webhook, same failure. This is precisely the
+case the logging added in CH-026 was written for: *"customer pays, exception, no
+credit applied, no record"*. That logging would have caught it; this is why it
+was happening.
+
+All three now use `users`.
+
+### Why it stayed hidden
+
+Every one sat inside a `try` that logged or swallowed. The code ran, something
+was written to a log nobody read, and the feature simply never worked. Nothing
+reported an error to a person.
+
+The endpoint audit found it in one pass because it asks a different question:
+not "does this run" but "does this produce anything". A rule list that is always
+empty, a field always blank — that is the signature, and it is the same signature
+as the Cost column, the caller profile and the workspace activity target.

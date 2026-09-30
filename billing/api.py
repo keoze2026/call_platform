@@ -167,7 +167,10 @@ def stripe_webhook(request: HttpRequest):
                 from accounts.models import Organization
                 org = Organization.objects.get(id=organization_id)
                 account = BillingAccount.objects.get(organization=org)
-                user = org.members.filter(role='admin').first()
+                # `members` does not exist; the related_name is `users`. This threw
+                # inside the Stripe webhook, so a customer could pay and never be
+                # credited - the exact failure the logging added in CH-026 was for.
+                user = org.users.filter(role='admin').first()
                 if user:
                     BillingService.deposit(
                         amount=amount,
