@@ -467,27 +467,23 @@ class RoutingEngine:
             return {'destination': None, 'rule': None, 'error': 'Caller is blacklisted'}
         if trace: trace.step('blacklist', True)
 
-        # Do-not-call, straight after the blacklist: both are about whether this
-        # caller may be contacted at all, before anything is spent on routing.
+        # Do-not-call is NOT checked here, deliberately.
         #
-        # The check is recorded whether or not it blocks. Running it in report-only
-        # mode first shows the exposure without turning traffic away, which is the
-        # safer order to switch it on. An unavailable lookup never blocks - see
-        # DNCLookup.check.
-        from django.conf import settings as _settings
-        from spam_protection.realvalidito import DNCLookup
-
-        dnc = DNCLookup.check(caller_number)
-        if dnc.get('checked'):
-            call_data['dnc'] = dnc
-            if dnc['listed']:
-                if getattr(_settings, 'DNC_BLOCK_LISTED', False):
-                    if trace: trace.step('dnc', False, dnc['reason'])
-                    return {'destination': None, 'rule': None,
-                            'error': f"Caller is on {dnc['reason']}"}
-                if trace: trace.step('dnc', True, f"listed ({dnc['reason']}), not blocking")
-            else:
-                if trace: trace.step('dnc', True)
+        # It was, behind a setting, and it made a blocking HTTP call to an
+        # external service inside the routing decision. When that service was
+        # slow the request never completed, so the AGI got no answer, every call
+        # hung up, and nothing was even logged - a request that never finishes is
+        # never written to the access log. Eighteen hours of calls were lost.
+        #
+        # The same mistake had already been made and fixed once, in CH-009, where
+        # the carrier lookup was moved off the call path for exactly this reason.
+        # Leaving it behind a flag was not enough: a flag gets switched on.
+        #
+        # The check now runs after the call is routed, in the enrichment task,
+        # and records the result against the call. It cannot delay or block a
+        # call because it is no longer between the caller and the destination.
+        #
+        # Nothing that calls another company's server belongs in this function.
 
         if campaign.duplicate_call_block:
             if RoutingEngine.is_duplicate(caller_number, str(campaign.id), campaign.duplicate_call_block_hours):

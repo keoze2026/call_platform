@@ -2689,3 +2689,31 @@ cached and it fails open, but the first call from any new number waits up to fou
 seconds for an external service before being routed. This is the same shape as
 the Telnyx lookup that was deliberately moved off the call path in CH-009. It
 should be moved to a pre-warmed cache or an asynchronous check.
+
+---
+
+## CH-041 — Do-not-call removed from the call path entirely
+
+Calls stopped routing for a second time. The cause was the DNC check added in
+CH-036, which made a blocking HTTP call to an external service **inside**
+`route_call`. When that service was slow the request never completed, so the AGI
+got no answer, every call hung up, and nothing appeared in the access log — a
+request that never finishes is never written to it.
+
+That is the same fault CH-009 fixed, where the carrier lookup was moved off the
+call path for exactly this reason. Putting it behind a setting was not enough: a
+setting gets switched on, and I switched it on myself the same day I wrote a scan
+warning that it was dangerous.
+
+**The check now runs in the enrichment task**, after the call is already routed,
+alongside the caller profile lookup. It records `is_dnc` and `dnc_reason` on the
+call and cannot delay or block one, because it is no longer between the caller
+and the destination.
+
+`routing/engine.py` and `routing/asterisk_handler.py` contain no reference to any
+external service. Verified, and the rule is now recorded: nothing that calls
+another company's server belongs in those two files — not behind a flag.
+
+**What this costs**: a listed caller is no longer refused before the call
+connects; it is recorded afterwards. Blocking would need the register held
+locally, checked in memory. Worth doing, and not worth another outage.

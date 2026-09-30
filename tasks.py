@@ -423,6 +423,22 @@ def enrich_call_carrier(call_log_id, caller_number):
         )
         source = 'telnyx'
 
+    # Do-not-call, checked here rather than in the routing path. It calls an
+    # external service, and anything that does must run after the call is
+    # already on its way - a slow response can delay reporting, never a call.
+    try:
+        from spam_protection.realvalidito import DNCLookup
+
+        dnc = DNCLookup.check(caller_number)
+        if dnc.get('checked'):
+            fields['is_dnc'] = bool(dnc.get('listed'))
+            fields['dnc_reason'] = (dnc.get('reason') or '')[:80]
+    except Exception:
+        # Never let a compliance lookup break the record of a call that
+        # already happened.
+        logger = __import__('logging').getLogger(__name__)
+        logger.exception('dnc lookup failed for %s', caller_number)
+
     CallLog.objects.filter(id=call_log_id).update(**fields)
     return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}"
 
