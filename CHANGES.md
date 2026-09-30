@@ -3137,3 +3137,38 @@ All checks pass.
   - **`routing/asterisk_handler.py`** resolves the live destination with
     `order_by('-created_at').first()` — the newest destination for that buyer,
     not the one the engine picked. Inside the call path; untouched.
+
+### The 177 calls with no destination — closed
+
+Cross-tabbed rather than inferred. `Campaign cap reached` accounts for 133 of
+them, on exactly two days:
+
+    2026-09-28    79
+    2026-09-23    54
+
+79 + 54 = 133, and no cap-reached call sits on any other day. The campaign cap
+was hit twice in September and 133 calls were turned away. That is the system
+doing what it was configured to do — and it is a business number, not a
+technical one. Either the cap is below what the publisher is sending, or the
+traffic is above what the buyer agreed to take. Nobody decided to refuse that
+revenue; a setting did.
+
+The remaining 44 are historical. All 30 of the `completed` ones carry buyer
+ADC11, campaign `23 JUNE`, a duration and revenue — 8 September and earlier,
+none since. So the attribution and the money are correct and only the
+`destination_number` column is blank.
+
+**Not backfilling it, deliberately.** ADC11 has exactly one destination today, so
+filling those 30 rows with `+18779641530` would look obviously right. It would
+also be an assertion I cannot prove: I do not know that destination existed when
+those calls ran, and if it did not, I would be writing a destination the call
+never used into the permanent record.
+
+That is precisely what the frontend has been doing with Cost, `grossProfit` and
+the `$499 Growth` plan — inventing a plausible value because a column looked
+empty. The cost of leaving it blank is that 30 calls from early September are
+missing from one destination's all-time count. The cost of guessing is a call
+log that says something untrue and cannot be told apart from one that does not.
+Blank is the smaller cost.
+
+Nothing in the call path was touched to reach this conclusion; it is all reads.
