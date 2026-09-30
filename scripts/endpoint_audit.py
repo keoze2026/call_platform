@@ -83,16 +83,28 @@ def empty(v):
 
 
 def main():
+    from django.db.models import Count
+
+    # The workspace with the most calls - auditing a test organisation returns
+    # empty rows everywhere and proves nothing.
     user = (
         User.objects.filter(role='admin', organization__isnull=False)
-        .order_by('-last_login').first()
+        .annotate(n=Count('organization__call_logs'))
+        .order_by('-n', '-last_login')
+        .first()
     )
     if not user:
         print('No admin user to audit as.')
         return
 
-    client = Client()
-    client.force_login(user)
+    # The API authenticates with a Bearer token, not a session, and Django's test
+    # client sends 'testserver' as the host, which ALLOWED_HOSTS rejects with a
+    # 400 before any view runs. Both have to be set or every endpoint "fails".
+    from rest_framework_simplejwt.tokens import RefreshToken
+    token = str(RefreshToken.for_user(user).access_token)
+
+    client = Client(HTTP_HOST='avortyx.io')
+    auth = {'HTTP_AUTHORIZATION': f'Bearer {token}', 'HTTP_ACCEPT': 'application/json'}
     print(f"auditing as {user.email} ({user.organization})\n")
 
     broken, blank, slow, ok = [], [], [], 0
@@ -100,7 +112,7 @@ def main():
     for name, url in ENDPOINTS:
         start = time.monotonic()
         try:
-            resp = client.get(url, HTTP_ACCEPT='application/json')
+            resp = client.get(url, **auth)
             ms = int((time.monotonic() - start) * 1000)
         except Exception as e:
             broken.append((name, url, f'raised {type(e).__name__}: {e}'))
