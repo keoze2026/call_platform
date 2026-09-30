@@ -186,7 +186,7 @@ def stripe_webhook(request: HttpRequest):
 
 
 @router.post("/deposit/coingate", response={200: dict, 400: dict})
-def coingate_deposit(request, amount: float):
+def coingate_deposit(request, amount: float, currency: str = 'USD'):
     """Create a CoinGate crypto checkout for the user to deposit funds."""
     if amount <= 0:
         return 400, {"detail": "Amount must be greater than 0"}

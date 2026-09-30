@@ -2638,3 +2638,54 @@ delivered looked exactly like one that was.
 
 `Buyer` stores the address as `contact_email`; `Publisher` uses `email`. Both are
 used as a fallback when the form omits one.
+
+---
+
+## CH-040 — End-to-end scan
+
+Full pass over the codebase after a week in which two outages were caused by
+errors that compiled cleanly and failed at runtime.
+
+### Two real bugs found and fixed
+
+**`routing/api.py` — `RoutingEngine` used but never imported.** The manual hangup
+endpoint would have raised `NameError` and returned 500 the first time anyone
+used it. Exactly the fault that took routing down on 29 September.
+
+**`billing/api.py` — `coingate_deposit` referenced `currency`, which was not a
+parameter.** It has never fired because CoinGate has no API key, but it would
+have failed on the first real call. Now takes `currency` with a default, matching
+`capitalist_deposit`.
+
+Both were found by an AST pass for names used but never defined in scope — the
+check that `py_compile` cannot do, since a `NameError` is a runtime failure.
+
+### Clean
+
+- Every file compiles.
+- No secrets hardcoded; `DEBUG` defaults to `False`.
+- 25 public endpoints, each individually protected (signature, shared secret,
+  one-time token or public by design).
+- Four routers without router-level auth, all deliberate: access requests,
+  contact, support chat, Telegram webhook.
+- Guardrail order in the call path is correct: blacklist, DNC, duplicate,
+  campaign cap, balance.
+
+### Known and accepted
+
+**11 swallowed exceptions remain.** Eight are in `routing/twilio_handler.py`,
+which is dead code awaiting removal; two in `call_queue` are genuinely expected
+and documented; one in `config/real_ip.py` is a deliberate fall-through on a
+malformed address.
+
+**Dead columns that nothing writes**: `twilio_cost` and `billable_seconds`. Both
+are exposed in the admin and could be mistaken for real data. `twilio_cost` in
+particular reads as a cost figure and is always zero.
+
+### Worth acting on
+
+**The DNC check makes a blocking HTTP call inside the routing path.** Results are
+cached and it fails open, but the first call from any new number waits up to four
+seconds for an external service before being routed. This is the same shape as
+the Telnyx lookup that was deliberately moved off the call path in CH-009. It
+should be moved to a pre-warmed cache or an asynchronous check.

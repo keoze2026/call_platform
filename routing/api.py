@@ -188,6 +188,7 @@ def hangup_call(request: HttpRequest, call_id: str):
     require(request.auth, Capability.CREATE)
     from django.conf import settings
     from django.utils import timezone
+    from routing.engine import RoutingEngine as _RoutingEngine
 
     try:
         call_log = scope_queryset(
@@ -225,7 +226,7 @@ def hangup_call(request: HttpRequest, call_id: str):
 
     call_log.revenue = (getattr(campaign, 'revenue_amount', 0) or 0) if converted else 0
     call_log.publisher_payout = (
-        RoutingEngine.required_call_balance(campaign, None) if converted else 0
+        _RoutingEngine.required_call_balance(campaign, None) if converted else 0
     )
     call_log.save()
 
