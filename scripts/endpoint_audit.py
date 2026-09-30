@@ -19,11 +19,12 @@ import time
 from collections import defaultdict
 
 from django.test import Client
+from django.utils import timezone
 
 from accounts.models import User
 
 # Every GET endpoint worth checking, with the filters the interface sends.
-TODAY = __import__('django.utils.timezone', fromlist=['timezone']).timezone.now().date()
+TODAY = timezone.now().date()
 DATES = f"date_from={TODAY}&date_to={TODAY}"
 
 ENDPOINTS = [
