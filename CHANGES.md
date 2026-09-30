@@ -3035,3 +3035,105 @@ Needs `migrate` and a restart of web *and* the workers — the middleware and th
 `AppConfig.ready()` hook are both load-time. The migration is a `choices` change
 and emits no SQL on PostgreSQL; it exists so the migration state matches the
 model.
+
+---
+
+## CH-049 — Closing out the audit list: what was real and what was not
+
+**Date:** 2026-09-30
+**Files:** `scripts/verify_activity_log.py` (new), `scripts/diagnose_destinations_buyers.py` (new),
+`scripts/diagnose_phone_numbers.py` (new)
+
+The endpoint audit produced seven items. Four were real and are fixed. Three
+were the audit's own blind spot, and saying so is the point of this entry — the
+alternative is changing working code to make a report look better.
+
+### The audit's blind spot
+
+It flags a field that is empty on **every row**. That is the right signal for a
+dead or hardcoded field, and it is how the Cost column, the caller profile and
+the empty `target_name` were caught. But it cannot tell the difference between:
+
+  - a field nothing can ever fill, and
+  - a field nobody has filled in yet
+
+and with a small number of rows the second is far more likely than the first.
+
+### Destinations showing zero calls today — not a bug
+
+101 of 102 destinations have `enabled=False`. The audit asked for `page_size=5`,
+destinations are ordered newest first, so it got five disabled destinations that
+have never taken a call. Zero was the correct answer.
+
+The one enabled destination, `+18779641530`, reported **24 calls today** against
+the 24 the workspace actually had, with revenue on 23 of them. The match is an
+exact string compare on `destination_number`, and it works: routing writes the
+TFN in the same format the destination holds it.
+
+A real bug was found in the same function while checking this — see CH-047.
+
+### Buyers with no payout or phone number — not a bug in the API
+
+`phone_number` and `payout_amount` are both in the response. All 42 buyers have
+an empty `phone_number`, and 38 of 42 have a zero `payout_amount`. The payout
+lives on the campaign instead (C-11, C-02, C-03, C-05 at $1.00, 23 JUNE at
+$0.45), so a buyer column showing $0.00 is accurate and is the wrong field for
+the interface to show.
+
+`Buyer.phone_number` is used in one functional place: `routing/engine.py` returns
+`auction.winner.phone_number` as the destination for an RTB call. Every buyer's
+is empty, so an RTB call would route to an empty string. **All five campaigns are
+`routing_type='priority'`**, so that path never runs today. It is a landmine for
+whenever someone switches a campaign to RTB, not a live fault, and the fix is to
+fill the field — not to touch the routing engine.
+
+### Phone numbers with 17 empty fields — not a bug
+
+There is **one** phone number in the system. "Empty on every row" was computed
+across a single row. Of the 17, `cap_enabled`, `daily_cap`, `monthly_cap`,
+`concurrency_*`, `vendor_enabled`, `traffic_source_*` and `sms_enabled` are
+settings that are switched off, and read empty because that is what off looks
+like. `state` is empty because the number is toll-free, and a toll-free number
+has no state.
+
+It is attached to both a campaign and a publisher, which is what decides whether
+a number earns anything.
+
+Two mislabels, neither affecting behaviour: `vendor` says `Twilio` while
+`twilio_sid` is empty — the number arrives over the SIP carrier, not through
+Twilio's API, which is consistent with how calls actually reach the platform —
+and `number_type` says `local` on a toll-free number.
+
+`renews_at` is worth noting for later: it is written only from what the request
+sends, and **nothing in the codebase reads it**. The Renews column can only ever
+be blank. Not fixed, because with one number it costs more than it returns.
+
+### Verifying rather than asserting
+
+`scripts/verify_activity_log.py` exists because the log query straight after the
+CH-048 deploy showed only September entries — nothing had been edited since the
+restart, so it proved nothing in either direction. Twice before, something was
+reported working on the strength of it compiling.
+
+It makes a change as a real authenticated actor, reads the entry back, and checks
+the actor, record name, type and IP on it; confirms a change with nobody behind
+it writes nothing; and confirms no activity-log receiver is bound to `CallLog`,
+which is the one thing that would put that code on the call path. It runs inside
+a transaction that is rolled back, and the last two checks confirm nothing
+survives.
+
+All checks pass.
+
+### Still open, and not mine to close
+
+  - **79 calls in 7 days have no `destination_number`** — 14% of 545. They never
+    reached a buyer. Being looked at next.
+  - **duplicate TFNs across buyers.** `+18553752923` belongs to Q08, R48 and CRM;
+    seven more numbers are on two buyers each. Calls are attributed by
+    `destination_number`, so one call to a shared TFN counts for every buyer
+    holding it. Dormant while they are disabled, wrong the moment one is enabled.
+  - **junk in the buyer table:** `xczxczxcxz`, a second `RNY` with no
+    destinations, and `Q16` with no destinations.
+  - **`routing/asterisk_handler.py`** resolves the live destination with
+    `order_by('-created_at').first()` — the newest destination for that buyer,
+    not the one the engine picked. Inside the call path; untouched.
