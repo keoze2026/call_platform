@@ -112,6 +112,12 @@ class ActivityLog(models.Model):
         API_KEY_REVOKED = 'api_key_revoked', 'API Key Revoked'
         PROFILE_UPDATED = 'profile_updated', 'Profile Updated'
         ORGANIZATION_CREATED = 'organization_created', 'Organization Created'
+        # Until these existed the log could only describe account events, so the
+        # workspace activity feed was logins and nothing else. The record they
+        # refer to is named in `metadata`, which the reader already surfaces.
+        RECORD_CREATED = 'record_created', 'Created'
+        RECORD_UPDATED = 'record_updated', 'Updated'
+        RECORD_DELETED = 'record_deleted', 'Deleted'
     
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(

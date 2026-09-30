@@ -108,6 +108,10 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    # After authentication, so a session user is already resolved. Holds the
+    # request in a context variable so the activity log can record who made a
+    # change. Sets a variable and resets it; no database, nothing to fail.
+    'accounts.current_request.CurrentRequestMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

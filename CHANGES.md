@@ -2960,3 +2960,78 @@ destination with `Destination.objects.filter(buyer=..., enabled=True)
 the one the routing engine picked. A buyer with two enabled destinations has all
 its calls attributed to one of them. That is inside the call path and stays
 untouched.
+
+---
+
+## CH-048 — Activity log recorded logins and nothing else
+
+**Date:** 2026-09-30
+**Files:** `accounts/current_request.py` (new), `accounts/activity_signals.py` (new),
+`accounts/apps.py`, `accounts/models.py`, `accounts/migrations/0010_activitylog_record_actions.py`,
+`config/settings.py`
+
+### Problem
+
+`/api/accounts/workspace/activity` has never shown anything but logins.
+
+The reader was repaired earlier (commit `0c67ca5c`) so that an entry names the
+record it refers to. That was necessary and not sufficient: there was nothing to
+name. Every `ActivityLog.objects.create(...)` in the codebase is in
+`accounts/services.py`, and they cover only account events — login, logout,
+password change, MFA, API keys, profile. Creating a buyer, editing a campaign,
+deleting a destination, buying a number: none of it wrote a line.
+
+The action enum made it worse than an omission. It had no value that *could*
+describe a record change, so there was no way to write one without changing the
+model first.
+
+An audit page that shows logins is not an audit page. Nobody can answer who
+disabled a destination or changed a payout, which for a platform that moves
+money between buyers and publishers is the question it exists to answer.
+
+### Fix
+
+Written against the models, not the endpoints — 40-odd create, update and delete
+endpoints would each need a line, and the 41st would not get one.
+
+**`accounts/current_request.py`** — middleware holding the request in a
+`contextvars.ContextVar` so a model signal can tell who is acting. A context
+variable rather than a thread local because this runs under daphne: a sync view
+is handed a thread from a pool, and a thread local can be read by whichever
+request borrows that thread next.
+
+The API authenticates with a bearer token, so Django Ninja puts the user on
+`request.auth` while `request.user` stays anonymous; admin and the session views
+are the other way round. Both are checked.
+
+**`accounts/activity_signals.py`** — `post_save` and `post_delete` handlers for
+the eight models a person edits: Buyer, Destination, Publisher, Campaign,
+RoutingRule, PhoneNumber, NotificationRule, User.
+
+Each receiver is bound to its own `sender`. A receiver registered without one is
+called for **every** save the platform makes, which here means every CallLog
+write on the call path — thousands a day, each entering a handler to look up a
+dictionary and leave. Bound per model, a call never enters this code.
+
+Three new actions: `record_created`, `record_updated`, `record_deleted`. The
+record itself goes in `metadata` as `target_type`, `target_id`, `target_name`,
+which is exactly what the reader already surfaces.
+
+### Deliberately quiet in three places
+
+  - **no actor, no entry.** A Celery task, a management command or the rule
+    seeding has no person behind it. An entry with no actor is worse than none
+    on a page whose only question is who did this.
+  - **`last_login` saves are skipped.** Every login saves the user to stamp it,
+    and that already has its own `login` entry. Logging the save as well would
+    double every login in the feed.
+  - **a failed write never takes the save with it.** The handler swallows and
+    logs its own failures. An audit line is worth having; it is not worth losing
+    the change it was describing.
+
+### Deploy
+
+Needs `migrate` and a restart of web *and* the workers — the middleware and the
+`AppConfig.ready()` hook are both load-time. The migration is a `choices` change
+and emits no SQL on PostgreSQL; it exists so the migration state matches the
+model.
