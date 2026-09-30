@@ -2753,3 +2753,59 @@ outside: every service answering, no calls arriving. It only runs during busy
 hours, so a quiet night is not an alert.
 
     */2 * * * * /opt/call_platform/deploy/watchdog.sh >> /var/log/avortyx-watchdog.log 2>&1
+
+---
+
+## CH-043 — Four changes that shipped without a log entry
+
+Recorded late. These went out during the outage on 30 September and the entries
+were skipped while firefighting, which is exactly when the log matters most.
+
+### Routing put back to the last working version (`d78e710a`)
+
+`routing/engine.py` and `routing/asterisk_handler.py` returned to `7e799e95` —
+the state on 29 September when calls were flowing, before the do-not-call work.
+
+Four changes to the call path were made chasing one mistake: the DNC check went
+in, a `NameError` was fixed, the flag was switched off, then the code was
+hand-removed — and that last edit introduced a fresh 500. Reverting once at the
+start would have ended it in a minute rather than hours.
+
+The RealValidito caller lookup moved to the Celery enrichment task, which runs
+after a call is connected. Telnyx remains the fallback.
+
+### Workspace activity showed who, never what (`0c67ca5c`)
+
+`target_type`, `target_id` and `target_name` were hardcoded empty on every row,
+so the log named the person and the action but never the record. The writers put
+that in `metadata` and nothing read it.
+
+Now returns them, plus the readable action label and the metadata itself.
+
+**Still open**: the log only contains logins, and nothing since 25 September.
+Campaigns, buyers, publishers, destinations and settings changes are never
+written at all, so the page has little to show even with the reader fixed.
+
+### Caller profile filled (`afa86d5e`)
+
+`city`, `zip_code` and `timezone` were returned as hardcoded `None` in the call
+detail view, so the panel was blank on every call. Nothing wrote them either —
+Telnyx returns only a carrier name.
+
+Three changes, none of them routing logic: `routing/models.py` declares five
+columns migration 0012 had already created, the enrichment task writes city, zip
+and timezone from the lookup it already performs, and the reporting layer returns
+what is stored.
+
+### Watchdog number parsing (`37b8af1b`)
+
+The Django shell prints a banner before the value; stripping the whole output to
+digits glued its numbers onto the answer and reported a twenty hour gap as 75,234
+minutes.
+
+### Caller Identity double-counts — frontend
+
+Reports showed 48 calls and $46 where the real figure is 24 and $23. The API
+returns three rows — AT&T 10, Verizon 8, T-Mobile 6, summing to 24, matching the
+dashboard. The page adds an "Unknown" row containing all 24 and sums it with the
+others. Backend verified correct; the fix is on the frontend.
