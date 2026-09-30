@@ -146,6 +146,14 @@ class CallLog(models.Model):
     caller_area_code = models.CharField(max_length=5, blank=True)
     caller_state = models.CharField(max_length=50, blank=True)
     caller_country = models.CharField(max_length=50, blank=True)
+    # These columns already exist - migration 0012 created them. Declared here so
+    # Django can read and write them. Schema only: nothing in this block is
+    # consulted when a call is routed.
+    caller_city = models.CharField(max_length=100, blank=True, default='')
+    caller_zip = models.CharField(max_length=20, blank=True, default='')
+    caller_timezone = models.CharField(max_length=60, blank=True, default='')
+    is_dnc = models.BooleanField(default=False, db_index=True)
+    dnc_reason = models.CharField(max_length=80, blank=True, default='')
 
     # Duration and cost
     duration = models.IntegerField(default=0)

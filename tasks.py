@@ -416,6 +416,13 @@ def enrich_call_carrier(call_log_id, caller_number):
             ipqs_line_type=line_type,
             ipqs_is_voip=line_type.lower() == 'voip',
         )
+        # The caller profile panel showed blank city, zip and timezone because
+        # nothing ever wrote them. RealValidito returns all three.
+        fields.update(
+            caller_city=(rv.get('city', '') or '')[:100],
+            caller_zip=(rv.get('zip', '') or '')[:20],
+            caller_timezone=(rv.get('timezone', '') or '')[:60],
+        )
         if rv.get('state'):
             fields['caller_state'] = rv['state'][:50]
         if rv.get('country'):

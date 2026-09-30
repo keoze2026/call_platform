@@ -546,10 +546,11 @@ class AnalyticsService:
                 if call.ipqs_checked and call.ipqs_fraud_score else None
             ),
             'lookup_performed': call.ipqs_checked,
-            # Not available from the current lookup provider
-            'city': None,
-            'zip_code': None,
-            'timezone': None,
+            # Hardcoded None until now, so the caller profile was blank on every
+            # call whatever was stored. Filled by the enrichment task.
+            'city': getattr(call, 'caller_city', '') or None,
+            'zip_code': getattr(call, 'caller_zip', '') or None,
+            'timezone': getattr(call, 'caller_timezone', '') or None,
         }
 
         timeline = [{
