@@ -87,8 +87,6 @@ def route_incoming_call(request):
             caller_country='US' if area_code else '',
             twilio_call_sid=call_sid,
             is_duplicate=is_duplicate,
-            is_dnc=bool((call_data.get('dnc') or {}).get('listed')),
-            dnc_reason=((call_data.get('dnc') or {}).get('reason') or '')[:80],
             status=CallLog.Status.RINGING,
         )
     except IntegrityError:
@@ -109,9 +107,7 @@ def route_incoming_call(request):
     from routing.trace import RouteTrace
     trace = RouteTrace()
 
-    # The engine writes its DNC result back into this dict, so it has to be a
-    # named variable rather than a literal - the result is read after routing.
-    call_data = {
+    decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,
         'caller_area_code': area_code,
         'caller_state': caller_state,
@@ -122,11 +118,7 @@ def route_incoming_call(request):
         # Passive recorder: the engine writes its reasoning here and the trace
         # never influences a decision.
         'trace': trace,
-    }
-
-    decision = RoutingEngine.route_call(str(campaign.id), call_data)
-
-    # DNC is recorded by the enrichment task, after the call is routed.
+    })
 
     if not decision or decision.get('error') or not decision.get('destination'):
         reason = decision.get('error', 'no_destination') if decision else 'no_decision'

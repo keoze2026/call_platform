@@ -467,24 +467,6 @@ class RoutingEngine:
             return {'destination': None, 'rule': None, 'error': 'Caller is blacklisted'}
         if trace: trace.step('blacklist', True)
 
-        # Do-not-call is NOT checked here, deliberately.
-        #
-        # It was, behind a setting, and it made a blocking HTTP call to an
-        # external service inside the routing decision. When that service was
-        # slow the request never completed, so the AGI got no answer, every call
-        # hung up, and nothing was even logged - a request that never finishes is
-        # never written to the access log. Eighteen hours of calls were lost.
-        #
-        # The same mistake had already been made and fixed once, in CH-009, where
-        # the carrier lookup was moved off the call path for exactly this reason.
-        # Leaving it behind a flag was not enough: a flag gets switched on.
-        #
-        # The check now runs after the call is routed, in the enrichment task,
-        # and records the result against the call. It cannot delay or block a
-        # call because it is no longer between the caller and the destination.
-        #
-        # Nothing that calls another company's server belongs in this function.
-
         if campaign.duplicate_call_block:
             if RoutingEngine.is_duplicate(caller_number, str(campaign.id), campaign.duplicate_call_block_hours):
                 if trace: trace.step('duplicate', False, f'called within {campaign.duplicate_call_block_hours}h')

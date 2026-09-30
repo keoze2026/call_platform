@@ -387,12 +387,25 @@ def enrich_call_carrier(call_log_id, caller_number):
     from routing.carriers import normalise_carrier
 
     # RealValidito first: it returns the location fields Telnyx has never
-    # supplied, so the caller profile stopped being empty. Telnyx remains the
-    # fallback when the lookup is unconfigured or out of credits.
-    from spam_protection.realvalidito import PhoneLookup
-
+    # supplied, so the caller profile stops being empty. Telnyx remains the
+    # fallback when it is unconfigured, out of credits, or unreachable.
+    #
+    # This runs in the Celery worker, after the call has already been routed and
+    # connected. It is not in the call path and must never be moved into one - a
+    # lookup inside route_call took calls down twice on 29 and 30 September.
     fields = {'ipqs_checked': True}
-    rv = PhoneLookup.lookup(caller_number)
+    raw_carrier = ''
+    source = 'telnyx'
+
+    rv = {}
+    try:
+        from spam_protection.realvalidito import PhoneLookup
+        rv = PhoneLookup.lookup(caller_number) or {}
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            'realvalidito lookup failed for %s, falling back to telnyx', caller_number
+        )
 
     if rv:
         raw_carrier = (rv.get('network_name', '') or '')[:100]
@@ -402,9 +415,6 @@ def enrich_call_carrier(call_log_id, caller_number):
             carrier=normalise_carrier(raw_carrier),
             ipqs_line_type=line_type,
             ipqs_is_voip=line_type.lower() == 'voip',
-            caller_city=(rv.get('city', '') or '')[:100],
-            caller_zip=(rv.get('zip', '') or '')[:20],
-            caller_timezone=(rv.get('timezone', '') or '')[:60],
         )
         if rv.get('state'):
             fields['caller_state'] = rv['state'][:50]
@@ -421,23 +431,6 @@ def enrich_call_carrier(call_log_id, caller_number):
             carrier_name=raw_carrier,
             carrier=normalise_carrier(raw_carrier),
         )
-        source = 'telnyx'
-
-    # Do-not-call, checked here rather than in the routing path. It calls an
-    # external service, and anything that does must run after the call is
-    # already on its way - a slow response can delay reporting, never a call.
-    try:
-        from spam_protection.realvalidito import DNCLookup
-
-        dnc = DNCLookup.check(caller_number)
-        if dnc.get('checked'):
-            fields['is_dnc'] = bool(dnc.get('listed'))
-            fields['dnc_reason'] = (dnc.get('reason') or '')[:80]
-    except Exception:
-        # Never let a compliance lookup break the record of a call that
-        # already happened.
-        logger = __import__('logging').getLogger(__name__)
-        logger.exception('dnc lookup failed for %s', caller_number)
 
     CallLog.objects.filter(id=call_log_id).update(**fields)
     return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}"
