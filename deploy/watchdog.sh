@@ -120,16 +120,25 @@ fi
 
 hour=$(date -u +%-H)
 if [ "$hour" -ge "$BUSY_START_UTC" ] && [ "$hour" -lt "$BUSY_END_UTC" ]; then
+    # The shell prints a banner line first ("75 objects imported automatically"),
+    # so the value is marked and only the marked line is read. Stripping the whole
+    # output to digits glued the banner's numbers onto the answer and reported
+    # 75234 minutes for a 20 hour gap.
     mins=$(cd "$APP_DIR" && docker compose exec -T web python manage.py shell -c "
 from django.utils import timezone
 from routing.models import CallLog
 c = CallLog.objects.order_by('-created_at').first()
-print(int((timezone.now() - c.created_at).total_seconds() // 60) if c else 99999)
-" 2>/dev/null | tr -cd '0-9')
+print('WATCHDOG_MINS', int((timezone.now() - c.created_at).total_seconds() // 60) if c else 99999)
+" 2>/dev/null | grep '^WATCHDOG_MINS' | awk '{print $2}')
 
     if [ -n "$mins" ]; then
         if [ "$mins" -gt "$QUIET_MINUTES" ]; then
-            alert traffic "NO CALLS for ${mins} minutes during busy hours. Everything is answering, so either nothing is being sent or calls are failing before they reach us."
+            if [ "$mins" -gt 180 ]; then
+                human="$(( mins / 60 )) hours"
+            else
+                human="${mins} minutes"
+            fi
+            alert traffic "NO CALLS for ${human} during busy hours. Everything is answering, so either nothing is being sent or calls are failing before they reach us."
         else
             clear_alert traffic "calls are arriving again"
         fi
@@ -156,8 +165,8 @@ if [ "$(cat "$STATE/heartbeat" 2>/dev/null)" != "$today" ]; then
         calls=$(cd "$APP_DIR" && docker compose exec -T web python manage.py shell -c "
 from django.utils import timezone
 from routing.models import CallLog
-print(CallLog.objects.filter(created_at__date=timezone.now().date()).count())
-" 2>/dev/null | tr -cd '0-9')
+print('WATCHDOG_CALLS', CallLog.objects.filter(created_at__date=timezone.now().date()).count())
+" 2>/dev/null | grep '^WATCHDOG_CALLS' | awk '{print \$2}')
         send "✅ AVORTYX — all checks passing. Calls so far today: ${calls:-0}. Disk ${used}%."
     fi
 fi
