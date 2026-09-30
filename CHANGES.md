@@ -2900,3 +2900,63 @@ Only a call carries a `call_sid`. The invoice now separates them:
 Same distinction that nearly caused the portal fee to be refunded during the rate
 correction. `transaction_type` alone does not tell a call from a fee, and this is
 the second place that has mattered.
+
+---
+
+## CH-047 — Destination cap counters all showed today's number
+
+**Date:** 2026-09-30
+**Files:** `buyers/destinations_api.py`, `scripts/diagnose_destinations_buyers.py`
+
+### Problem
+
+`format_destination` built one query, `rec_q`, that already carried the day (or
+requested date range) filter, and then added the hour, month and all-time
+filters on top of it:
+
+    rec_q &= Q(created_at__gte=today_start)     # the day filter, inside rec_q
+    ...
+    hourly_count  = CallLog.objects.filter(rec_q, created_at__gte=hour_ago)
+    monthly_count = CallLog.objects.filter(rec_q, created_at__gte=month_start)
+    global_count  = CallLog.objects.filter(rec_q)
+
+`month_start` is earlier than `today_start`, so adding it narrows nothing —
+`monthly_count` was today's calls. `global_count` had no extra filter at all, so
+it was also today's calls. Four labels in the interface — hourly, daily, monthly
+and all-time usage against each cap — were the same number.
+
+The monthly and global caps are therefore unreadable in the UI: a destination
+with a 5,000/month cap showed 24 used on a day it had 24 calls, whatever it had
+actually done that month.
+
+### Fix
+
+`dest_q` (organization plus the destination's TFN, no dates) is now separate from
+`range_q` (the requested range, defaulting to today). Each counter composes the
+one filter it needs.
+
+### Not fixed here, and why
+
+This function is display only — it is called by `/api/destinations/` and by the
+analytics snapshot, never by the routing engine, which enforces caps with its own
+queries. Nothing in this change can affect call routing.
+
+Two things it does **not** explain, and a read-only diagnostic
+(`scripts/diagnose_destinations_buyers.py`) is there to settle them before
+anything else is changed:
+
+  - the audit saw `callsToday` zero on a day with 24 calls, which the counter
+    bug above does not cause. The match is `destination_number == d.tfn`, an
+    exact string compare, so a formatting difference between what routing writes
+    and what the destination holds would produce exactly this.
+  - every buyer came back with an empty `phone_number` and a zero
+    `payout_amount`. Both fields *are* in the API response, so this is the data,
+    not the serializer — either they were never filled in, or the payout really
+    lives on the campaign.
+
+Also noted, not changed: `routing/asterisk_handler.py` resolves the live
+destination with `Destination.objects.filter(buyer=..., enabled=True)
+.order_by('-created_at').first()` — the newest destination for that buyer, not
+the one the routing engine picked. A buyer with two enabled destinations has all
+its calls attributed to one of them. That is inside the call path and stays
+untouched.

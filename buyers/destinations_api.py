@@ -87,40 +87,49 @@ def format_destination(d, start_date=None, end_date=None):
 
     live_count = CallLog.objects.filter(organization=org).filter(live_q).count()
 
-    # 2. Calls and revenue today for this destination
+    # 2. Which calls belong to this destination, with no date filter on it.
+    # Kept separate from the date range below: the month and all-time counts
+    # were built by adding a month filter on top of a query that already had
+    # the day filter in it, so "calls this month" and "calls all time" could
+    # never be larger than "calls today". Every cap reading in the interface
+    # was really today's number under four different labels.
     from django.utils.dateparse import parse_datetime
-    rec_q = Q(organization=org)
-    
+
+    dest_q = Q(organization=org)
+    if d.tfn:
+        dest_q &= Q(destination_number=d.tfn)
+    else:
+        # No TFN means routing can never select it, so it has no calls.
+        dest_q &= Q(id__isnull=True)
+
+    # 3. The requested range, defaulting to today.
+    range_q = Q()
     if start_date:
         dt = parse_datetime(start_date + 'T00:00:00') or timezone.datetime.fromisoformat(start_date)
         if timezone.is_naive(dt): dt = timezone.make_aware(dt)
-        rec_q &= Q(created_at__gte=dt)
+        range_q &= Q(created_at__gte=dt)
     else:
-        rec_q &= Q(created_at__gte=today_start)
+        range_q &= Q(created_at__gte=today_start)
 
     if end_date:
         dt = parse_datetime(end_date + 'T23:59:59') or timezone.datetime.fromisoformat(end_date)
         if timezone.is_naive(dt): dt = timezone.make_aware(dt)
-        rec_q &= Q(created_at__lte=dt)
-    if d.tfn:
-        rec_q &= Q(destination_number=d.tfn)
-    else:
-        rec_q &= Q(id__isnull=True)
+        range_q &= Q(created_at__lte=dt)
 
-    today_stats = CallLog.objects.filter(rec_q).aggregate(
+    today_stats = CallLog.objects.filter(dest_q & range_q).aggregate(
         total_calls=Count('id'),
         revenue=Coalesce(Sum('revenue'), Decimal('0.00'))
     )
     daily_count = today_stats['total_calls'] or 0
     revenue_today = float(today_stats['revenue'] or 0)
 
-    # 3. Hourly, Monthly, Global counts
+    # 4. Hourly, monthly and all-time, each measured from the destination alone.
     hour_ago = now - timedelta(hours=1)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    hourly_count = CallLog.objects.filter(rec_q, created_at__gte=hour_ago).count()
-    monthly_count = CallLog.objects.filter(rec_q, created_at__gte=month_start).count()
-    global_count = CallLog.objects.filter(rec_q).count()
+
+    hourly_count = CallLog.objects.filter(dest_q, created_at__gte=hour_ago).count()
+    monthly_count = CallLog.objects.filter(dest_q, created_at__gte=month_start).count()
+    global_count = CallLog.objects.filter(dest_q).count()
 
     return {
         'id': str(d.id),
