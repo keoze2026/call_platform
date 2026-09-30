@@ -98,6 +98,7 @@ def generate_monthly_invoices():
     from accounts.models import Organization
     from billing.models import BillingAccount, Invoice, Transaction
     from django.db.models import Sum, Count
+    from django.db.models.functions import Coalesce
     from decimal import Decimal
     import uuid
 
@@ -121,10 +122,25 @@ def generate_monthly_invoices():
                 created_at__date__gte=last_month_start,
                 created_at__date__lte=last_month_end,
             ).aggregate(
-                total_revenue=Sum('amount', filter=Q(transaction_type='charge')),
+                # Calls and fees share transaction_type='charge'. Only a call
+                # carries a call_sid, so counting every charge as a call put the
+                # monthly portal fee and each number purchase in the call count.
+                total_calls=Count(
+                    'id',
+                    filter=Q(transaction_type='charge') & ~Q(call_sid=''),
+                ),
+                call_charges=Coalesce(
+                    Sum('amount', filter=Q(transaction_type='charge') & ~Q(call_sid='')),
+                    Decimal('0'),
+                ),
+                fee_charges=Coalesce(
+                    Sum('amount', filter=Q(transaction_type='charge') & Q(call_sid='')),
+                    Decimal('0'),
+                ),
                 total_payout=Sum('amount', filter=Q(transaction_type='payout')),
-                total_calls=Count('id', filter=Q(transaction_type='charge')),
             )
+            # What the client was billed for the month: usage plus fees.
+            stats['total_revenue'] = stats['call_charges'] + stats['fee_charges']
 
             total_revenue = stats['total_revenue'] or Decimal('0')
             total_payout = stats['total_payout'] or Decimal('0')

@@ -2873,3 +2873,30 @@ The endpoint audit found it in one pass because it asks a different question:
 not "does this run" but "does this produce anything". A rule list that is always
 empty, a field always blank — that is the signature, and it is the same signature
 as the Cost column, the caller profile and the workspace activity target.
+
+---
+
+## CH-046 — Invoices counted fees as calls
+
+The endpoint audit showed every invoice at zero. Three exist — June, July and
+August — and those are **correct**: charging only went live on 18 September, so
+there was nothing to bill.
+
+The real fault is in what the September invoice would have produced tomorrow.
+
+    total_calls = Count('id', filter=Q(transaction_type='charge'))
+
+Calls and fees share `transaction_type='charge'`. `charge_fee` writes the same
+type as `charge_call`, so the $49.99 monthly portal fee and every $20 number
+purchase were being counted as calls on the invoice.
+
+Only a call carries a `call_sid`. The invoice now separates them:
+
+    total_calls    charges with a call_sid
+    call_charges   what the usage cost
+    fee_charges    portal and number fees
+    total_revenue  both, which is what the client was billed
+
+Same distinction that nearly caused the portal fee to be refunded during the rate
+correction. `transaction_type` alone does not tell a call from a fee, and this is
+the second place that has mattered.
