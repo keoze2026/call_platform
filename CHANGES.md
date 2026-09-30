@@ -2717,3 +2717,39 @@ another company's server belongs in those two files — not behind a flag.
 **What this costs**: a listed caller is no longer refused before the call
 connects; it is recorded afterwards. Blocking would need the register held
 locally, checked in memory. Worth doing, and not worth another outage.
+
+---
+
+## CH-042 — A watchdog, so the client is not the alert
+
+Twice in two days the platform broke and the client noticed first: routing
+returned 500 for two hours, and nginx sat down for eight. Both were plainly
+visible on the server the whole time. Nobody was looking.
+
+`deploy/watchdog.sh` runs from cron every two minutes and checks:
+
+| | why |
+|---|---|
+| routing endpoint answers 403 | anything else means calls cannot be routed |
+| portal returns 200 | what the client sees |
+| nginx running | it stopped on 30 Sep and stayed stopped |
+| asterisk running | no calls arrive at all if it is down |
+| all containers running | |
+| calls arriving in busy hours | everything can answer while nothing comes in |
+| disk under 85% | 45GB of unrotated logs nearly filled it once |
+
+Alerts go to the support Telegram group.
+
+**Deliberately outside Django and outside the call path.** It only reads. If the
+watchdog itself breaks, nothing breaks with it — which is also why it sends a
+daily heartbeat: silence should mean "nothing is wrong", not "the watchdog died".
+
+**Alerts once per fault, and again when it clears.** A two-hour outage sending
+sixty identical messages trains everyone to ignore the next real one. The
+recovery message carries how long it was down.
+
+**The traffic check is the subtle one.** Both outages looked identical from
+outside: every service answering, no calls arriving. It only runs during busy
+hours, so a quiet night is not an alert.
+
+    */2 * * * * /opt/call_platform/deploy/watchdog.sh >> /var/log/avortyx-watchdog.log 2>&1
