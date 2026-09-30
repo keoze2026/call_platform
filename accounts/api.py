@@ -656,15 +656,28 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
     ).select_related('user').order_by('-created_at')
     data = []
     for log in logs:
+        meta = log.metadata if isinstance(log.metadata, dict) else {}
         data.append({
             'id': str(log.id),
             'actor_id': str(log.user.id),
             'actor_name': f"{log.user.first_name} {log.user.last_name}".strip() or log.user.email,
             'action': log.action,
-            'target_type': '',
-            'target_id': None,
-            'target_name': None,
+            'action_label': log.get_action_display(),
+            # These were hardcoded empty, so every row showed who and what but
+            # never which record - the detail the activity log exists for. The
+            # writers put it in metadata, which nothing was reading.
+            'target_type': meta.get('target_type') or meta.get('type') or '',
+            'target_id': meta.get('target_id') or meta.get('id'),
+            'target_name': (
+                meta.get('target_name')
+                or meta.get('name')
+                or meta.get('organization_name')
+                or meta.get('campaign_name')
+                or meta.get('email')
+            ),
+            'metadata': meta,
             'ip_address': str(log.ip_address) if log.ip_address else None,
+            'user_agent': (log.user_agent or '')[:200],
             'created_at': log.created_at.isoformat(),
         })
     return 200, paginate_list(data, page, page_size)
