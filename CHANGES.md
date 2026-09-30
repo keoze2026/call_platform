@@ -39,9 +39,46 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 
 ## Open items (not done yet)
 
+Kept current. Anything not on this list is either done and has a CH entry, or
+was investigated and closed as not a fault — also with a CH entry. Last
+reviewed **2026-10-01**.
+
+### Blocked on the boss — I cannot close these
+
+| ID | Area | Summary | Needed |
+|----|------|---------|--------|
+| OPEN-10 | Billing | Crypto payment not completing | The boss reported it 30 Sep. First thing on 1 Oct |
+| OPEN-11 | Spam / DNC | DNC scrubbing and the TCPA shield have no data behind them | 25,000 lookup credits, $50. Deferred to 1 Oct because payment is broken |
+| OPEN-12 | Billing | Capitalist payments never confirm automatically | Callback URL set to `https://avortyx.io/api/billing/capitalist-webhook` |
+| OPEN-13 | Billing | CoinGate is on the payment screen with no key | The API key, or a decision to remove it from the UI |
+
+### A decision, not a bug
+
+| ID | Area | Summary | Detail |
+|----|------|---------|--------|
+| OPEN-14 | Campaigns | The campaign cap turned away **133 calls** — 79 on 28 Sep, 54 on 23 Sep | Configured behaviour. Either the cap is below what the publisher sends or the traffic is above what the buyer agreed to take. Nobody chose to refuse it; a setting did. Needs the boss, and it is worth naming which campaign |
+
+### Mine, in the order I would take them
+
 | ID | Area | Summary | Priority |
 |----|------|---------|----------|
-| ~~[OPEN-4](#open-4)~~ | Repo | ~~`phone_numbers/services.py.bak_trunk` committed by mistake~~ | Resolved — file removed |
+| OPEN-15 | Buyers | Duplicate TFNs across buyers — `+18553752923` is on Q08, R48 and CRM, and seven more numbers are on two buyers each. Calls are attributed by `destination_number`, so one call to a shared TFN counts for every buyer holding it | High — dormant only because those destinations are disabled. Wrong the moment one is enabled |
+| OPEN-16 | Routing | `routing/asterisk_handler.py` resolves the live destination with `order_by('-created_at').first()` — the newest destination for that buyer, not the one the engine picked. A buyer with two enabled destinations has every call attributed to one | High, and **inside the call path**. Not to be touched without the boss agreeing to a window |
+| OPEN-17 | Buyers | `Buyer.phone_number` is empty on all 42 buyers, and `routing/engine.py` uses it as the destination for an RTB call. All five campaigns are `priority`, so it never runs today | Medium — a landmine for whoever first switches a campaign to RTB. Fixed by filling the field, not by changing the engine |
+| OPEN-18 | Buyers | Junk in the buyer table: `xczxczxcxz`, a second `RNY` with no destinations, `Q16` with no destinations | Low — cosmetic, but it is what the client sees |
+| OPEN-19 | Phone Numbers | `renews_at` is written only from what the request sends and **nothing reads it**, so the Renews column can only ever be blank | Low — one number in the system, so it costs more than it returns today |
+| ~~OPEN-4~~ | Repo | ~~`phone_numbers/services.py.bak_trunk` committed by mistake~~ | Resolved — file removed |
+
+### Frontend — his developer, not me
+
+| ID | Summary |
+|----|---------|
+| OPEN-20 | Caller Identity double-counts, 48 against a real 24, from an "Unknown" row |
+| OPEN-21 | `net` and `grossProfit` columns the backend does not send |
+| OPEN-22 | Raw translation keys showing, e.g. `toolsUI.reports.summary.columns.net` |
+| OPEN-23 | Still not fully moved to `/api/analytics/snapshot` |
+| OPEN-24 | Token-refresh race causing intermittent 401s |
+| OPEN-25 | Buyer payout column reads `Buyer.payout_amount`, which is genuinely zero. The payout lives on the campaign |
 
 ---
 
