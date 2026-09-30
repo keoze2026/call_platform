@@ -2809,3 +2809,29 @@ Reports showed 48 calls and $46 where the real figure is 24 and $23. The API
 returns three rows — AT&T 10, Verizon 8, T-Mobile 6, summing to 24, matching the
 dashboard. The page adds an "Unknown" row containing all 24 and sums it with the
 others. Backend verified correct; the fix is on the frontend.
+
+---
+
+## CH-044 — An audit that actually calls the endpoints
+
+The scan in CH-040 checked that the code compiles, that names resolve, that no
+secrets are committed and that every endpoint is authenticated. It reported
+"everything working". It could not have told you that `target_name` was hardcoded
+empty on every activity row, that the caller profile returned `None` on every
+call, or that Caller Identity double-counted its totals.
+
+Those three reached the client one at a time, over hours, each reported as a new
+fault. They were all the same fault: a field that can never be filled.
+
+`scripts/endpoint_audit.py` calls all 34 read endpoints as a real logged-in user
+and reports, per endpoint: whether it answered, how long it took, and **which
+fields are empty on every single row**. A field empty across every row is either
+dead or hardcoded — that is the signature of every one of those bugs.
+
+    docker compose exec web python manage.py shell < scripts/endpoint_audit.py
+
+Read-only: GET requests only, writes nothing, safe during live traffic.
+
+It will list some fields that are simply zero today. The ones that matter are
+those that can never be anything else — which is the judgement the list makes
+possible rather than makes for you.
