@@ -167,26 +167,50 @@ def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
 
 @router.post("/{buyer_id}/invite", response={200: dict, 400: dict, 404: dict})
 def invite_buyer(request: HttpRequest, buyer_id: str):
-    require(request.auth, Capability.CREATE)
-    import secrets
-    from django.core.mail import send_mail
+    """Send the buyer a link to set up their own login.
+
+    The previous version emailed `buyer.created_by.email` - the admin who created
+    the record, not the buyer - and generated a token it never stored, so the
+    link it sent could never be validated. It also ignored the email address the
+    form collects.
+    """
+    import json
+
+    from accounts.partner_invites import InviteError, invite_partner
     from buyers.models import Buyer as BuyerModel
+
+    require(request.auth, Capability.CREATE)
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
     try:
         buyer = BuyerModel.objects.get(id=buyer_id, organization=request.auth.organization)
-        if not buyer.created_by or not buyer.created_by.email:
-            return 400, {"detail": "No email found for this buyer"}
-        token = secrets.token_urlsafe(32)
-        invite_link = f"{settings.FRONTEND_URL}/buyer-setup?token={token}&buyer_id={buyer_id}"
-        send_mail(
-            subject="You have been invited to Avortyx as a Buyer",
-            message=f"Hi,\n\nYou have been invited to join Avortyx as a buyer.\n\nClick the link below:\n\n{invite_link}\n\nAvortyx Team",
-            from_email=settings.PLATFORM_FROM_EMAIL,
-            recipient_list=[buyer.created_by.email],
-            fail_silently=True,
-        )
-        return 200, {"message": "Invite sent", "invite_link": invite_link, "success": True}
     except BuyerModel.DoesNotExist:
         return 404, {"detail": "Buyer not found"}
+
+    # The form's address first; the record's own as a fallback. Buyer stores it
+    # as contact_email, not email.
+    email = (
+        body.get('email')
+        or getattr(buyer, 'contact_email', '')
+        or getattr(buyer, 'email', '')
+        or ''
+    )
+
+    try:
+        return 200, invite_partner(
+            organization=request.auth.organization,
+            partner=buyer,
+            kind='buyer',
+            email=email,
+            contact_name=body.get('contact_name') or body.get('name') or '',
+            invited_by=request.auth,
+        )
+    except InviteError as e:
+        return 400, {"detail": str(e)}
 
 
 @router.get("/{buyer_id}/reporting-config", response={200: dict, 404: dict})

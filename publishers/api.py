@@ -135,6 +135,47 @@ def remove_campaign(request: HttpRequest, publisher_id: str, campaign_id: str):
         return 404, {"detail": str(e)}
 
 
+@router.post("/{publisher_id}/invite", response={200: dict, 400: dict, 404: dict})
+def invite_publisher(request: HttpRequest, publisher_id: str):
+    """Send the publisher a link to set up their own login.
+
+    There was no such endpoint. The interface offered "Invite a publisher" with
+    nothing behind it, so the dialog sat on "Inviting..." and never finished.
+    """
+    import json
+
+    from accounts.partner_invites import InviteError, invite_partner
+    from publishers.models import Publisher as PublisherModel
+
+    require(request.auth, Capability.CREATE)
+
+    try:
+        body = json.loads(request.body or b'{}')
+    except Exception:
+        body = {}
+
+    try:
+        publisher = PublisherModel.objects.get(
+            id=publisher_id, organization=request.auth.organization
+        )
+    except PublisherModel.DoesNotExist:
+        return 404, {"detail": "Publisher not found"}
+
+    email = body.get('email') or getattr(publisher, 'email', '') or ''
+
+    try:
+        return 200, invite_partner(
+            organization=request.auth.organization,
+            partner=publisher,
+            kind='publisher',
+            email=email,
+            contact_name=body.get('contact_name') or body.get('name') or '',
+            invited_by=request.auth,
+        )
+    except InviteError as e:
+        return 400, {"detail": str(e)}
+
+
 @router.get("/{publisher_id}/stats", response={200: PublisherStatsSchema, 404: dict})
 def get_stats(request: HttpRequest, publisher_id: str):
     try:

@@ -2589,3 +2589,52 @@ once live calls are excluded.
 **For the frontend**: poll `/api/analytics/live/summary` for the four counters and
 the featured call, and keep the websocket for the radar. The counters then survive
 a page refresh, which is the actual complaint.
+
+---
+
+## CH-039 — Buyer and publisher invitations never worked
+
+Reported by the client: "Trouble in sending publisher and buyer access invite."
+The dialog sat on *Inviting…* and never finished.
+
+**There was no publisher invite endpoint.** The interface offered "Invite a
+publisher" with nothing behind it.
+
+**The buyer one existed and was broken three ways:**
+
+- it emailed `buyer.created_by.email` — the admin who created the record, not
+  the buyer, so the invitation went to whoever was clicking the button
+- it generated a token, put it in the link, and **never stored it**, so the link
+  it sent could never be validated by anything
+- it ignored the email address the form collects
+
+### Built on the flow that already works
+
+Staff accounts already use `SetupToken` plus `/api/accounts/set-password/`, which
+validates a token, sets the password and returns a login. The partner invites now
+use the same thing rather than inventing a parallel mechanism.
+
+`accounts/partner_invites.py` creates or reuses the partner's account, links it to
+the buyer or publisher record through `User.buyer` / `User.publisher`, invalidates
+any earlier unused link, issues a token valid for 48 hours, and emails the address
+given on the form.
+
+The link matters as much as the email: without it the login has the role but no
+way to know *which* buyer it is, and the row-level scoping shows it nothing. With
+it, the partner signs in and sees only their own calls — which is what the roles
+work was for.
+
+### Two details worth keeping
+
+**An admin being invited keeps their role.** Narrowing an existing admin to the
+partner view would lock them out of their own workspace, so the role is only set
+on a new account or one that is already a partner.
+
+**A failed email does not lose the invitation.** `send_mail` runs with
+`fail_silently=False`, and the response carries `email_sent` plus the
+`setup_link`, so the link can be shared directly if mail is down. The previous
+version used `fail_silently=True`, which is how an invitation that was never
+delivered looked exactly like one that was.
+
+`Buyer` stores the address as `contact_email`; `Publisher` uses `email`. Both are
+used as a fallback when the form omits one.
