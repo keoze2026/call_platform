@@ -3920,3 +3920,81 @@ There is a second writer of `CallRecord`, `AnalyticsService.record_call`, which
 does not set `started_at` — it has **no callers** anywhere in the codebase and
 is dead. If it is ever wired up, the null check above fails on the first row it
 writes.
+
+---
+
+## CH-057 — Why 70% of calls were failing: the caller hears silence
+
+**Date:** 2026-10-01
+**Files:** `/etc/asterisk/extensions.conf` on the server (one Dial flag)
+
+### What was happening
+
+Of 276 calls today from publisher `ddddd`, 60 connected and 163 were recorded
+as unanswered. The dashboard called them "no answer", which is why it looked
+like the buyer ignoring traffic.
+
+### What the SIP actually showed
+
+Captured with `pjsip set logger on` during a live test:
+
+    INVITE  ->  xolo
+    100 Trying
+    183 Session Progress     from Sonus/onevoice - it IS ringing at ADC11
+    PRACK / 200 OK
+    BYE     <-  received on the INBOUND leg
+    CANCEL  ->  sent to ADC11
+    487 Request Terminated
+
+Every CANCEL is immediately preceded by a **BYE received from the caller**. The
+carrier delivered the call, ADC11 was ringing, and the caller hung up. The CDR
+puts the inbound leg at **1 second**.
+
+Nothing was rejecting anything.
+
+### Why the caller hangs up
+
+The dialplan answers before it knows where to send the call:
+
+    Answer()              <- the caller is connected here
+    AGI(route_call.py)    <- then Django is asked who to route to
+    Dial(...,g)           <- then ADC11 is rung
+
+With the call already answered, the caller hears **silence** while ADC11 rings.
+No ringback. A person or a dialer drops dead air in about a second, which is
+exactly the measured span.
+
+### The change
+
+One flag on the Dial: `g` becomes `gr`. `r` makes Asterisk generate ringback to
+the caller while the far end rings, so they hear a phone ringing instead of
+nothing.
+
+    Dial(PJSIP/${DIAL_NUM}@carrier,${MAX_DURATION},gr)
+
+Applied with the file backed up to `/root/extensions.conf.bak-<date>` and
+`dialplan reload`. Revert is a copy back and another reload.
+
+**To be tested with 10 live calls.** Not yet proven.
+
+### Three wrong answers on the way here, recorded so they are not repeated
+
+  - **ADC11's capacity.** The peak of 5 simultaneous calls was read as their
+    ceiling. It was not.
+  - **Our concurrency caps.** Both are set to 10, and `allocated_capacity` is
+    never read by any code.
+  - **The carrier refusing.** A test with `channel originate` got `403
+    Forbidden`, but that test sent `From: Anonymous` because the CLI is set by
+    the dialplan, not by an originate. Real calls get `183 Session Progress`,
+    not a rejection. The test was invalid and so was the conclusion.
+
+Each was killed by data. The one that survived came from reading the SIP
+exchange of a real failing call, which should have been the first step rather
+than the last.
+
+### Also found and fixed on the way
+
+The campaign `23 JUNE` has a **200 calls/day** cap and had taken 252, so
+everything after the 200th was refused with "campaign cap reached" — a separate
+failure wearing the same red label in the interface. Raised to 2000 daily and
+50000 monthly for testing. **Original values were 200 and 5000.**
