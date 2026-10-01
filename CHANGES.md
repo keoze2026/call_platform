@@ -3895,3 +3895,27 @@ The dashboard counts a live call as connected; the campaign breakdown and the
 revenue only count calls that have ended. So the screen reads 50 connected and
 $45 revenue at $1 a call. Both are correct and together they look like a
 contradiction.
+
+### Is it a permanent fix
+
+Yes, in three parts, and the third is the one that matters.
+
+**New calls** — the mirror copies the call's own `created_at` into `started_at`
+on every write. There is no step for anybody to remember.
+
+**Old calls** — the migration backfilled them from the call log.
+
+**If it regresses** — `scripts/diagnose_hourly_chart.py` now ends in a pass/fail
+check comparing the chart against the call log **hour by hour**, plus a count of
+mirrored calls with no arrival time.
+
+That last part is the point. The original fault had a correct daily total and
+wrong hours, with the errors cancelling out. Anything that checked the total
+would have passed it. The check compares each hour separately and says so when
+they disagree, so the same regression announces itself instead of waiting for
+somebody to notice that the shape of a day looks odd.
+
+There is a second writer of `CallRecord`, `AnalyticsService.record_call`, which
+does not set `started_at` — it has **no callers** anywhere in the codebase and
+is dead. If it is ever wired up, the null check above fails on the first row it
+writes.

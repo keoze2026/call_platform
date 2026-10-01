@@ -77,7 +77,8 @@ mirror = (
     CallRecord.objects.filter(
         organization=user.organization, created_at__gte=start, created_at__lt=end,
     )
-    .annotate(period=TruncHour('created_at', tzinfo=TZ))
+    .annotate(call_time=Coalesce('started_at', 'created_at'))
+    .annotate(period=TruncHour('call_time', tzinfo=TZ))
     .values('period')
     .annotate(
         calls=Count('id'),
@@ -194,3 +195,54 @@ if d_total is not None and d_total != t_calls:
     print(f"\n  THEY DISAGREE BY {t_calls - d_total:+d} CALLS.")
     print("  Both are drawn on the same screen for the same day, so one of them")
     print("  is wrong and a person reading the dashboard cannot tell which.")
+
+
+# ── 7. the check that makes this permanent ───────────────────────────────────
+# The fault was that the chart's hours disagreed with the call log while the
+# daily total agreed, so a total alone would never have caught it. This compares
+# hour by hour and says PASS or FAIL, so the same regression announces itself
+# instead of waiting for somebody to notice the shape of a day looks odd.
+print("\n" + "=" * 62)
+print("HOUR BY HOUR: DOES THE CHART MATCH THE CALL LOG")
+print("=" * 62)
+
+chart_by_hour = {}
+for r in series:
+    key = datetime.fromisoformat(r['period']).astimezone(TZ).strftime('%H:00')
+    chart_by_hour[key] = r['calls']
+
+source_by_hour = {}
+for r in source:
+    key = r['period'].astimezone(TZ).strftime('%H:00')
+    source_by_hour[key] = r['calls']
+
+failures = []
+for hour in sorted(set(chart_by_hour) | set(source_by_hour)):
+    c = chart_by_hour.get(hour, 0)
+    s_ = source_by_hour.get(hour, 0)
+    ok = c == s_
+    if not ok:
+        failures.append(f"{hour} chart {c} against call log {s_}")
+    print(f"  {'PASS' if ok else 'FAIL'}  {hour}   chart {c:>5}   call log {s_:>5}")
+
+print(f"\n  {'PASS' if t_calls == s_total else 'FAIL'}  total   "
+      f"chart {t_calls:>5}   call log {s_total:>5}")
+
+orphans = CallRecord.objects.filter(
+    organization=user.organization, started_at__isnull=True,
+).count()
+print(f"  {'PASS' if orphans == 0 else 'FAIL'}  every mirrored call knows when it "
+      f"arrived   ({orphans} without a start time)")
+if orphans:
+    failures.append(f"{orphans} CallRecord rows have no started_at")
+
+print()
+print("=" * 62)
+if failures and t_calls == s_total:
+    print("HOURS DISAGREE: " + "; ".join(failures))
+    print("The daily total still matches, which is how this hid the first time.")
+elif failures or t_calls != s_total:
+    print("MISMATCH: " + "; ".join(failures or ['daily total']))
+else:
+    print("THE CHART MATCHES THE CALL LOG, HOUR BY HOUR")
+print("=" * 62)
