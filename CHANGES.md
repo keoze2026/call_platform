@@ -3616,3 +3616,19 @@ assume the larger one, and the person reading this is the person being asked
 whether the business is working.
 
 Both are now shown, each saying what it is.
+
+### Addendum — the uptime figure was going to flatter us
+
+The wrapper measured availability by counting ALERT lines in the watchdog's log.
+The watchdog alerts **once per fault**, not once per check — that is deliberate,
+so a two-hour outage does not send sixty identical messages.
+
+Which means a two-hour outage leaves **one** ALERT line among sixty failed
+checks, and the morning report would have said **99.9% available** about a
+morning the platform was down. Wrong, and wrong in the direction that makes us
+look good, which is the worst direction for a number whose whole purpose is to
+be believed.
+
+It now counts every status line the watchdog wrote and treats one that is not
+`routing=403 portal=200` as a failure. A two-hour outage reads as 90%, which is
+what it was.

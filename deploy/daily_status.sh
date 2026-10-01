@@ -20,17 +20,31 @@ APP_DIR=/opt/call_platform
 WATCHDOG_LOG=/var/log/avortyx-watchdog.log
 
 # ── measure availability from what the watchdog actually recorded ────────────
-# It writes one line per run. A run that found everything healthy ends in
-# "ok routing=403 ..."; a run that found a fault wrote an ALERT line. Counting
-# them is a measurement rather than a claim.
+# It writes one status line per run:
+#
+#   2026-10-01T14:02:01Z ok routing=403 portal=200 disk=17%
+#
+# Healthy means routing answered 403 (it wants the shared secret, so anything
+# else means calls cannot be routed) and the portal answered 200.
+#
+# Counting ALERT lines instead would be wrong, and wrong in the flattering
+# direction: the watchdog alerts once per fault and not once per check, so a
+# two-hour outage leaves a single ALERT line among sixty failed checks and the
+# morning report would claim 99.9% availability for a morning the platform was
+# down. Every status line is counted, and a line that is not healthy is a
+# failure.
 
 YESTERDAY=$(date -u -d 'yesterday' +%Y-%m-%d)
 
 CHECKS=0
+HEALTHY=0
 FAILED=0
 if [ -r "$WATCHDOG_LOG" ]; then
-    CHECKS=$(grep -c "^${YESTERDAY}T" "$WATCHDOG_LOG" 2>/dev/null || echo 0)
-    FAILED=$(grep "^${YESTERDAY}T" "$WATCHDOG_LOG" 2>/dev/null | grep -c 'ALERT' || echo 0)
+    CHECKS=$(grep -c "^${YESTERDAY}T.*routing=" "$WATCHDOG_LOG" 2>/dev/null || echo 0)
+    HEALTHY=$(grep "^${YESTERDAY}T" "$WATCHDOG_LOG" 2>/dev/null \
+              | grep -c 'routing=403 portal=200' || echo 0)
+    FAILED=$(( CHECKS - HEALTHY ))
+    [ "$FAILED" -lt 0 ] && FAILED=0
 fi
 
 ARGS=()
