@@ -43,6 +43,10 @@ Kept current. Anything not on this list is either done and has a CH entry, or
 was investigated and closed as not a fault — also with a CH entry. Last
 reviewed **2026-10-01**.
 
+**Closed on 1 October:** partner permissions and reporting visibility (CH-051,
+20 checks pass, export verified 403 off / 200 on), duplicate TFNs, duplicate and
+junk buyers, empty `Buyer.phone_number`, blank `renews_at` (all CH-050).
+
 ### Blocked on the boss — I cannot close these
 
 | ID | Area | Summary | Needed |
@@ -62,11 +66,11 @@ reviewed **2026-10-01**.
 
 | ID | Area | Summary | Priority |
 |----|------|---------|----------|
-| OPEN-15 | Buyers | Duplicate TFNs across buyers — `+18553752923` is on Q08, R48 and CRM, and seven more numbers are on two buyers each. Calls are attributed by `destination_number`, so one call to a shared TFN counts for every buyer holding it | High — dormant only because those destinations are disabled. Wrong the moment one is enabled |
+| ~~OPEN-15~~ | Buyers | Duplicate TFNs across buyers — `+18553752923` is on Q08, R48 and CRM, and seven more numbers are on two buyers each. Calls are attributed by `destination_number`, so one call to a shared TFN counts for every buyer holding it | Resolved 2026-10-01 — CH-050 |
 | OPEN-16 | Routing | `routing/asterisk_handler.py` resolves the live destination with `order_by('-created_at').first()` — the newest destination for that buyer, not the one the engine picked. A buyer with two enabled destinations has every call attributed to one | High, and **inside the call path**. Not to be touched without the boss agreeing to a window |
-| OPEN-17 | Buyers | `Buyer.phone_number` is empty on all 42 buyers, and `routing/engine.py` uses it as the destination for an RTB call. All five campaigns are `priority`, so it never runs today | Medium — a landmine for whoever first switches a campaign to RTB. Fixed by filling the field, not by changing the engine |
-| OPEN-18 | Buyers | Junk in the buyer table: `xczxczxcxz`, a second `RNY` with no destinations, `Q16` with no destinations | Low — cosmetic, but it is what the client sees |
-| OPEN-19 | Phone Numbers | `renews_at` is written only from what the request sends and **nothing reads it**, so the Renews column can only ever be blank | Low — one number in the system, so it costs more than it returns today |
+| ~~OPEN-17~~ | Buyers | `Buyer.phone_number` is empty on all 42 buyers, and `routing/engine.py` uses it as the destination for an RTB call. All five campaigns are `priority`, so it never runs today | Resolved 2026-10-01 — CH-050 |
+| ~~OPEN-18~~ | Buyers | Junk in the buyer table: `xczxczxcxz`, a second `RNY` with no destinations, `Q16` with no destinations | Resolved 2026-10-01 — CH-050 |
+| ~~OPEN-19~~ | Phone Numbers | `renews_at` is written only from what the request sends and **nothing reads it**, so the Renews column can only ever be blank | Resolved 2026-10-01 — CH-050 |
 | ~~OPEN-4~~ | Repo | ~~`phone_numbers/services.py.bak_trunk` committed by mistake~~ | Resolved — file removed |
 
 ### Frontend — his developer, not me
@@ -79,6 +83,9 @@ reviewed **2026-10-01**.
 | OPEN-23 | Still not fully moved to `/api/analytics/snapshot` |
 | OPEN-24 | Token-refresh race causing intermittent 401s |
 | OPEN-25 | Buyer payout column reads `Buyer.payout_amount`, which is genuinely zero. The payout lives on the campaign |
+| OPEN-26 | Publisher/buyer settings page: read the toggle list from `GET /api/accounts/partner-permissions` instead of hardcoding it, and save with `PATCH /api/accounts/{buyer\|publisher}/{id}/settings`. The backend now exists (CH-051) |
+| OPEN-27 | Render controls from `capabilities` and `visible_report_columns` on `/api/accounts/me`, not from the role name — that is why controls appear and then return 403 |
+| OPEN-28 | The publisher settings page renders a publisher id that is not in the database. `cdf49649-c655-431c-a9fc-cecf24da81a4` is not a publisher, buyer or user; the real one is `b64f7363-949a-482c-8b4a-5add8f3df355`. Every call that page makes with it will 404 |
 
 ---
 
