@@ -43,7 +43,7 @@ Kept current. Anything not on this list is either done and has a CH entry, or
 was investigated and closed as not a fault — also with a CH entry. Last
 reviewed **2026-10-01**.
 
-**Closed on 1 October:** partner permissions and reporting visibility (CH-051,
+**Closed on 1 October:** one live destination per buyer (CH-052, fixed from the data side with no change under `routing/`), partner permissions and reporting visibility (CH-051,
 20 checks pass, export verified 403 off / 200 on), duplicate TFNs, duplicate and
 junk buyers, empty `Buyer.phone_number`, blank `renews_at` (all CH-050).
 
@@ -67,7 +67,8 @@ junk buyers, empty `Buyer.phone_number`, blank `renews_at` (all CH-050).
 | ID | Area | Summary | Priority |
 |----|------|---------|----------|
 | ~~OPEN-15~~ | Buyers | Duplicate TFNs across buyers — `+18553752923` is on Q08, R48 and CRM, and seven more numbers are on two buyers each. Calls are attributed by `destination_number`, so one call to a shared TFN counts for every buyer holding it | Resolved 2026-10-01 — CH-050 |
-| OPEN-16 | Routing | `routing/asterisk_handler.py` resolves the live destination with `order_by('-created_at').first()` — the newest destination for that buyer, not the one the engine picked. A buyer with two enabled destinations has every call attributed to one | High, and **inside the call path**. Not to be touched without the boss agreeing to a window |
+| ~~OPEN-16~~ | Routing | `routing/asterisk_handler.py` resolves the live destination with `order_by('-created_at').first()` — a buyer with two enabled destinations had every call sent to one, the other silently dead | Resolved 2026-10-01 — CH-052, from the data side. A buyer can now only have one live destination, so that lookup is correct by construction. No file under `routing/` changed |
+| OPEN-29 | Server | Ubuntu reports *"System restart required"*, 65 updates pending including one security update | **Needs a maintenance window.** A reboot drops every call in progress and takes Asterisk, nginx and the containers down for a few minutes. Not to be done ad hoc |
 | ~~OPEN-17~~ | Buyers | `Buyer.phone_number` is empty on all 42 buyers, and `routing/engine.py` uses it as the destination for an RTB call. All five campaigns are `priority`, so it never runs today | Resolved 2026-10-01 — CH-050 |
 | ~~OPEN-18~~ | Buyers | Junk in the buyer table: `xczxczxcxz`, a second `RNY` with no destinations, `Q16` with no destinations | Resolved 2026-10-01 — CH-050 |
 | ~~OPEN-19~~ | Phone Numbers | `renews_at` is written only from what the request sends and **nothing reads it**, so the Renews column can only ever be blank | Resolved 2026-10-01 — CH-050 |
