@@ -201,10 +201,16 @@ class Command(BaseCommand):
         # date with no label, a reader takes them for yesterday's figures - and
         # on 30 September one destination was live where three are now.
         lines.append(f"Balance        ${balance:,.2f}   (now)")
+        # "Live numbers" read as calls in progress to the first person who saw
+        # it. It is the destinations switched on - the buyers set up to receive
+        # calls - and naming them removes the question entirely.
+        live = list(
+            Destination.objects.filter(enabled=True, organization_id__in=org_ids)
+            .select_related('buyer')
+        )
+        who = ", ".join(sorted(d.buyer.name for d in live if d.buyer))
         lines.append(
-            f"Live numbers   "
-            f"{Destination.objects.filter(enabled=True, organization_id__in=org_ids).count()}"
-            f"   (now)"
+            f"Buyers taking  {len(live)}   (now)" + (f"   {who}" if who else "")
         )
 
         if len(orgs) > 1:
