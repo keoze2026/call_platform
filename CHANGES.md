@@ -3709,3 +3709,24 @@ partners that already exist and never got one, and for any case where the
 interface is not the way in. `--list` shows who can be invited. It matches on
 name so nobody has to copy a UUID out of a URL — and the id in that URL has at
 least once not been a record that exists.
+
+### Addendum — publishers needed the same name constraint, and did not have it
+
+`manage.py invite --publisher test` refused to act because **three** publishers
+called `test` existed in Avortyx. It was right to refuse — inviting the wrong one
+gives somebody a login scoped to a record that is not theirs — but it should
+never have had three to choose from.
+
+That is the same fault as the two buyers called `RNY`, and CH-050 gave the buyer
+side a unique constraint while leaving publishers without one. My inconsistency,
+and it is what produced the duplicates.
+
+Publishers now have the same treatment: the junk cleanup, the visible rename for
+duplicates with history, the database constraint, and a readable message on
+create and rename.
+
+Worth noting from the same listing: **no buyer has an email address on record**,
+54 of them. So the automatic invitation in CH-054 will not fire for any existing
+buyer — there is nobody to send to. That is the data being incomplete rather
+than anything broken, but it means buyer logins need the addresses adding before
+they can exist.

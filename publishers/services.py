@@ -14,6 +14,18 @@ class PublisherService:
         if not user.organization:
             raise ValueError("User has no organization")
 
+        # Three publishers called `test` existed before this check, and
+        # `manage.py invite --publisher test` could not act because it could not
+        # tell which was meant. The database refuses it now; saying so first
+        # turns an IntegrityError 500 into something the person can fix.
+        if Publisher.objects.filter(
+            organization=user.organization, name__iexact=(data.name or '').strip()
+        ).exists():
+            raise ValueError(
+                f"A publisher called '{data.name}' already exists in this workspace. "
+                f"Names have to be unique so reports can tell them apart."
+            )
+
         publisher = Publisher.objects.create(
             organization=user.organization,
             created_by=user,
@@ -81,6 +93,16 @@ class PublisherService:
         for field, value in data.model_dump(exclude_none=True).items():
             if field in ALLOWED_FIELDS:
                 setattr(publisher, field, value)
+
+        # Renaming onto an existing name hits the same constraint as creating.
+        if Publisher.objects.filter(
+            organization=publisher.organization,
+            name__iexact=(publisher.name or '').strip(),
+        ).exclude(pk=publisher.pk).exists():
+            raise ValueError(
+                f"A publisher called '{publisher.name}' already exists in this "
+                f"workspace. Names have to be unique so reports can tell them apart."
+            )
 
         publisher.save()
         return publisher

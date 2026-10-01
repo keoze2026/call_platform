@@ -42,6 +42,16 @@ class Publisher(models.Model):
     class Meta:
         db_table = 'publishers'
         ordering = ['-created_at']
+        constraints = [
+            # Three publishers called `test` existed in one workspace, which is
+            # the same fault that produced two buyers called `RNY` - and the
+            # buyer side got the constraint while this one did not. A report
+            # naming one of them is ambiguous, and so is a settings page.
+            models.UniqueConstraint(
+                fields=['organization', 'name'],
+                name='unique_publisher_name_per_organization',
+            ),
+        ]
 
     def save(self, *args, **kwargs):
         if not self.unique_id:
