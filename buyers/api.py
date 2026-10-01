@@ -201,12 +201,8 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
 
     # The form's address first; the record's own as a fallback. Buyer stores it
     # as contact_email, not email.
-    email = (
-        body.get('email')
-        or getattr(buyer, 'contact_email', '')
-        or getattr(buyer, 'email', '')
-        or ''
-    )
+    from accounts.auto_invite import partner_email
+    email = body.get('email') or partner_email(buyer)
 
     try:
         return 200, invite_partner(

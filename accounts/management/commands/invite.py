@@ -56,7 +56,8 @@ class Command(BaseCommand):
         if partner is None:
             return
 
-        email = options['email'] or (getattr(partner, 'email', '') or '').strip()
+        from accounts.auto_invite import partner_email
+        email = options['email'] or partner_email(partner)
         if not email:
             self.stderr.write(
                 f"{partner.name} has no email address on record. "
@@ -139,5 +140,6 @@ class Command(BaseCommand):
             self.stdout.write('  none')
             return
         for r in rows:
-            email = (getattr(r, 'email', '') or '').strip() or '(no email on record)'
+            from accounts.auto_invite import partner_email
+            email = partner_email(r) or '(no email on record)'
             self.stdout.write(f"  {r.name:<22} {email:<32} {r.organization.name}")

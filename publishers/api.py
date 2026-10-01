@@ -169,7 +169,8 @@ def invite_publisher(request: HttpRequest, publisher_id: str):
     except PublisherModel.DoesNotExist:
         return 404, {"detail": "Publisher not found"}
 
-    email = body.get('email') or getattr(publisher, 'email', '') or ''
+    from accounts.auto_invite import partner_email
+    email = body.get('email') or partner_email(publisher)
 
     try:
         return 200, invite_partner(

@@ -30,6 +30,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Publisher keeps it in `email`, Buyer in `contact_email`. Reading only `email`
+# meant every buyer looked like it had no address, so a buyer created through
+# the interface was never invited and the listing reported all 54 of them as
+# having none. One function, so the next partner model cannot reintroduce it.
+EMAIL_FIELDS = ('email', 'contact_email')
+
+
+def partner_email(partner) -> str:
+    """The address to invite this partner on, whichever field holds it."""
+    for field in EMAIL_FIELDS:
+        value = (getattr(partner, field, '') or '').strip()
+        if value:
+            return value
+    return ''
+
 
 def invite_on_create(partner, kind: str, invited_by=None) -> dict:
     """Send the welcome invitation for a newly created buyer or publisher.
@@ -37,7 +52,7 @@ def invite_on_create(partner, kind: str, invited_by=None) -> dict:
     Returns what happened, for the create endpoint to include in its response.
     Never raises.
     """
-    email = (getattr(partner, 'email', '') or '').strip()
+    email = partner_email(partner)
     if not email:
         return {
             'invited': False,

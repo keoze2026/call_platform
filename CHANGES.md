@@ -3730,3 +3730,19 @@ Worth noting from the same listing: **no buyer has an email address on record**,
 buyer — there is nobody to send to. That is the data being incomplete rather
 than anything broken, but it means buyer logins need the addresses adding before
 they can exist.
+
+### Addendum — the buyer invite read a field buyers do not have
+
+`Publisher` keeps the address in `email`; `Buyer` keeps it in `contact_email`.
+The automatic invitation read `email` on both.
+
+So a buyer created through the interface with a contact email filled in would
+have been saved and **never invited**, silently, with the response saying "no
+email address was given". The listing reported all 54 buyers as having none,
+which may simply have been false.
+
+Shipped and caught within the hour, before any buyer was created through it.
+
+One resolver now, used by the automatic invitation, the management command and
+both invite endpoints — each of which had been resolving the address its own
+way. The next partner model cannot reintroduce it.
