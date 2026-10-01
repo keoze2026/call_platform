@@ -118,6 +118,19 @@ def mirror_call_log(call_log_id) -> bool:
             'profit': _campaign_revenue(call) - _campaign_payout(call),
             'answered_at': call.answered_at,
             'ended_at': call.ended_at,
+            # When the call actually arrived.
+            #
+            # CallRecord.created_at is auto_now_add, so it records when this
+            # mirror row was written - which is when the call reached a terminal
+            # status, not when it rang. Every chart and every date filter in
+            # analytics buckets on created_at, so a call that arrived at 10:50
+            # and finished at 12:05 was reported in the 12:00 hour.
+            #
+            # On 1 October that moved 5 calls out of the 10:00 and 11:00 hours
+            # into 12:00: the hourly chart read 9 and 97 where the call log had
+            # 13 and 98. The daily total was right, which is why it went
+            # unnoticed - only the shape of the day was wrong.
+            'started_at': call.created_at,
         },
     )
     return True

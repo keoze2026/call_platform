@@ -3808,3 +3808,90 @@ change was applied, so the link now points at a page that exists.
 Applied with `docker compose up -d --force-recreate web`, not `restart` — a
 restart does not reload `env_file`, which is what made the password rotation
 appear to fail twice on 25 September.
+
+---
+
+## CH-056 — The hourly chart reported calls in the hour they finished, not the hour they arrived
+
+**Date:** 2026-10-01
+**Files:** `analytics/services.py`, `routing/signals.py` (one field added to the
+mirror's defaults — not the call path),
+`analytics/migrations/0011_backfill_started_at.py`,
+`scripts/diagnose_hourly_chart.py` (new)
+
+The frontend asked three questions about `/api/analytics/snapshot`. Answering
+them found two faults.
+
+### What the numbers showed
+
+For 1 October, Eastern:
+
+    hour     chart   mirror   call log
+    10:00        9        9         13
+    11:00       97       97         98
+    12:00       38       33         33
+    total      144      139        144
+
+The **total was right**. The hours were not: five calls sat in the wrong bucket,
+and the differences cancelled out, which is exactly why nobody caught it. The
+shape of the day was wrong, and the shape of the day is the entire point of an
+hourly chart.
+
+### Why
+
+`CallRecord.created_at` is `auto_now_add`. It records when the **mirror row was
+written**, which happens when the call reaches a terminal status — not when the
+call rang. `CallRecord.started_at` exists on the model and was never populated,
+so it was null on every row.
+
+Every chart and every date filter in analytics bucketed on `created_at`. A call
+that arrived at 10:50 and finished at 12:05 was reported in the 12:00 hour. On 1
+October that moved four calls out of 10:00 and one out of 11:00.
+
+It also means every date filter has been slightly wrong at the boundaries: a
+call arriving at 23:58 and ending at 00:03 has been counted on the following
+day, in every report, since the mirror was built.
+
+### Fix
+
+  - the mirror now copies `call.created_at` into `started_at` — one field added
+    to a defaults dict in the mirroring function. **Nothing in the routing
+    decision path is touched.**
+  - a migration backfills `started_at` on existing rows from the matching call
+    log. `CallRecord.id` *is* the `CallLog.id`, so it is a lookup rather than a
+    guess; rows whose call log is gone keep their old timestamp, which is no
+    worse than today.
+  - analytics defines `CALL_TIME = Coalesce('started_at', 'created_at')` once,
+    and uses it for both the date filter and the hour buckets, so the range and
+    the buckets cannot disagree at the edge of a day.
+
+### The second fault: two halves of the chart on different clocks
+
+`_base_qs` made its dates aware in the timezone the browser asked for.
+`_live_qs` called `make_aware(dt)` with none, so it used the server's UTC.
+
+For an Eastern user the historical half of every chart counted a day beginning
+at 00:00 Eastern and the live half counted one beginning at 00:00 UTC — four
+hours apart. Live calls from an evening landed on the wrong date entirely. Now
+both use the requested zone.
+
+### What was checked and found innocent
+
+  - **live calls are not double counted.** They are added on top of the mirror
+    rows, which is correct: the mirror only holds terminal calls, and all five
+    live calls on 1 October were absent from it.
+  - **`calls` always equals `connected + no_answer`.** No call is missing from
+    the chart.
+
+### A labelling problem the frontend should fix
+
+`no_answer` is not the no-answer status. It is `NOT (completed or in_progress)`,
+so busy, failed and ringing are all inside it. On 1 October that bar held 85 of
+135 calls. It should read **"Not connected"**, or be split by real status.
+
+### Also worth knowing
+
+The dashboard counts a live call as connected; the campaign breakdown and the
+revenue only count calls that have ended. So the screen reads 50 connected and
+$45 revenue at $1 a call. Both are correct and together they look like a
+contradiction.

@@ -67,6 +67,16 @@ def _tz(filters):
         return timezone.get_current_timezone()
 
 
+# When a call actually arrived, for bucketing and for date filters.
+#
+# `CallRecord.created_at` is auto_now_add - the moment the mirror row was
+# written, which is when the call reached a terminal status, not when it rang.
+# Reporting on it put a call that arrived at 10:50 and finished at 12:05 in the
+# 12:00 hour. `started_at` is copied from the call log and is the real arrival
+# time; the fallback covers rows written before it was populated.
+CALL_TIME = Coalesce('started_at', 'created_at')
+
+
 def _f(filters, name, default=None):
     """Read a filter field, tolerating filters being None."""
     return getattr(filters, name, default) if filters is not None else default
@@ -94,14 +104,16 @@ class AnalyticsService:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt, tz)
-            qs = qs.filter(created_at__gte=dt)
+            qs = qs.annotate(call_time=CALL_TIME).filter(call_time__gte=dt)
 
         val_to = _f(filters, 'date_to') or _f(filters, 'end_date') or _f(filters, 'created_at__lte')
         if val_to:
             dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
             if timezone.is_naive(dt):
                 dt = timezone.make_aware(dt, tz)
-            qs = qs.filter(created_at__lte=dt)
+            if 'call_time' not in qs.query.annotations:
+                qs = qs.annotate(call_time=CALL_TIME)
+            qs = qs.filter(call_time__lte=dt)
 
         if getattr(filters, 'campaign_id', None):
             qs = qs.filter(campaign_id=filters.campaign_id)
@@ -166,16 +178,22 @@ class AnalyticsService:
             organization=user.organization,
             status__in=['in_progress', 'ringing', 'initiated']
         )
+        # The same clock as _base_qs. These dates were made aware without a
+        # timezone, so they used the server's UTC while the historical half of
+        # every chart used the one the browser asked for. For an Eastern user
+        # the two halves were counting days that began four hours apart, and
+        # the live calls from an evening landed on the wrong date.
+        tz = _tz(filters)
         val_from = _f(filters, 'date_from') or _f(filters, 'start_date') or _f(filters, 'created_at__gte')
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
-            if timezone.is_naive(dt): dt = timezone.make_aware(dt)
+            if timezone.is_naive(dt): dt = timezone.make_aware(dt, tz)
             qs = qs.filter(created_at__gte=dt)
 
         val_to = _f(filters, 'date_to') or _f(filters, 'end_date') or _f(filters, 'created_at__lte')
         if val_to:
             dt = parse_datetime(val_to + 'T23:59:59') or datetime.fromisoformat(val_to)
-            if timezone.is_naive(dt): dt = timezone.make_aware(dt)
+            if timezone.is_naive(dt): dt = timezone.make_aware(dt, tz)
             qs = qs.filter(created_at__lte=dt)
 
         if getattr(filters, 'campaign_id', None): qs = qs.filter(campaign_id=filters.campaign_id)
@@ -282,7 +300,10 @@ class AnalyticsService:
 
         rows = (
             qs
-            .annotate(period=trunc_fn('created_at', tzinfo=tz))
+            .annotate(
+                call_time_for_bucket=CALL_TIME,
+            )
+            .annotate(period=trunc_fn('call_time_for_bucket', tzinfo=tz))
             .values('period')
             .annotate(
                 calls=Count('id'),
