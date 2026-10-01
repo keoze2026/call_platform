@@ -82,7 +82,7 @@ mirror = (
     .annotate(
         calls=Count('id'),
         connected=Count('id', filter=Q(status__in=['completed', 'in_progress'])),
-        revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
+        revenue=Coalesce(Sum('revenue'), Decimal('0')),
     ).order_by('period')
 )
 m_total = 0
@@ -166,3 +166,31 @@ if base_from != live_from:
     gap = abs((base_from - live_from).total_seconds()) / 3600
     print(f"    they differ by {gap:.0f} hours, so the two halves of the chart")
     print("    are counting different days")
+
+
+# ── 6. the two numbers on the same screen ────────────────────────────────────
+print("\nTHE DASHBOARD AND THE CHART, SAME DAY, SAME FILTERS")
+dash = AnalyticsService.get_dashboard(user, Filters())
+
+
+def pick(d, *names):
+    for n in names:
+        if isinstance(d, dict) and n in d:
+            return d[n]
+    return None
+
+
+print(f"  dashboard total calls   {pick(dash, 'total_calls', 'calls')}")
+print(f"  dashboard connected     {pick(dash, 'connected_calls', 'connected')}")
+print(f"  dashboard no answer     {pick(dash, 'no_answer_calls', 'no_answer', 'missed_calls')}")
+print(f"  dashboard revenue       {pick(dash, 'total_revenue', 'revenue')}")
+print(f"  chart total calls       {t_calls}")
+print(f"  chart connected         {t_conn}")
+print(f"  chart no answer         {t_noans}")
+print(f"  chart revenue           {t_rev}")
+
+d_total = pick(dash, 'total_calls', 'calls')
+if d_total is not None and d_total != t_calls:
+    print(f"\n  THEY DISAGREE BY {t_calls - d_total:+d} CALLS.")
+    print("  Both are drawn on the same screen for the same day, so one of them")
+    print("  is wrong and a person reading the dashboard cannot tell which.")
