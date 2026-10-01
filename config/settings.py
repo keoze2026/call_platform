@@ -626,6 +626,13 @@ TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
 # this wants calls, revenue and whether anything broke. Falls back to the
 # support chat when unset, so a missing setting still delivers something.
 TELEGRAM_BOSS_CHAT_ID = config('TELEGRAM_BOSS_CHAT_ID', default='')
+# Which workspaces the daily status covers. Left unset it reports on any
+# workspace that has carried a call in the last 30 days, which keeps test
+# and abandoned workspaces out without anyone maintaining a list. Set it to
+# a comma-separated list of names to pin it.
+DAILY_STATUS_ORGS = [
+    n.strip() for n in config('DAILY_STATUS_ORGS', default='').split(',') if n.strip()
+]
 
 # Bot handle used to build profile deep links: https://t.me/<username>?start=<code>
 # No leading '@'. Without it, POST /api/accounts/me/telegram/link returns 400.

@@ -47,16 +47,9 @@ class Command(BaseCommand):
                             help='How many of them failed.')
 
     def handle(self, *args, **options):
-        from accounts.models import Organization
-
         day = self._day(options.get('date'))
 
-        orgs = list(Organization.objects.all())
-        if not orgs:
-            self.stderr.write('No workspaces; nothing to report.')
-            return
-
-        text = self._compose(day, orgs, options.get('checks'), options.get('failed'))
+        text = self._compose(day, None, options.get('checks'), options.get('failed'))
 
         if options['dry_run']:
             self.stdout.write(text)
@@ -85,14 +78,51 @@ class Command(BaseCommand):
         # report sent at 08:00 about "today" is a report about nothing.
         return (timezone.now() - timedelta(days=1)).date()
 
+    def _reporting_orgs(self, day):
+        """The workspaces worth reporting on.
+
+        The first version summed every billing account on the server, which came
+        to $29,978 across four workspaces when one of them was called "Test Org"
+        and another had never taken a call. A figure like that in the boss's
+        morning message is exactly the kind of thing that gets repeated and then
+        has to be taken back.
+
+        A workspace counts if it has carried a call in the last thirty days.
+        That excludes test and abandoned workspaces without anybody having to
+        maintain a list of which is which.
+        """
+        from accounts.models import Organization
+        from routing.models import CallLog
+
+        names = getattr(settings, 'DAILY_STATUS_ORGS', None)
+        if names:
+            return list(Organization.objects.filter(name__in=names))
+
+        since = timezone.now() - timedelta(days=30)
+        ids = (
+            CallLog.objects.filter(created_at__gte=since)
+            .values_list('organization_id', flat=True).distinct()
+        )
+        orgs = list(Organization.objects.filter(id__in=list(ids)))
+        # Nothing anywhere in a month is itself worth saying, rather than
+        # silently reporting on everything.
+        return orgs
+
     def _compose(self, day, orgs, checks, failed):
         from billing.models import BillingAccount, Transaction
         from buyers.destination import Destination
         from routing.models import CallLog
 
+        orgs = self._reporting_orgs(day)
+        org_ids = [o.id for o in orgs]
+
         lines = [f"AVORTYX — {day:%A %-d %B}", ""]
 
-        calls = CallLog.objects.filter(created_at__date=day)
+        if not org_ids:
+            lines.append("No workspace has carried a call in the last 30 days.")
+            return "\n".join(lines)
+
+        calls = CallLog.objects.filter(created_at__date=day, organization_id__in=org_ids)
         total = calls.count()
         agg = calls.aggregate(
             connected=Count('id', filter=Q(status__in=['completed', 'in_progress'])),
@@ -102,6 +132,7 @@ class Command(BaseCommand):
             # same answer from the source rather than from a copy.
             converted=Count('id', filter=Q(conversions__isnull=False), distinct=True),
             capped=Count('id', filter=Q(block_reason__icontains='cap')),
+            client_revenue=Coalesce(Sum('revenue'), Decimal('0')),
         )
         connected = agg['connected'] or 0
 
@@ -112,15 +143,25 @@ class Command(BaseCommand):
             lines.append("Connected      0")
         lines.append(f"Converted      {agg['converted'] or 0}")
 
-        # What was actually charged that day, read from the ledger rather than
-        # recalculated. Recalculating is how the Cost column came to disagree
-        # with the invoice by $0.16 and then by a factor of ten.
-        charged = Transaction.objects.filter(
-            created_at__date=day, transaction_type='charge',
+        lines.append("")
+
+        # Two different numbers, and merging them was the first version's worst
+        # mistake. What the client earned on its calls is not what Avortyx
+        # earned for carrying them, and a single line called "Revenue" invites
+        # whoever reads it to assume the larger one.
+        lines.append(f"Client billed  ${agg['client_revenue']:,.2f}   (what buyers owe for these calls)")
+
+        # Read from the ledger, never recalculated: recalculating is how the
+        # Cost column came to disagree with the invoice by $0.16 and then by a
+        # factor of ten.
+        earned = Transaction.objects.filter(
+            created_at__date=day,
+            transaction_type='charge',
+            organization_id__in=org_ids,
         ).exclude(call_sid='').aggregate(
             total=Coalesce(Sum('amount'), Decimal('0')),
         )['total']
-        lines.append(f"Revenue        ${charged:,.2f}")
+        lines.append(f"Avortyx earned ${earned:,.2f}   (platform charges for routing them)")
 
         lines.append("")
 
@@ -134,17 +175,21 @@ class Command(BaseCommand):
             lines.append("Available      not measured")
 
         if agg['capped']:
-            lines.append(
-                f"Turned away    {agg['capped']} calls hit a cap"
-            )
+            lines.append(f"Turned away    {agg['capped']} calls hit a cap")
 
         lines.append("")
 
-        balance = BillingAccount.objects.aggregate(
-            total=Coalesce(Sum('balance'), Decimal('0')),
-        )['total']
+        balance = BillingAccount.objects.filter(
+            organization_id__in=org_ids
+        ).aggregate(total=Coalesce(Sum('balance'), Decimal('0')))['total']
         lines.append(f"Balance        ${balance:,.2f}")
-        lines.append(f"Live numbers   {Destination.objects.filter(enabled=True).count()}")
+        lines.append(
+            f"Live numbers   {Destination.objects.filter(enabled=True, organization_id__in=org_ids).count()}"
+        )
+
+        if len(orgs) > 1:
+            lines.append("")
+            lines.append("Workspaces:    " + ", ".join(sorted(o.name for o in orgs)))
 
         if total == 0:
             lines.append("")

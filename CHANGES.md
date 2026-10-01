@@ -3587,3 +3587,32 @@ every morning and the report would never have arrived, which is the precise
 failure this exists to prevent. It now counts calls with a conversion event
 recorded against them, which is the same answer from the source rather than from
 a copy.
+
+### Addendum — two things the first run got wrong
+
+Run as a dry run before it was pointed at anybody, which is the only reason
+these were caught.
+
+**It summed every billing account on the server.** Four workspaces exist —
+Avortyx, texora, Test Org and jumahte — and only Avortyx has carried a call.
+The balance line read **$29,978.04**, most of it test money. A figure like that
+in the boss's morning message is exactly the kind of thing that gets repeated
+and then has to be taken back.
+
+It now reports on workspaces that have carried a call in the last thirty days,
+which excludes test and abandoned ones without anybody maintaining a list.
+`DAILY_STATUS_ORGS` pins it explicitly if that is ever wrong.
+
+**It called two different numbers "Revenue" and showed only one.** For 30
+September:
+
+    client billed    $23.00    24 calls at the campaign's $1.00 payout
+    Avortyx earned    $1.19    23 platform charges at ~$0.05
+
+The report showed `Revenue $1.19`. Both figures are correct and they mean
+entirely different things — what the buyers owe for the calls, and what Avortyx
+earned for carrying them. A single line called "Revenue" invites the reader to
+assume the larger one, and the person reading this is the person being asked
+whether the business is working.
+
+Both are now shown, each saying what it is.
