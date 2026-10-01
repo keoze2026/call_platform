@@ -182,9 +182,19 @@ class Command(BaseCommand):
         balance = BillingAccount.objects.filter(
             organization_id__in=org_ids
         ).aggregate(total=Coalesce(Sum('balance'), Decimal('0')))['total']
-        lines.append(f"Balance        ${balance:,.2f}")
+        # Said to be "now" rather than left to look like the rest.
+        #
+        # Everything above is measured over the day in the heading. These two
+        # are the state at the moment the report is written: a balance has no
+        # meaningful value for a day that has ended, and the number of live
+        # destinations is whatever it is this morning. Printed under the same
+        # date with no label, a reader takes them for yesterday's figures - and
+        # on 30 September one destination was live where three are now.
+        lines.append(f"Balance        ${balance:,.2f}   (now)")
         lines.append(
-            f"Live numbers   {Destination.objects.filter(enabled=True, organization_id__in=org_ids).count()}"
+            f"Live numbers   "
+            f"{Destination.objects.filter(enabled=True, organization_id__in=org_ids).count()}"
+            f"   (now)"
         )
 
         if len(orgs) > 1:
