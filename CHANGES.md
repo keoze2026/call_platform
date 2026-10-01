@@ -43,7 +43,7 @@ Kept current. Anything not on this list is either done and has a CH entry, or
 was investigated and closed as not a fault — also with a CH entry. Last
 reviewed **2026-10-01**.
 
-**Closed on 1 October:** one live destination per buyer (CH-052, fixed from the data side with no change under `routing/`), partner permissions and reporting visibility (CH-051,
+**Closed on 1 October:** partner invitations now send on create and the links point at the real portal (CH-054, CH-055 — `FRONTEND_URL` had never been set, so every email link the platform ever sent was dead), one live destination per buyer (CH-052, fixed from the data side with no change under `routing/`), partner permissions and reporting visibility (CH-051,
 20 checks pass, export verified 403 off / 200 on), duplicate TFNs, duplicate and
 junk buyers, empty `Buyer.phone_number`, blank `renews_at` (all CH-050).
 
