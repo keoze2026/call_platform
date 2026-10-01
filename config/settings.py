@@ -621,6 +621,11 @@ MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = f'{MEDIA_BASE_URL}/media/'
 
 TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
+# Where the daily business status goes. Separate from the support chat on
+# purpose: the support group gets technical alerts, and the person paying for
+# this wants calls, revenue and whether anything broke. Falls back to the
+# support chat when unset, so a missing setting still delivers something.
+TELEGRAM_BOSS_CHAT_ID = config('TELEGRAM_BOSS_CHAT_ID', default='')
 
 # Bot handle used to build profile deep links: https://t.me/<username>?start=<code>
 # No leading '@'. Without it, POST /api/accounts/me/telegram/link returns 400.

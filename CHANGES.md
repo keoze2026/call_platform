@@ -3512,3 +3512,78 @@ than one enabled destination, because there is no single number that is
 unambiguously theirs. With this constraint there never is more than one, so the
 sync now resolves for every buyer that has a live destination rather than
 declining on 19 of them.
+
+---
+
+## CH-053 — A daily business status, sent by the platform
+
+**Date:** 2026-10-01
+**Files:** `accounts/management/commands/daily_status.py` (new),
+`deploy/daily_status.sh` (new), `config/settings.py`
+
+### Why
+
+Whoever builds this is also the person reporting on it. "Everything is working"
+from them is worth very little to whoever is paying for it, however true it is —
+and twice this week it was passed on in good faith and turned out to be wrong,
+because I had said it without checking.
+
+A figure that arrives on a schedule, from the server, is worth something:
+nobody decided to send it, and on the morning it does not arrive, that is
+information too.
+
+The watchdog (CH-0xx) already messages Telegram when something breaks. It is
+technical and goes to the support group. This is the other half — the number
+that arrives when nothing is wrong, written for the person paying rather than
+the person deploying.
+
+### What it sends
+
+    AVORTYX — Wednesday 30 September
+
+    Calls          24
+    Connected      23  (96%)
+    Converted      5
+    Revenue        $1,214.04
+
+    Available      100%  (720 checks, 0 failed)
+
+    Balance        $412.88
+    Live numbers   1
+
+No container names, no endpoint names, nothing that needs explaining.
+
+### Three things it refuses to do
+
+  - **It does not recalculate revenue.** The figure is what the ledger says was
+    charged, filtered to transactions carrying a `call_sid`. Recalculating is
+    how the Cost column came to disagree with the invoice by $0.16, and then by
+    a factor of ten.
+  - **It does not invent availability.** The watchdog records one line per run
+    on the host; the wrapper counts them and passes the total and the failures
+    in. With no log it prints "not measured" rather than a comforting 100% from
+    an empty file. A status report that guesses is worse than none, because it
+    is believed.
+  - **It reports yesterday, not today.** A report sent at 06:05 about "today" is
+    a report about nothing.
+
+### Deliberately on cron, not Celery
+
+The watchdog's log lives on the host and the container cannot read it. More to
+the point, a report that silently stops because Celery died would stop on
+exactly the morning it mattered most.
+
+### Where it goes
+
+`TELEGRAM_BOSS_CHAT_ID`, falling back to `TELEGRAM_SUPPORT_CHAT_ID` and then
+`TELEGRAM_CHAT_ID`, so an unset value still delivers somewhere rather than
+nowhere.
+
+### One fault caught before it shipped
+
+The first version counted conversions with `Q(is_converted=True)`. That field is
+on the analytics mirror, not on `CallLog` — it would have raised `FieldError`
+every morning and the report would never have arrived, which is the precise
+failure this exists to prevent. It now counts calls with a conversion event
+recorded against them, which is the same answer from the source rather than from
+a copy.
