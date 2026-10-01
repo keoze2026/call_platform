@@ -260,6 +260,35 @@ def _enabled_clash(organization, tfn, enabled, exclude_id=None):
     )
 
 
+def _buyer_already_live(organization, buyer, enabled, exclude_id=None):
+    """Does this buyer already have a live destination?
+
+    Routing resolves a buyer's destination with a single `.first()`, so a second
+    enabled one never receives a call - it sits in the interface looking active
+    and silently does nothing. Returns the message to show, or None.
+    """
+    from buyers.destination import Destination
+
+    if not enabled or buyer is None:
+        return None
+
+    qs = Destination.objects.filter(
+        organization=organization, buyer=buyer, enabled=True,
+    )
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+
+    other = qs.first()
+    if other is None:
+        return None
+
+    return (
+        f"{buyer.name} already routes to {other.tfn}. A buyer can only have one "
+        f"live destination - a second one would never receive a call. Switch "
+        f"{other.tfn} off first if you want calls to go somewhere else."
+    )
+
+
 @router.post("/", response={201: dict, 400: dict})
 def create_destination(request, payload: DestinationSchema):
     require(request.auth, Capability.CREATE)
@@ -284,6 +313,10 @@ def create_destination(request, payload: DestinationSchema):
     clash = _enabled_clash(
         request.auth.organization, payload.get_tfn(), payload.enabled,
     )
+    if clash:
+        return 400, {"detail": clash}
+
+    clash = _buyer_already_live(request.auth.organization, buyer, payload.enabled)
     if clash:
         return 400, {"detail": clash}
 
@@ -346,6 +379,12 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
         # destination that is already live on it.
         clash = _enabled_clash(
             request.auth.organization, d.tfn, d.enabled, exclude_id=d.id,
+        )
+        if clash:
+            return 400, {"detail": clash}
+
+        clash = _buyer_already_live(
+            request.auth.organization, d.buyer, d.enabled, exclude_id=d.id,
         )
         if clash:
             return 400, {"detail": clash}

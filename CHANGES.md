@@ -3449,3 +3449,65 @@ that staff are unaffected.
 
 It runs in a transaction that is rolled back, and the last two checks confirm
 nothing survives.
+
+---
+
+## CH-052 — One live destination per buyer, fixed without touching routing
+
+**Date:** 2026-10-01
+**Files:** `buyers/destination.py`, `buyers/destinations_api.py`,
+`buyers/migrations/0016_one_enabled_destination_per_buyer.py`,
+`buyers/migrations/0017_unique_live_destination_per_buyer.py`
+
+**No file under `routing/` is changed by this. `git status routing/` is empty
+and `routing/asterisk_handler.py` line 149 is untouched.**
+
+### Problem
+
+`routing/asterisk_handler.py` resolves which number a buyer's call goes to:
+
+    live_dest = Destination.objects.filter(buyer=buyer, enabled=True) \
+        .only('tfn').order_by('-created_at').first()
+
+A buyer with two enabled destinations has every call sent to whichever was
+created last. The other is dead: the interface shows it as active, it never
+rings, and nothing anywhere says so. Attribution, caps and reporting all point
+at one destination while the client believes traffic is split across two.
+
+### Why this is not fixed in the handler
+
+The obvious change is to make the handler use the destination the routing engine
+actually selected. That is a change to the file that routes live calls, and
+calls have already been lost twice this week to changes near it.
+
+The same fault disappears from the other side. The handler takes `.first()` of
+the buyer's enabled destinations — if a buyer can only ever have **one**, that
+lookup is correct by construction. There is one row to find, so "the newest" and
+"the right one" are the same row.
+
+This is not a new restriction. It is the rule the platform has always followed
+without saying so; the interface simply let you create a second one and believe
+it worked.
+
+### What was done
+
+  - **0016** leaves each buyer with one enabled destination, **keeping the
+    newest**. That is the opposite of the TFN cleanup in 0013, deliberately: the
+    newest is the one currently receiving calls. Keeping the oldest would be
+    tidier and would silently move live traffic to a different number, which is
+    the one thing a migration must not do.
+  - **0017** adds a partial unique constraint on `buyer` where `enabled`, so a
+    second live destination cannot be created through the UI, the API, the admin
+    or a script.
+  - the create and update endpoints answer *"ADC11 already routes to
+    +18779641530. A buyer can only have one live destination — a second one
+    would never receive a call. Switch +18779641530 off first if you want calls
+    to go somewhere else."* instead of an IntegrityError 500.
+
+### A side effect worth having
+
+`buyers/sync.py` refuses to write `Buyer.phone_number` when a buyer has more
+than one enabled destination, because there is no single number that is
+unambiguously theirs. With this constraint there never is more than one, so the
+sync now resolves for every buyer that has a live destination rather than
+declining on 19 of them.

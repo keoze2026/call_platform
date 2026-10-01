@@ -48,4 +48,26 @@ class Destination(models.Model):
                 condition=models.Q(enabled=True),
                 name='unique_enabled_destination_tfn_per_organization',
             ),
+            # One live destination per buyer.
+            #
+            # This is not a new restriction - it is the rule the platform has
+            # always followed without saying so. The handler that routes a call
+            # resolves the buyer's destination with
+            #
+            #     Destination.objects.filter(buyer=..., enabled=True)
+            #         .order_by('-created_at').first()
+            #
+            # so a buyer with two enabled destinations has every call sent to
+            # whichever was created last, and the other is dead. The interface
+            # let you create it, show it as active, and watch it never ring.
+            #
+            # Enforcing it here makes that lookup correct by construction: there
+            # is only ever one row to find. The alternative was changing the
+            # routing handler, which is not worth the risk when the same fault
+            # can be removed from the data side.
+            models.UniqueConstraint(
+                fields=['buyer'],
+                condition=models.Q(enabled=True, buyer__isnull=False),
+                name='one_enabled_destination_per_buyer',
+            ),
         ]
