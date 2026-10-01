@@ -16,13 +16,21 @@ from accounts.api import JWTAuth
 router = Router(tags=["Buyers"], auth=JWTAuth())
 
 
-@router.post("", response={201: BuyerOutSchema, 400: dict})
+# Plain dict rather than BuyerOutSchema so the `invite` block reaches the
+# caller - a schema would filter it out, and whether the invitation went is what
+# the person who just filled in the form wants to know.
+@router.post("", response={201: dict, 400: dict})
 def create_buyer(request: HttpRequest, data: CreateBuyerSchema):
     require(request.auth, Capability.CREATE)
     try:
-        buyer = BuyerService.create(data, request.auth)
-        buyer = BuyerService.get_buyer(str(buyer.id), request.auth)
-        return 201, BuyerService.format_buyer(buyer)
+        created = BuyerService.create(data, request.auth)
+        # Carried off the in-memory object before the re-read drops it.
+        invite = getattr(created, 'invite_result', None)
+        buyer = BuyerService.get_buyer(str(created.id), request.auth)
+        body = BuyerService.format_buyer(buyer)
+        if invite is not None:
+            body['invite'] = invite
+        return 201, body
     except ValueError as e:
         return 400, {"detail": str(e)}
 

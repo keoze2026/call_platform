@@ -3659,3 +3659,53 @@ publishers. For 30 September:
 
 Showing only the first invites the reader to think the business kept all of it.
 All four are now in the report, each saying whose money it is.
+
+---
+
+## CH-054 — Creating a partner sends their invitation
+
+**Date:** 2026-10-01
+**Files:** `accounts/auto_invite.py` (new), `publishers/services.py`,
+`buyers/services.py`, `publishers/api.py`, `buyers/api.py`,
+`accounts/management/commands/invite.py` (new)
+
+### Problem
+
+You add a publisher, you type their email address into the form, and nothing
+happens. The invitation is a separate thing on a separate page, behind a button
+that saves to `localStorage` and calls nothing — so across the whole platform,
+no partner has ever been sent a login.
+
+This was reported four times. Three of those I answered by explaining that the
+button is the frontend's problem, which is true and was not the point. Typing an
+email address into the create form **is** the decision to give them a login.
+Making someone press a second button afterwards is the bug, independently of
+whether that button works.
+
+### Fix
+
+`accounts/auto_invite.py`, shared by buyers and publishers so the two cannot
+drift and the next partner type gets it without anybody noticing it is missing.
+Creating a record with an email address on it sends the invitation.
+
+Three rules:
+
+  - **no email, no invite.** The address is the decision. A record saved without
+    one is a record somebody is still filling in, and inviting would be guessing.
+  - **it never fails the create.** The record is what was asked for. If the mail
+    server is down the account and the link still exist and the response says so,
+    rather than losing a publisher to an SMTP timeout.
+  - **the link comes back either way**, so an invitation is never lost to a mail
+    problem.
+
+Both create endpoints now return an `invite` block saying what happened —
+whether it went, to which address, and the link. They return a plain dict rather
+than their Out schema, which would have filtered that block out.
+
+### Also
+
+`python manage.py invite --publisher "test" --email someone@example.com` for the
+partners that already exist and never got one, and for any case where the
+interface is not the way in. `--list` shows who can be invited. It matches on
+name so nobody has to copy a UUID out of a URL — and the id in that URL has at
+least once not been a record that exists.

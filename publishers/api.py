@@ -14,13 +14,21 @@ from accounts.api import JWTAuth
 router = Router(tags=["Publishers"], auth=JWTAuth())
 
 
-@router.post("", response={201: PublisherOutSchema, 400: dict})
+# Returns a plain dict rather than PublisherOutSchema so the `invite` block
+# reaches the caller - a schema would filter it out, and whether the invitation
+# went is the thing the person who just filled in the form wants to know.
+@router.post("", response={201: dict, 400: dict})
 def create_publisher(request: HttpRequest, data: CreatePublisherSchema):
     require(request.auth, Capability.CREATE)
     try:
-        publisher = PublisherService.create(data, request.auth)
-        publisher = PublisherService.get_publisher(str(publisher.id), request.auth)
-        return 201, PublisherService.format_publisher(publisher)
+        created = PublisherService.create(data, request.auth)
+        # Carried off the in-memory object before the re-read drops it.
+        invite = getattr(created, 'invite_result', None)
+        publisher = PublisherService.get_publisher(str(created.id), request.auth)
+        body = PublisherService.format_publisher(publisher)
+        if invite is not None:
+            body['invite'] = invite
+        return 201, body
     except ValueError as e:
         return 400, {"detail": str(e)}
 

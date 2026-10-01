@@ -35,6 +35,13 @@ class PublisherService:
         else:
             PublisherCap.objects.create(publisher=publisher)
 
+        # An email address on the form is the decision to give them a login.
+        # Nobody should have to go and press Invite afterwards - and until now
+        # that button saved to the browser and called nothing, so no publisher
+        # has ever actually been invited.
+        from accounts.auto_invite import invite_on_create
+        publisher.invite_result = invite_on_create(publisher, 'publisher', invited_by=user)
+
         return publisher
 
     @staticmethod

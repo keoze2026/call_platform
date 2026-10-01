@@ -56,6 +56,11 @@ class BuyerService:
         else:
             BuyerCap.objects.create(buyer=buyer)
 
+        # Same as publishers: the email address on the form is the decision to
+        # give them a login, and nothing should have to be pressed afterwards.
+        from accounts.auto_invite import invite_on_create
+        buyer.invite_result = invite_on_create(buyer, 'buyer', invited_by=user)
+
         return buyer
 
     @staticmethod
