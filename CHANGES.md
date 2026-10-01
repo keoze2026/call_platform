@@ -3998,3 +3998,82 @@ The campaign `23 JUNE` has a **200 calls/day** cap and had taken 252, so
 everything after the 200th was refused with "campaign cap reached" — a separate
 failure wearing the same red label in the interface. Raised to 2000 daily and
 50000 monthly for testing. **Original values were 200 and 5000.**
+
+---
+
+## CH-058 — Full static scan of every line, and the three faults it found
+
+**Date:** 2026-10-02
+**Files:** `scripts/full_scan.py` (new), `routing/api.py`, `spam_protection/api.py`,
+`accounts/api.py`, `billing/api.py`
+
+Run before handing the project over. 361 files, 31,375 lines, parsed rather than
+read, looking for the classes of fault that have actually reached production
+here.
+
+    python3 scripts/full_scan.py
+
+### Fault 1 — `NameError` waiting in the manual hangup
+
+`routing/api.py` line 228 used `RoutingEngine.required_call_balance(...)` and
+the file imported `RoutingEngine` **nowhere**. Hanging up a connected call from
+the interface raised `NameError` instead of hanging it up.
+
+This is the same shape as the fault that made every call return 500 for two
+hours on 29 September: a name used in a branch that had not been exercised.
+Grep finds the word and says it is fine; only running that line finds it.
+
+### Fault 2 — the spam check returned 500 for every number
+
+    Blacklist.objects.filter(organization=request.auth.organization, ...)
+
+`Blacklist.organization_id` is a plain `UUIDField`, not a ForeignKey, so there
+is no `organization` relation and Django raised `FieldError`. Same on
+`Whitelist`. `GET /api/spam/check` has never worked.
+
+Third time a non-existent field has been queried in this codebase, after
+`organization.members` and `CallLog.is_converted`. The scanner now builds the
+field list for all 65 models and checks every `filter`, `exclude`, `get`,
+`create` and `get_or_create` against it.
+
+### Fault 3 — eight write endpoints with no capability check
+
+  - **`billing/api.py`** — seven endpoints that move money or change rates had
+    no guard, while the file already imported `require` and `Capability` for
+    other uses. `update_account` alone sets the per-minute rate, the markup, the
+    credit limit and auto-recharge. **Every role in a workspace could call them,
+    including a buyer or publisher login**, which is an outside company. All
+    seven now require `Capability.BILLING`, which only admin and reseller hold.
+  - **`accounts/api.py`** — `revoke_session` was scoped to the workspace but
+    open to every role in it, so an agent could sign the admin out. Now requires
+    `Capability.MEMBERS`.
+
+The provider webhooks are deliberately left unguarded: they authenticate with a
+signature, not a session.
+
+### What the scanner checks
+
+    undefined names          a name used in a function and defined nowhere
+    model fields             a query naming a column that does not exist
+    model attributes         `organization.members` and its kind
+    silent failures          `except: pass` - the feature dies in silence
+    unguarded writes         a POST/PATCH/DELETE with no capability check
+    hardcoded secrets        credentials in source rather than .env
+    migration graph          missing dependencies, split leaves
+    settings                 DEBUG, ALLOWED_HOSTS, CORS, SECRET_KEY
+    call path                any blocking network call in the two routing files
+
+It handles closures, star imports, nested choice classes and Django's own
+keywords, because a scanner that reports 500 findings is one nobody reads. The
+first run reported 540 criticals and almost all of them were its own blind
+spots; those were fixed until what remained was real.
+
+### Result
+
+    0 critical, 45 warnings, 54 informational
+
+The warnings are 18 swallowed exceptions and 27 write endpoints whose guard is
+a deliberate choice (public login and password reset, self-service actions on
+your own account, provider webhooks). The informational findings are quiet
+exception returns, repeated local imports, and two runtime attributes set
+deliberately.

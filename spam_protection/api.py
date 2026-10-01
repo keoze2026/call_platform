@@ -276,8 +276,13 @@ def check_number(request, phone_number: str = ''):
     if not number:
         return 200, {"number": number, "is_blocked": False, "is_whitelisted": False, "is_spam": False, "allowed": True, "confidence": None, "reason": None}
     from spam_protection.models import Blacklist, Whitelist
-    is_blocked = Blacklist.objects.filter(organization=request.auth.organization, phone_number=number, is_active=True).exists()
-    is_whitelisted = Whitelist.objects.filter(organization=request.auth.organization, phone_number=number, is_active=True).exists()
+    # `organization_id`, not `organization`. These two models store a plain
+    # UUIDField rather than a ForeignKey, so there is no `organization`
+    # relation to filter on and Django raised FieldError - this endpoint
+    # returned 500 for every number it was ever asked about.
+    org_id = request.auth.organization_id
+    is_blocked = Blacklist.objects.filter(organization_id=org_id, phone_number=number, is_active=True).exists()
+    is_whitelisted = Whitelist.objects.filter(organization_id=org_id, phone_number=number, is_active=True).exists()
     return 200, {"number": number, "is_blocked": is_blocked, "is_whitelisted": is_whitelisted, "is_spam": is_blocked, "allowed": not is_blocked, "confidence": None, "reason": "blacklisted" if is_blocked else None}
 
 

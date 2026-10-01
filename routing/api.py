@@ -5,6 +5,10 @@ from django.http import HttpRequest
 from typing import List, Optional
 from accounts.api import JWTAuth
 from .models import RoutingRule, RuleCondition, RuleDestination, CallLog
+# Used by hangup_call() to work out the publisher payout. It was referenced
+# there and imported nowhere in this file, so ending a connected call by hand
+# raised NameError instead of hanging it up.
+from .engine import RoutingEngine
 from .schemas import (
     CreateRoutingRuleSchema, UpdateRoutingRuleSchema,
     RoutingRuleOutSchema, RoutingRuleListSchema,

@@ -712,6 +712,11 @@ def workspace_sessions(request: HttpRequest):
 
 @router.delete("/workspace/sessions/{session_id}", response={204: None, 404: dict})
 def revoke_session(request: HttpRequest, session_id: str):
+    # Ending somebody else's session is a member-management action. It was
+    # scoped to the workspace but open to every role in it, so an agent could
+    # sign the admin out.
+    require(request.auth, Capability.MEMBERS)
+
     from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
     try:
         token = OutstandingToken.objects.get(id=session_id, user__organization=request.auth.organization)

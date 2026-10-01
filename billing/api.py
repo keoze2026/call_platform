@@ -30,6 +30,11 @@ def get_account(request: HttpRequest):
 
 @router.patch("/account", response={200: BillingAccountOutSchema, 400: dict})
 def update_account(request: HttpRequest, data: UpdateBillingSchema):
+    # changing the rates, credit limit and auto-recharge on the account is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     try:
         account = BillingService.update(data, request.auth)
         return 200, BillingService.format_account(account)
@@ -39,6 +44,11 @@ def update_account(request: HttpRequest, data: UpdateBillingSchema):
 
 @router.post("/deposit", response={200: dict, 400: dict})
 def create_payment_intent(request: HttpRequest, data: DepositSchema):
+    # starting a payment is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     try:
         result = BillingService.create_stripe_payment_intent(
             data.amount, request.auth
@@ -50,6 +60,11 @@ def create_payment_intent(request: HttpRequest, data: DepositSchema):
 
 @router.post("/deposit/confirm", response={200: dict, 400: dict})
 def confirm_deposit(request: HttpRequest, data: DepositSchema):
+    # confirming a deposit is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     try:
         tx = BillingService.deposit(
             data.amount,
@@ -116,6 +131,11 @@ def list_invoices(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.post("/payment-methods", response={200: dict, 400: dict})
 def save_payment_method(request: HttpRequest, payment_method_id: str):
+    # storing a card is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     try:
         result = BillingService.save_payment_method(payment_method_id, request.auth)
         return 200, result
@@ -134,6 +154,11 @@ def list_payment_methods(request: HttpRequest):
 
 @router.delete("/payment-methods/{payment_method_id}", response={200: dict, 400: dict})
 def delete_payment_method(request: HttpRequest, payment_method_id: str):
+    # removing a card is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     try:
         BillingService.delete_payment_method(payment_method_id, request.auth)
         return 200, {"message": "Payment method removed", "success": True}
@@ -191,6 +216,11 @@ def stripe_webhook(request: HttpRequest):
 @router.post("/deposit/coingate", response={200: dict, 400: dict})
 def coingate_deposit(request, amount: float, currency: str = 'USD'):
     """Create a CoinGate crypto checkout for the user to deposit funds."""
+    # starting a crypto payment is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     if amount <= 0:
         return 400, {"detail": "Amount must be greater than 0"}
 
@@ -295,6 +325,11 @@ def coingate_webhook(request):
 @router.post("/deposit/capitalist", response={200: dict, 400: dict})
 def capitalist_deposit(request, amount: float, currency: str = 'USD'):
     """Create a Capitalist.net checkout for the user to deposit funds."""
+    # starting a crypto payment is an admin action. BILLING is held by admin and
+    # reseller only; without this check every role in the workspace,
+    # including a buyer or publisher login, could do it.
+    require(request.auth, Capability.BILLING)
+
     if amount <= 0:
         return 400, {"detail": "Amount must be greater than 0"}
 
