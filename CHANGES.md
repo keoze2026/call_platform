@@ -3746,3 +3746,65 @@ Shipped and caught within the hour, before any buyer was created through it.
 One resolver now, used by the automatic invitation, the management command and
 both invite endpoints — each of which had been resolving the address its own
 way. The next partner model cannot reintroduce it.
+
+---
+
+## CH-055 — Every link in every email the platform has ever sent was dead
+
+**Date:** 2026-10-01
+**Files:** `.env` on the server (`FRONTEND_URL`, `MEDIA_BASE_URL`)
+
+### What was wrong
+
+`FRONTEND_URL` was never set, so it fell back to its default of
+`https://avortyx.io`. That domain is the **API**. nginx sends everything on it to
+Django, which has no portal pages, so `/`, `/login`, `/dashboard` and
+`/set-password` all return 404.
+
+The portal is at **`https://www.avortyx.com`** — a different top-level domain.
+Found in the nginx access log, which carries the browser's `Referer` on every
+API call: 145,603 requests from `www.avortyx.com` and none from anywhere else.
+
+So every link the platform has ever emailed pointed at a domain with no pages on
+it:
+
+  - buyer and publisher invitations
+  - staff invitations
+  - password resets
+  - access-request approvals
+
+Nobody has ever been able to complete a signup or a password reset by clicking a
+link from this system. Not one.
+
+### Why it stayed hidden
+
+Nothing fails. The email sends, the account is created, the token is stored and
+valid. Every piece reports success, because every piece did succeed. The only
+broken thing is the address written on the envelope, and the server has no way
+to know that the domain it was configured with does not serve the page it is
+pointing at.
+
+It also hid behind being a *default*. `config('FRONTEND_URL', default='https://avortyx.io')`
+reads as though somebody chose it.
+
+I built the invitation flow on `settings.FRONTEND_URL` and never checked what it
+resolved to, which is the same mistake in miniature: using a value without
+looking at it.
+
+### The second setting
+
+`MEDIA_BASE_URL` defaults to `FRONTEND_URL`. Changing one alone would have
+silently repointed every avatar and recording URL at `www.avortyx.com`, which
+does not serve `/media/`. Both are now set explicitly:
+
+    FRONTEND_URL=https://www.avortyx.com      the portal
+    MEDIA_BASE_URL=https://avortyx.io          where /media/ is actually served
+
+### Verified
+
+`/`, `/login` and `/set-password` on `www.avortyx.com` all return 200 before the
+change was applied, so the link now points at a page that exists.
+
+Applied with `docker compose up -d --force-recreate web`, not `restart` — a
+restart does not reload `env_file`, which is what made the password rotation
+appear to fail twice on 25 September.
