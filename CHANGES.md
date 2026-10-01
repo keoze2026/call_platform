@@ -3632,3 +3632,30 @@ be believed.
 It now counts every status line the watchdog wrote and treats one that is not
 `routing=403 portal=200` as a failure. A two-hour outage reads as 90%, which is
 what it was.
+
+### Addendum — three kinds of money, not one
+
+Checking the 30 September report line by line turned up what looked like a
+contradiction: the campaign `23 JUNE` has `payout_amount` **0.45**, but the 23
+billed calls summed to **$23.00**, which is $1.00 each.
+
+Not a contradiction. A campaign carries two rates:
+
+    revenue_amount   what the BUYER pays for the call      $1.00
+    payout_amount    what the PUBLISHER is paid for it     $0.45
+
+They are different sides of the same call. The verification script printed the
+payout beside the billed total and made them look like they disagreed — that was
+the script's label, not the data.
+
+Which exposed a real gap in the report. It showed what the buyers were billed
+and what Avortyx charged, and nothing about what goes back out to the
+publishers. For 30 September:
+
+    buyers billed    $23.00
+    publishers due   $10.35
+    client margin    $12.65
+    Avortyx earned    $1.19
+
+Showing only the first invites the reader to think the business kept all of it.
+All four are now in the report, each saying whose money it is.

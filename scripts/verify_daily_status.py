@@ -58,9 +58,24 @@ print("\nCLIENT BILLED — what the buyers owe")
 rev = calls.aggregate(t=Coalesce(Sum('revenue'), Decimal('0')))['t']
 print(f"  sum of CallLog.revenue          ${rev}")
 print(f"  calls with revenue over zero    {calls.filter(revenue__gt=0).count()}")
-by_campaign = calls.values('campaign__name', 'campaign__payout_amount').annotate(n=Count('id'))
+# A campaign carries two rates and they are not the same money:
+#   revenue_amount  what the BUYER pays for the call
+#   payout_amount   what the PUBLISHER is paid for sending it
+# Printing the payout next to the billed total made them look like they
+# disagreed - 24 calls at 0.45 against $23.00 billed - when they are simply
+# different sides of the same call.
+by_campaign = calls.values(
+    'campaign__name', 'campaign__revenue_amount', 'campaign__payout_amount',
+).annotate(n=Count('id'))
 for r in by_campaign:
-    print(f"  {r['campaign__name']!r}: {r['n']} calls at payout {r['campaign__payout_amount']}")
+    print(f"  {r['campaign__name']!r}: {r['n']} calls")
+    print(f"      buyer pays      {r['campaign__revenue_amount']} each")
+    print(f"      publisher gets  {r['campaign__payout_amount']} each")
+
+print("\nPUBLISHER PAYOUT — what goes back out")
+payout = calls.aggregate(t=Coalesce(Sum('publisher_payout'), Decimal('0')))['t']
+print(f"  sum of CallLog.publisher_payout ${payout}")
+print(f"  margin left to the client       ${rev - payout}")
 
 print("\nAVORTYX EARNED — what was charged for routing them")
 charges = Transaction.objects.filter(

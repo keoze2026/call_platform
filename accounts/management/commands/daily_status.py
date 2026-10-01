@@ -133,6 +133,7 @@ class Command(BaseCommand):
             converted=Count('id', filter=Q(conversions__isnull=False), distinct=True),
             capped=Count('id', filter=Q(block_reason__icontains='cap')),
             client_revenue=Coalesce(Sum('revenue'), Decimal('0')),
+            publisher_payout=Coalesce(Sum('publisher_payout'), Decimal('0')),
         )
         connected = agg['connected'] or 0
 
@@ -149,7 +150,16 @@ class Command(BaseCommand):
         # mistake. What the client earned on its calls is not what Avortyx
         # earned for carrying them, and a single line called "Revenue" invites
         # whoever reads it to assume the larger one.
-        lines.append(f"Client billed  ${agg['client_revenue']:,.2f}   (what buyers owe for these calls)")
+        # Three numbers, not one, because they are three different people's
+        # money. A campaign carries a revenue_amount the buyer pays and a
+        # payout_amount the publisher receives, and the difference is what the
+        # client keeps. Showing only the first invites the reader to think the
+        # business took all of it.
+        payout = agg['publisher_payout'] or Decimal('0')
+        billed = agg['client_revenue'] or Decimal('0')
+        lines.append(f"Buyers billed  ${billed:,.2f}   (what the buyers owe)")
+        lines.append(f"Publishers due ${payout:,.2f}   (what goes back out)")
+        lines.append(f"Client margin  ${billed - payout:,.2f}")
 
         # Read from the ledger, never recalculated: recalculating is how the
         # Cost column came to disagree with the invoice by $0.16 and then by a
