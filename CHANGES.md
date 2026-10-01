@@ -3218,7 +3218,9 @@ Nothing in the call path was touched to reach this conclusion; it is all reads.
 **Files:** `buyers/models.py`, `buyers/destination.py`, `buyers/services.py`,
 `buyers/destinations_api.py`, `buyers/sync.py` (new), `buyers/apps.py`,
 `buyers/migrations/0011_buyer_data_integrity.py`,
-`buyers/migrations/0012_destination_unique_tfn.py`,
+`buyers/migrations/0012_unique_buyer_name.py`,
+`buyers/migrations/0013_disable_duplicate_live_destinations.py`,
+`buyers/migrations/0014_unique_enabled_destination_tfn.py`,
 `phone_numbers/services.py`, `phone_numbers/migrations/0006_backfill_renews_at.py`
 
 Four faults, all found on 30 September, all of them data rather than code. A
@@ -3295,3 +3297,33 @@ rather than guessed: purchases now set it, and the migration fills the existing
 ones by stepping forward a month at a time until the date is in the future —
 giving the next renewal, not one in the past. The API now also returns
 `renews_in_days`, which is what a person actually wants from it.
+
+
+### Addendum — why this is four migrations and not two
+
+The first attempt put the cleanup and its constraint in one migration each. Both
+failed on the first `ALTER TABLE`:
+
+    cannot ALTER TABLE "buyers" because it has pending trigger events
+
+Deleting a buyer cascades to its caps and campaign links, which queues deferred
+foreign-key trigger events on the table. PostgreSQL will not alter a table that
+has them outstanding, and they only settle at the end of the transaction — which
+is also when the constraint was trying to be added.
+
+Django wrapped the whole migration in one transaction, so the failure took the
+cleanup down with it: the deletions printed to the console and were then rolled
+back. Nothing was applied and no data was lost, which is the behaviour you want,
+but the output reads as though work was done.
+
+Split so each migration is its own transaction, and the triggers have settled
+before the constraint is added:
+
+    0011  remove junk buyers, rename duplicates, fill phone numbers
+    0012  unique (organization, name) on buyers
+    0013  switch off destinations live on a shared number
+    0014  unique (organization, tfn) on enabled destinations
+
+The data migration and the constraint that protects it are adjacent and
+dependent, so they still apply together or not at all — just in four
+transactions rather than one.

@@ -15,12 +15,20 @@ end is what makes it stay fixed: the database refuses a second buyer with the
 same name in the same workspace, so this cannot be recreated through the UI, the
 API, the admin or a script.
 
+The constraint that enforces this lives in the next migration, not here.
+PostgreSQL refuses `ALTER TABLE` on a table that has pending trigger events, and
+deleting a buyer cascades to its caps and campaign links, which queues exactly
+those. Adding the constraint in the same transaction fails with "cannot ALTER
+TABLE because it has pending trigger events" and takes the whole migration down
+with it. A separate migration is a separate transaction, so the triggers have
+settled by the time the constraint is added.
+
 Deliberately cautious about what counts as junk. A buyer is only removed when it
 has no calls, no destinations and no campaign assignments - it has never been
 part of anything. Anything with history is kept, however odd its name, because a
 name is not worth losing a record over.
 """
-from django.db import migrations, models
+from django.db import migrations
 
 
 def clean_up(apps, schema_editor):
@@ -100,11 +108,4 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunPython(clean_up, undo),
-        migrations.AddConstraint(
-            model_name='buyer',
-            constraint=models.UniqueConstraint(
-                fields=['organization', 'name'],
-                name='unique_buyer_name_per_organization',
-            ),
-        ),
     ]
