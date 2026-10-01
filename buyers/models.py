@@ -42,6 +42,14 @@ class Buyer(models.Model):
     # Financial
     payout_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
+    # What this partner's own login may do, and what it may see of its reports.
+    # Same fields as Publisher, because a buyer login is the same kind of thing:
+    # an outside company with an account inside this workspace. Empty means
+    # nobody has decided, and the defaults in
+    # `accounts/partner_permissions.py` apply.
+    permissions = models.JSONField(default=dict, blank=True)
+    visible_report_columns = models.JSONField(default=list, blank=True)
+
     # Call settings
     min_call_duration = models.IntegerField(default=0)
     max_concurrency = models.IntegerField(default=0)

@@ -191,7 +191,29 @@ class ProfileService:
             # "not linked" and an empty string would read as linked.
             'telegram_chat_id': user.telegram_chat_id or None,
             'telegram_username': user.telegram_username or None,
-            'created_at': user.created_at.isoformat()
+            'created_at': user.created_at.isoformat(),
+            # What this login may do and see, decided in one place and sent to
+            # the interface rather than worked out there. The frontend was
+            # deciding what to show from the role name alone, which cannot
+            # express one publisher being allowed to buy numbers and another
+            # not - and showed controls that then returned 403.
+            **ProfileService._access(user),
+        }
+
+    @staticmethod
+    def _access(user) -> dict:
+        from accounts.partner_permissions import partner_record, visible_report_columns
+        from accounts.permissions import capabilities_for, is_scoped
+
+        record = partner_record(user)
+        return {
+            'capabilities': sorted(capabilities_for(user)),
+            'is_scoped': is_scoped(user),
+            'visible_report_columns': visible_report_columns(user),
+            'partner_type': 'publisher' if getattr(user, 'publisher_id', None)
+            else ('buyer' if getattr(user, 'buyer_id', None) else None),
+            'partner_id': str(record.id) if record else None,
+            'partner_name': record.name if record else None,
         }
     
     @staticmethod

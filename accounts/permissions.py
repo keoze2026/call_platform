@@ -29,6 +29,13 @@ class Capability:
     MEMBERS = 'members'              # invite, remove, change roles
     SETTINGS = 'settings'            # workspace settings, integrations, white label
 
+    # Granted to a buyer or publisher login by the toggles on its own record.
+    # Staff hold them through their role; a partner only if somebody switched it
+    # on. See `accounts/partner_permissions.py`.
+    RECORDINGS = 'recordings'        # listen to and download call recordings
+    BLOCK_NUMBERS = 'block_numbers'  # add numbers to the block list
+    EXPORT = 'export'                # download a report
+
 
 # Role → what it may do. A role absent from here gets VIEW only, so a new role
 # added to the model is harmless until it is given capabilities deliberately.
@@ -36,20 +43,25 @@ ROLE_CAPABILITIES = {
     'admin': {
         Capability.VIEW, Capability.EDIT, Capability.CREATE, Capability.DELETE,
         Capability.BILLING, Capability.MEMBERS, Capability.SETTINGS,
+        Capability.RECORDINGS, Capability.BLOCK_NUMBERS, Capability.EXPORT,
     },
     'reseller': {
         Capability.VIEW, Capability.EDIT, Capability.CREATE, Capability.DELETE,
         Capability.BILLING, Capability.MEMBERS, Capability.SETTINGS,
+        Capability.RECORDINGS, Capability.BLOCK_NUMBERS, Capability.EXPORT,
     },
     # Runs the operation, but money and people are the admin's
     'manager': {
         Capability.VIEW, Capability.EDIT, Capability.CREATE, Capability.DELETE,
+        Capability.RECORDINGS, Capability.BLOCK_NUMBERS, Capability.EXPORT,
     },
     # Works the queue: can change what exists, cannot add or remove
     'agent': {
-        Capability.VIEW, Capability.EDIT,
+        Capability.VIEW, Capability.EDIT, Capability.RECORDINGS, Capability.EXPORT,
     },
-    # Outside parties with a login. They see their own calls and nothing else.
+    # Outside parties with a login. VIEW is the floor; anything more comes from
+    # the toggles on their own buyer or publisher record, which is why these are
+    # not simply listed here. See `capabilities_for` below.
     'buyer': {Capability.VIEW},
     'publisher': {Capability.VIEW},
 }
@@ -64,7 +76,18 @@ def capabilities_for(user) -> set:
         return set()
     if getattr(user, 'is_superuser', False):
         return set(ROLE_CAPABILITIES['admin'])
-    return ROLE_CAPABILITIES.get(getattr(user, 'role', ''), {Capability.VIEW})
+
+    role = getattr(user, 'role', '')
+
+    # A partner login is the one case where the role is not the whole answer.
+    # Its capabilities come from the toggles on its own buyer or publisher
+    # record, so one publisher can be allowed to buy numbers and another not,
+    # which a role alone cannot express.
+    if role in SCOPED_ROLES:
+        from accounts.partner_permissions import capabilities_for_partner
+        return capabilities_for_partner(user)
+
+    return ROLE_CAPABILITIES.get(role, {Capability.VIEW})
 
 
 def has(user, capability: str) -> bool:

@@ -25,6 +25,14 @@ class Publisher(models.Model):
     # Financial
     payout_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
 
+    # What this partner's own login may do, and what it may see of its reports.
+    # The settings page offered both and saved neither - they lived in the
+    # browser, so two people looking at the same publisher saw different
+    # settings and the toggles gated nothing. Empty means "nobody has decided",
+    # and the defaults in `accounts/partner_permissions.py` apply.
+    permissions = models.JSONField(default=dict, blank=True)
+    visible_report_columns = models.JSONField(default=list, blank=True)
+
     # Tracking
     unique_id = models.CharField(max_length=50, unique=True, blank=True)
 

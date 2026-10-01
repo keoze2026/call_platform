@@ -2,7 +2,7 @@ from ninja import Router, Query
 from django.http import HttpRequest, HttpResponse
 from typing import List
 from accounts.api import JWTAuth
-from accounts.permissions import scope_queryset
+from accounts.permissions import Capability, require, scope_queryset
 from django.db.models.functions import Coalesce
 import logging
 
@@ -128,6 +128,13 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
 def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Download full call log as CSV."""
     from django.http import StreamingHttpResponse
+
+    # "Download Reports" is one of the toggles on a partner's settings page. It
+    # gated nothing before: the switch sat in the browser and the export was
+    # open to any login that could reach the URL. Staff hold this through their
+    # role; a partner only if somebody switched it on.
+    require(request.auth, Capability.EXPORT)
+    
     csv_generator = AnalyticsService.export_csv(request.auth, filters)
     response = StreamingHttpResponse(csv_generator, content_type='text/csv')
     response['Content-Disposition'] = 'attachment; filename="call_log.csv"'
@@ -137,6 +144,13 @@ def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(..
 def get_recording(request: HttpRequest, call_id: str):
     from routing.models import CallLog
     from routing.recordings import public_recording_url
+
+    # "Audio Recording" on the partner settings page. A recording is a customer
+    # on the phone, so a partner hears one only if somebody switched it on for
+    # them. The row scoping below still applies on top: they can only ever ask
+    # about their own calls.
+    require(request.auth, Capability.RECORDINGS)
+
     try:
         call = scope_queryset(request.auth, CallLog.objects.all()).get(
             id=call_id,

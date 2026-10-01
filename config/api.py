@@ -1,5 +1,6 @@
 from ninja import NinjaAPI
 from accounts.api import router as accounts_router
+from accounts.partner_settings_api import router as partner_settings_router
 from campaigns.api import router as campaigns_router
 from buyers.api import router as buyers_router
 from publishers.api import router as publishers_router
@@ -66,6 +67,9 @@ def global_exception_handler(request, exc):
     )
 
 api.add_router("/accounts/", accounts_router)
+# Permissions and report columns for a buyer or publisher login. Registered
+# after the accounts router so its own paths win where they overlap.
+api.add_router("/accounts/", partner_settings_router)
 api.add_router("/campaigns/", campaigns_router)
 api.add_router("/buyers/", buyers_router)
 api.add_router("/publishers/", publishers_router)

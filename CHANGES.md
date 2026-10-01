@@ -3327,3 +3327,118 @@ before the constraint is added:
 The data migration and the constraint that protects it are adjacent and
 dependent, so they still apply together or not at all — just in four
 transactions rather than one.
+
+---
+
+## CH-051 — Partner permissions and report columns: a backend for the toggles
+
+**Date:** 2026-10-01
+**Files:** `accounts/partner_permissions.py` (new), `accounts/partner_settings_api.py` (new),
+`accounts/permissions.py`, `accounts/services.py`, `analytics/api.py`,
+`publishers/models.py`, `buyers/models.py`, `config/api.py`,
+`publishers/migrations/0002_partner_permissions.py`,
+`buyers/migrations/0015_partner_permissions.py`,
+`scripts/verify_partner_permissions.py` (new)
+
+### Problem
+
+The publisher settings page offers five permission toggles and eight reporting
+checkboxes. The page says so itself, in a banner nobody should have had to
+write:
+
+> **Preview — these settings save to this browser only.** Member invites,
+> permissions, reporting visibility, and the cap toggle don't yet round-trip to
+> the server.
+
+They lived in `localStorage`. They survived a refresh on that machine, which is
+what made them convincing, and meant nothing anywhere else: two admins looking
+at the same publisher saw different settings, and no toggle gated anything at
+all. A publisher with "Audio Recording" switched off could still fetch
+recordings, and one with "Download Reports" off could still download the whole
+call log.
+
+Invites and the cap had endpoints already (CH-0xx, and `PATCH /{id}/cap`). The
+permissions and the reporting visibility had nothing — not an endpoint, not a
+column, not a field on the model. That part was mine, not the frontend's.
+
+### Built on the capability system, not beside it
+
+A toggle now maps to a capability that `require()` already enforces on every
+endpoint that calls it. Nothing has to remember to consult a second system.
+
+    Manage Traffic      EDIT
+    Number Creation     CREATE
+    Audio Recording     RECORDINGS   (new)
+    Block Numbers       BLOCK_NUMBERS (new)
+    Download Reports    EXPORT       (new)
+
+`capabilities_for()` gains one branch: a login whose role is `buyer` or
+`publisher` gets its capabilities from the toggles on its own record rather than
+from the role table. That is the thing a role alone cannot express — one
+publisher allowed to buy numbers and another not.
+
+Row scoping is untouched and still applies on top. A partner with every toggle
+on still only ever sees its own calls.
+
+### The catalogue is served, not hardcoded
+
+`GET /api/accounts/partner-permissions` returns every permission and report
+column the backend actually supports, with the labels and descriptions.
+
+The frontend kept its own list. That is precisely how a toggle ends up on screen
+with nothing behind it: nobody can tell a setting that saves from one that does
+not until somebody checks, and nobody checked for months. A toggle should exist
+because the backend has one.
+
+An unknown key sent to the save endpoint is **refused**, not ignored. Silently
+dropping it would recreate the same fault from the other direction — the
+interface believing it saved something it did not.
+
+### What a login is told about itself
+
+`/api/accounts/me` now returns `capabilities`, `is_scoped`,
+`visible_report_columns`, `partner_type`, `partner_id` and `partner_name`.
+
+The interface was deciding what to show from the role name alone, so it rendered
+controls that then returned 403. Now it can render what the login actually
+holds.
+
+### Endpoints
+
+    GET   /api/accounts/partner-permissions
+    GET   /api/accounts/{buyer|publisher}/{id}/settings
+    PATCH /api/accounts/{buyer|publisher}/{id}/settings
+
+The read returns `has_been_set`, so the interface can tell "nobody has decided"
+from "somebody switched everything off". They look identical otherwise and only
+one of them is worth asking about.
+
+Saving requires `MEMBERS`, not `EDIT`: changing what another company's login may
+do is a member-management decision, not an edit to a record.
+
+### Buyers get the same fields
+
+A buyer login is the same kind of thing — an outside company with an account
+inside this workspace. The settings page treats them alike, so the storage does
+too, rather than waiting for the buyer version of this bug to be found
+separately.
+
+### Defaults chosen at the safe end
+
+Both columns start empty, meaning "nobody has decided" rather than "nothing is
+allowed", so no existing partner login changes behaviour on deploy. The defaults
+are read-only plus their own reports. `revenue` is **off** by default: a
+publisher is paid a payout and showing it what the call was sold for hands it
+the margin.
+
+### Verified rather than asserted
+
+`scripts/verify_partner_permissions.py` creates a throwaway publisher and login,
+switches toggles on and off, and checks the capability follows — then calls the
+real export endpoint and confirms it returns **403** with the toggle off and
+**200** with it on. It also checks an unknown permission is dropped, that
+columns come back in catalogue order rather than the order they were sent, and
+that staff are unaffected.
+
+It runs in a transaction that is rolled back, and the last two checks confirm
+nothing survives.
