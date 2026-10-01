@@ -230,6 +230,36 @@ def get_destination_stats(request):
 
 
 
+def _enabled_clash(organization, tfn, enabled, exclude_id=None):
+    """Is another live destination already on this number?
+
+    Returns the message to show, or None. Calls are attributed by an exact match
+    on the number, so two live destinations sharing one means both buyers are
+    credited with the same call and both caps count it.
+    """
+    from buyers.destination import Destination
+
+    if not enabled or not tfn:
+        return None
+
+    qs = Destination.objects.filter(
+        organization=organization, tfn=tfn, enabled=True,
+    ).select_related('buyer')
+    if exclude_id:
+        qs = qs.exclude(id=exclude_id)
+
+    other = qs.first()
+    if other is None:
+        return None
+
+    held_by = other.buyer.name if other.buyer else 'another destination'
+    return (
+        f"{tfn} is already live on {held_by}. Two live destinations cannot share "
+        f"a number - every call to it would be counted for both. Switch that one "
+        f"off first, or use a different number."
+    )
+
+
 @router.post("/", response={201: dict, 400: dict})
 def create_destination(request, payload: DestinationSchema):
     require(request.auth, Capability.CREATE)
@@ -247,6 +277,16 @@ def create_destination(request, payload: DestinationSchema):
         buyer = Buyer.objects.get(id=payload.buyer_id, organization=request.auth.organization)
     except (Buyer.DoesNotExist, ValidationError, ValueError):
         return 400, {"detail": "Buyer not found or invalid buyer_id"}
+
+    # The database refuses two live destinations on one number. Catching it here
+    # turns an IntegrityError 500 into something the person can act on, and
+    # names the buyer already holding it so they can go and look.
+    clash = _enabled_clash(
+        request.auth.organization, payload.get_tfn(), payload.enabled,
+    )
+    if clash:
+        return 400, {"detail": clash}
+
     d = Destination.objects.create(
         organization=request.auth.organization,
         buyer=buyer,
@@ -301,6 +341,15 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
 
         for k, v in fields.items():
             setattr(d, k, v)
+
+        # Both an edit to the number and switching one on can collide with a
+        # destination that is already live on it.
+        clash = _enabled_clash(
+            request.auth.organization, d.tfn, d.enabled, exclude_id=d.id,
+        )
+        if clash:
+            return 400, {"detail": clash}
+
         d.save()
         try:
             from routing.models import RuleDestination

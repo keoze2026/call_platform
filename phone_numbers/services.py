@@ -2,6 +2,7 @@ import logging
 
 from routing.models import CallLog
 from django.conf import settings
+from django.utils import timezone
 from twilio.rest import Client
 from .models import PhoneNumber
 from accounts.models import User
@@ -96,10 +97,18 @@ class PhoneNumberService:
                         f"It will not receive calls until the attach succeeds."
                     )
 
+            # A number renews monthly from the day it was bought. This was only
+            # ever filled from what the request sent, and the interface does not
+            # send it, so every number had a blank Renews column and nothing
+            # knew when the next charge was coming.
             renews_at = None
             if getattr(data, 'renews_at', None):
                 from django.utils.dateparse import parse_datetime
                 renews_at = parse_datetime(data.renews_at)
+            if renews_at is None:
+                from dateutil.relativedelta import relativedelta
+                from django.utils import timezone
+                renews_at = timezone.now() + relativedelta(months=1)
 
             phone_number = PhoneNumber.objects.create(
                 organization=user.organization,
@@ -343,6 +352,13 @@ class PhoneNumberService:
             'traffic_source_enabled': phone_number.traffic_source_enabled,
             'traffic_source_id': phone_number.traffic_source_id,
             'renews_at': phone_number.renews_at.isoformat() if phone_number.renews_at else None,
+            # Nothing read `renews_at`, so a date sitting in the database told
+            # nobody anything. The number of days is what a person actually
+            # wants from it, and it is what a reminder would be built on.
+            'renews_in_days': (
+                (phone_number.renews_at - timezone.now()).days
+                if phone_number.renews_at else None
+            ),
             'voice_enabled': phone_number.voice_enabled,
             'sms_enabled': phone_number.sms_enabled,
             'campaign_id': str(phone_number.campaign_id) if phone_number.campaign_id else None,

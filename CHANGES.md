@@ -3209,3 +3209,89 @@ log that says something untrue and cannot be told apart from one that does not.
 Blank is the smaller cost.
 
 Nothing in the call path was touched to reach this conclusion; it is all reads.
+
+---
+
+## CH-050 — Buyer and destination data made correct, and kept correct
+
+**Date:** 2026-10-01
+**Files:** `buyers/models.py`, `buyers/destination.py`, `buyers/services.py`,
+`buyers/destinations_api.py`, `buyers/sync.py` (new), `buyers/apps.py`,
+`buyers/migrations/0011_buyer_data_integrity.py`,
+`buyers/migrations/0012_destination_unique_tfn.py`,
+`phone_numbers/services.py`, `phone_numbers/migrations/0006_backfill_renews_at.py`
+
+Four faults, all found on 30 September, all of them data rather than code. A
+script would have cleaned each one up once and none of them would have stayed
+clean, because the interface that created them is still there. Each is fixed in
+three parts: repair what exists, stop it recurring, and give a clear message
+when somebody tries.
+
+### Duplicate TFNs across buyers
+
+`+18553752923` belonged to Q08, R48 **and** CRM. Seven more numbers were on two
+buyers each.
+
+Calls are attributed by an exact match on `destination_number`, so one call to a
+shared number is counted for every destination holding it: each of those buyers
+sees the call, each cap counts it, and the totals stop adding up to the traffic
+that arrived. It did no harm only because 101 of the 102 destinations are
+switched off — and became wrong the moment anyone enabled a second.
+
+  - a partial unique constraint on `(organization, tfn)` **where enabled** —
+    the disabled rows are somebody's record of numbers used before and are kept
+  - any enabled duplicates found are switched off, newest first, so the oldest
+    keeps the traffic and the rest stay visible to be corrected
+  - create and update now answer with *"+1855… is already live on Q08. Two live
+    destinations cannot share a number — every call to it would be counted for
+    both."* instead of an IntegrityError 500
+
+### Two buyers called RNY
+
+Any report naming one of them was ambiguous. Unique on `(organization, name)`,
+enforced in the database so it cannot return through the UI, the API, the admin
+or a script — the places a check in any one of them would miss. Create and
+rename both say so in words first.
+
+### Junk rows
+
+`xczxczxcxz`, a second `RNY` and `Q16`. Removed, but **only** where a buyer has
+no calls, no destinations and no campaign assignments — it has never been part
+of anything. A row with history is kept however odd its name; a name is not
+worth losing a record over. A duplicate that survives on those grounds is
+renamed with a visible suffix rather than deleted.
+
+### Every buyer's phone number empty
+
+All 42 had `phone_number=''`. That field is not decoration: `routing/engine.py`
+returns `auction.winner.phone_number` as the destination for an RTB call, so an
+empty one routes an RTB call to nothing. Every campaign is on `priority`, which
+is exactly why it would have stayed hidden until the first time someone switched
+one to RTB and the calls quietly went nowhere.
+
+The migration fills what is already there. `buyers/sync.py` is what stops it
+drifting again — add a destination, change its number, delete it, and the
+buyer's number follows. Three rules, each of which matters:
+
+  - **only when empty or stale.** A number typed in by hand is never
+    overwritten; it is replaced only when it still holds the destination's
+    previous value, which means this wrote it in the first place.
+  - **only when unambiguous.** A buyer with two enabled destinations has no
+    single number. Guessing sends calls to the wrong company, so nothing is
+    written.
+  - **never from the call path.** It runs when a destination is saved — a person
+    editing a record — and is bound to `Destination` alone.
+
+**The routing engine is not changed.** The fix is to fill the field it reads.
+
+### Numbers with no renewal date
+
+`renews_at` was written only from what the purchase request sends, and the
+interface does not send it, so it was null on every number and **nothing read
+it**. The Renews column could only ever be blank and no reminder could be built.
+
+A number renews monthly from the day it was bought, so the date is derivable
+rather than guessed: purchases now set it, and the migration fills the existing
+ones by stepping forward a month at a time until the date is in the future —
+giving the next renewal, not one in the past. The API now also returns
+`renews_in_days`, which is what a person actually wants from it.

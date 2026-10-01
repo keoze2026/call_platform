@@ -37,3 +37,15 @@ class Destination(models.Model):
     class Meta:
         db_table = 'destinations'
         ordering = ['-created_at']
+        constraints = [
+            # Calls are attributed by an exact match on this number, so two live
+            # destinations sharing one means every buyer holding it is credited
+            # with the same call and every cap counts it. Enabled only: the
+            # disabled rows are a record of numbers that were used before, and
+            # are worth keeping.
+            models.UniqueConstraint(
+                fields=['organization', 'tfn'],
+                condition=models.Q(enabled=True),
+                name='unique_enabled_destination_tfn_per_organization',
+            ),
+        ]

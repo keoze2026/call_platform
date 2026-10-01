@@ -52,6 +52,16 @@ class Buyer(models.Model):
     class Meta:
         db_table = 'buyers'
         ordering = ['-created_at']
+        constraints = [
+            # Two buyers called `RNY` existed in one workspace, which makes any
+            # report naming one of them ambiguous. Enforced in the database so
+            # it cannot come back through the UI, the API, the admin or a
+            # script - the places a validation check in one of them would miss.
+            models.UniqueConstraint(
+                fields=['organization', 'name'],
+                name='unique_buyer_name_per_organization',
+            ),
+        ]
 
     def __str__(self):
         return f"{self.name} ({self.status})"

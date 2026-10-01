@@ -14,6 +14,18 @@ class BuyerService:
         if not user.organization:
             raise ValueError("User has no organization")
 
+        # The database refuses a second buyer with the same name in a workspace.
+        # Checking first turns an IntegrityError 500 into a message the person
+        # can act on - two buyers called `RNY` existed, and any report naming
+        # one of them was ambiguous.
+        if Buyer.objects.filter(
+            organization=user.organization, name__iexact=(data.name or '').strip()
+        ).exists():
+            raise ValueError(
+                f"A buyer called '{data.name}' already exists in this workspace. "
+                f"Names have to be unique so reports can tell them apart."
+            )
+
         buyer = Buyer.objects.create(
             organization=user.organization,
             created_by=user,
@@ -86,6 +98,16 @@ class BuyerService:
         for field, value in data.model_dump(exclude_none=True).items():
             if field in ALLOWED_FIELDS:
                 setattr(buyer, field, value)
+
+        # Renaming onto an existing name hits the same unique constraint as
+        # creating one, and would surface as a 500 rather than a message.
+        if Buyer.objects.filter(
+            organization=buyer.organization, name__iexact=(buyer.name or '').strip()
+        ).exclude(pk=buyer.pk).exists():
+            raise ValueError(
+                f"A buyer called '{buyer.name}' already exists in this workspace. "
+                f"Names have to be unique so reports can tell them apart."
+            )
 
         buyer.save()
         return buyer
