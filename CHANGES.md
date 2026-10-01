@@ -43,7 +43,7 @@ Kept current. Anything not on this list is either done and has a CH entry, or
 was investigated and closed as not a fault — also with a CH entry. Last
 reviewed **2026-10-01**.
 
-**Closed on 1 October:** partner invitations now send on create and the links point at the real portal (CH-054, CH-055 — `FRONTEND_URL` had never been set, so every email link the platform ever sent was dead), one live destination per buyer (CH-052, fixed from the data side with no change under `routing/`), partner permissions and reporting visibility (CH-051,
+**Closed on 1 October:** the hourly chart reported calls in the hour they finished rather than the hour they arrived (CH-056 — verified PASS hour by hour against the call log), partner invitations now send on create and the links point at the real portal (CH-054, CH-055 — `FRONTEND_URL` had never been set, so every email link the platform ever sent was dead), one live destination per buyer (CH-052, fixed from the data side with no change under `routing/`), partner permissions and reporting visibility (CH-051,
 20 checks pass, export verified 403 off / 200 on), duplicate TFNs, duplicate and
 junk buyers, empty `Buyer.phone_number`, blank `renews_at` (all CH-050).
 
@@ -86,6 +86,7 @@ junk buyers, empty `Buyer.phone_number`, blank `renews_at` (all CH-050).
 | OPEN-25 | Buyer payout column reads `Buyer.payout_amount`, which is genuinely zero. The payout lives on the campaign |
 | OPEN-26 | Publisher/buyer settings page: read the toggle list from `GET /api/accounts/partner-permissions` instead of hardcoding it, and save with `PATCH /api/accounts/{buyer\|publisher}/{id}/settings`. The backend now exists (CH-051) |
 | OPEN-27 | Render controls from `capabilities` and `visible_report_columns` on `/api/accounts/me`, not from the role name — that is why controls appear and then return 403 |
+| OPEN-30 | The "Calls by hour" chart labels its red bar **No answer**. The backend sends `NOT (completed or in_progress)` — busy, failed and ringing are all inside it. On 1 October it held 85 of 135 calls. Relabel to "Not connected", or ask me to split it by real status |
 | OPEN-28 | The publisher settings page renders a publisher id that is not in the database. `cdf49649-c655-431c-a9fc-cecf24da81a4` is not a publisher, buyer or user; the real one is `b64f7363-949a-482c-8b4a-5add8f3df355`. Every call that page makes with it will 404 |
 
 ---
