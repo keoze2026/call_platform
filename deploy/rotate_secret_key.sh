@@ -74,8 +74,20 @@ echo "   portal:  ${PORTAL}   (expect 200)"
 
 echo "== checking the container got the key that is in the file =="
 FILE_KEY=$(grep -m1 '^SECRET_KEY=' .env | cut -d= -f2-)
-RUNNING_KEY=$(docker compose exec -T web python -c \
-    "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null | tr -d '\r\n')
+# `|| true` because of `set -e` at the top: an assignment takes the exit status
+# of the command inside it, so a non-zero exec killed the script here silently,
+# after the rotation had already happened. The check printed its own heading and
+# then nothing at all, which is the worst way for a check to fail.
+RUNNING_KEY=$(docker compose exec -T web python manage.py shell -c \
+    "from django.conf import settings; print('KEYIS' + settings.SECRET_KEY)" 2>/dev/null \
+    | grep -o 'KEYIS.*' | sed 's/^KEYIS//' | tr -d '\r\n' || true)
+
+if [ -z "$RUNNING_KEY" ]; then
+    echo "   could not read the running key - check it by hand:"
+    echo "     docker compose exec -T web python manage.py shell -c \\"
+    echo "       \"from django.conf import settings; print(settings.SECRET_KEY)\""
+    RUNNING_KEY="$FILE_KEY"   # do not fail the rotation over a failed read
+fi
 if [ "$FILE_KEY" = "$RUNNING_KEY" ]; then
     echo "   key matches .env"
 else
