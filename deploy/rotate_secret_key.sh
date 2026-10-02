@@ -28,7 +28,12 @@ echo "== backing up .env to ${BACKUP} =="
 cp .env "$BACKUP"
 chmod 600 "$BACKUP"
 
-NEW_KEY=$(python3 -c "import secrets,string; a=string.ascii_letters+string.digits+'!@#\$%^&*(-_=+)'; print(''.join(secrets.choice(a) for _ in range(64)))")
+# No $ and no backtick in the alphabet. docker compose interpolates $NAME out
+# of an env_file value, so a key containing $K2xX was silently replaced with a
+# blank string and the container ran on a shorter key than the one in .env -
+# with a warning that is easy to scroll past. Also no quotes or backslashes,
+# which the shell and the file format both argue about.
+NEW_KEY=$(python3 -c "import secrets,string; a=string.ascii_letters+string.digits+'!@#%^&*()-_=+[]{}<>:?,./'; print(''.join(secrets.choice(a) for _ in range(72)))")
 
 echo "== writing the new SECRET_KEY =="
 if grep -q '^SECRET_KEY=' .env; then
@@ -66,6 +71,21 @@ PORTAL=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 \
 
 echo "   routing: ${ROUTING}   (403 is correct - it wants the shared secret)"
 echo "   portal:  ${PORTAL}   (expect 200)"
+
+echo "== checking the container got the key that is in the file =="
+FILE_KEY=$(grep -m1 '^SECRET_KEY=' .env | cut -d= -f2-)
+RUNNING_KEY=$(docker compose exec -T web python -c \
+    "from django.conf import settings; print(settings.SECRET_KEY)" 2>/dev/null | tr -d '\r\n')
+if [ "$FILE_KEY" = "$RUNNING_KEY" ]; then
+    echo "   key matches .env"
+else
+    echo "   !! THE RUNNING KEY DOES NOT MATCH .env"
+    echo "   !! docker compose has interpolated something out of the value."
+    echo "   !! file length ${#FILE_KEY}, running length ${#RUNNING_KEY}"
+    echo "   Put the backup back and tell somebody:"
+    echo "     cp ${BACKUP} ${APP_DIR}/.env"
+    exit 1
+fi
 
 if [ "$ROUTING" != "403" ] || [ "$PORTAL" != "200" ]; then
     echo
