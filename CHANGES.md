@@ -4218,3 +4218,60 @@ could simply have listened to.
 The carrier must raise the channel limit. Until then the platform can carry
 about 30% of the traffic the publisher sends, and no change on this server
 will alter that.
+
+---
+
+## CH-061 — The last 10 of the limit was ours, and it reported itself as a routing failure
+
+**Date:** 2026-10-02
+
+### What finally fixed it
+
+Two separate ceilings, one after the other.
+
+**The carrier's.** CH-060 captured `503 Maximum Concurrent Calls` from
+`100.53.112.140`. They raised it after being shown their own response.
+
+**Ours.** `Buyer.max_concurrency` and `Destination.concurrency_cap` were both
+set to **10**. With the carrier limit lifted, those became the binding
+constraint — the eleventh call was refused by this platform before it ever
+reached the carrier. Raised to 400.
+
+The owner spotted this before I did: *"Now you are loosing because team set 10
+cc above portal."* He was right, and I had checked both of those fields earlier
+in the day and read 10 as "not 5, therefore not the cause" — which was true
+then and stopped being true the moment the carrier's limit moved.
+
+### The misleading error
+
+A call refused for concurrency is logged as:
+
+    block_reason = 'No matching rule found'
+
+Which is what `route_call` returns when it has evaluated every rule and none
+yielded a **usable** destination. A destination is unusable when its cap is
+full, so a capacity problem is reported as a configuration problem. That
+wording sent me looking at routing rules more than once today.
+
+### The proof
+
+    16:07:33   first  "No matching rule found"
+    ...        38 of them
+    16:17:55   last
+    16:18      cap raised to 400
+    16:18+     zero
+
+It stopped in the same minute the cap changed.
+
+    before   21% of calls connected
+    after    72%
+
+What still fails is plain `no_answer` with no block reason — the buyer not
+picking up, which is the business, not the platform.
+
+### Worth fixing
+
+`'No matching rule found'` should say what actually happened. A call refused
+because every destination is at its concurrency cap is not the same as a
+campaign with no rules, and today they were indistinguishable from the call
+log. That is in `routing/engine.py`, so it waits for a window.
