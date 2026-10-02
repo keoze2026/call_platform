@@ -4275,3 +4275,74 @@ picking up, which is the business, not the platform.
 because every destination is at its concurrency cap is not the same as a
 campaign with no rules, and today they were indistinguishable from the call
 log. That is in `routing/engine.py`, so it waits for a window.
+
+---
+
+## CH-062 — The TCPA shield finally does something, and still cannot stop a call
+
+**Date:** 2026-10-02
+**Files:** `spam_protection/dnc.py` (new), `tasks.py`
+
+### Where it was
+
+The TCPA Shield has been in the interface since the beginning with nothing
+behind it. The lookup was written in September, wired into `route_call`, and on
+30 September it stopped every call on the platform: the provider was slow, the
+request never completed, and nothing reached the access log — so from outside it
+looked like the platform had simply gone quiet.
+
+It was taken off the call path that day and connected to nothing since.
+`DNCLookup.check` had exactly one caller: a diagnostic command. `CallLog.is_dnc`
+was never written. Turning on `DNC_CHECK_ENABLED` would have changed nothing.
+
+Credits are now funded — 26,099 — so it is worth wiring, carefully.
+
+### Where it is now
+
+In `enrich_call_carrier`, the Celery task that already looks the caller up
+**after** the call has ended. A call is never delayed by it and never refused by
+it. The worst case is a flag arriving a few seconds late.
+
+    grep -c dnc routing/engine.py routing/asterisk_handler.py
+    0
+    0
+
+That stays zero.
+
+### What it is worth, given it cannot block the call it checked
+
+  **the record** — every call to a listed number is flagged with which register
+  it came from, federal, state or TCPA litigator. The exposure becomes visible
+  rather than arriving in a letter.
+
+  **the next one** — a number found on a register is added to the local
+  blacklist, org-wide. `RoutingEngine.is_blacklisted` already reads that table
+  at routing time, from the database, with no external request. So the caller is
+  refused on their **second** call, at routing, with nothing on the call path.
+
+A TCPA litigator is the case that costs money, and they rarely call once.
+
+### Three things it refuses to do
+
+  - **No result means no record.** If credits run out or the service is down,
+    nothing is written rather than a clean "not listed" we did not actually get.
+    A false negative is the expensive direction.
+  - **It never raises.** A compliance flag is worth having and is never worth
+    losing the carrier enrichment it travels with.
+  - **It does not re-enable a blacklist entry somebody switched off.** A person
+    decided that; overriding them quietly is how a block list stops being
+    trusted.
+
+### To switch on
+
+    DNC_CHECK_ENABLED=true
+
+then `docker compose up -d --force-recreate celery_worker`, because a restart
+does not reload `env_file`.
+
+### What this is not
+
+It is **not** pre-call blocking. A first call to a listed number still
+connects. Real TCPA prevention means checking before the dial, which means an
+external request inside routing, which is the thing that took the platform down.
+If that is ever wanted it needs a local copy of the register, not a live lookup.

@@ -457,8 +457,24 @@ def enrich_call_carrier(call_log_id, caller_number):
             carrier=normalise_carrier(raw_carrier),
         )
 
+    # Do-not-call, checked here and nowhere else.
+    #
+    # This is the same lookup that stopped every call on 30 September when it
+    # sat inside route_call and the provider was slow. It runs here, after the
+    # call has already happened, so the worst it can do is record a flag late.
+    # It must never move into the routing path again.
+    dnc_fields = {}
+    try:
+        from spam_protection.dnc import check_and_record
+        dnc_fields = check_and_record(call_log)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('dnc check failed for %s', call_log_id)
+    fields.update(dnc_fields)
+
     CallLog.objects.filter(id=call_log_id).update(**fields)
-    return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}"
+    flag = ' [DNC]' if dnc_fields.get('is_dnc') else ''
+    return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}{flag}"
 
 
 @app.task(name='tasks.mirror_call_record')
