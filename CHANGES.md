@@ -4077,3 +4077,69 @@ a deliberate choice (public login and password reset, self-service actions on
 your own account, provider webhooks). The informational findings are quiet
 exception returns, repeated local imports, and two runtime attributes set
 deliberately.
+
+---
+
+## CH-059 — Ex-employee lockout: accounts, passwords and the master key
+
+**Date:** 2026-10-02
+**Files:** `accounts/management/commands/rotate_credentials.py` (new),
+`deploy/rotate_secret_key.sh` (new)
+
+Asked for by the owner after an employee left.
+
+### The thing that nearly got missed
+
+Changing passwords does not sign anybody out. `token_blacklist` is **not** in
+`INSTALLED_APPS`, so an issued JWT cannot be revoked one at a time — which also
+means the Active Sessions page and its revoke button have never worked. They
+fail and return an empty list, so the interface shows no sessions and the button
+does nothing.
+
+`SIMPLE_JWT` signs with `SECRET_KEY`. Rotating it is the **only** way to end an
+existing session on this platform. Without that step an ex-employee's open
+browser tab keeps working until the token expires on its own.
+
+### What was found
+
+Fifteen accounts. **Ten were test accounts** — `test@test.com`,
+`admin@test.com`, `testuser@test.com`, `buyer1@test.com`, `newmember@test.com`
+and others — and **most of them had the `admin` role**. All disabled.
+
+`devstarfive0812@gmail.com` disabled by name.
+
+No SSH `authorized_keys` exist for root or any other user, so nobody holds
+key-based access and there was nothing stale to remove. Login is password only.
+
+### What was done
+
+  - every real account given a new 20-character password
+  - test accounts and the named account deactivated, not deleted, so the
+    activity log and anything referencing them survives
+  - `SECRET_KEY` rotated, which signed everybody out
+  - a CSV written for the password sheet, listing the third-party credentials
+    only a person can change — GitHub, Twilio, Stripe, Cloudflare, Contabo,
+    Telegram, the mail account, the carrier portal
+
+### Two faults in the rotation itself, both caught
+
+**The generated key contained `$K2xX` and `$JDB`.** docker compose interpolates
+`$NAME` out of an `env_file` value, so both were replaced with blank strings and
+the container ran on a shorter key than the one in `.env`. The only sign was a
+warning in a wall of restart output, and every health check still passed —
+because a mangled key is at least a consistent one. The alphabet no longer
+contains `$`, backtick, quotes or backslash, and the script now compares the
+running key against the file.
+
+**`set -e` killed the script at that new check.** An assignment takes the exit
+status of the command inside it, so a non-zero `docker compose exec` ended the
+run immediately after the check printed its own heading and before it printed a
+result — the worst way for a check to fail, because it looks like it passed.
+
+Final state: file 72 characters, running 72 characters, identical.
+
+### Still with the owner
+
+The root password, and every third-party portal. GitHub matters most: no amount
+of password rotation on this server touches an account that still has access to
+the code.
