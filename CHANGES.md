@@ -4143,3 +4143,78 @@ Final state: file 72 characters, running 72 characters, identical.
 The root password, and every third-party portal. GitHub matters most: no amount
 of password rotation on this server touches an account that still has access to
 the code.
+
+---
+
+## CH-060 — The carrier caps us at 5 concurrent calls, and says so
+
+**Date:** 2026-10-02
+
+### The evidence
+
+Captured live at 17:40 while the owner watched the sixth call fail:
+
+    <--- Received SIP response (455 bytes) from UDP:100.53.112.140:5060 --->
+    SIP/2.0 503 Maximum Concurrent Calls
+    Reason: Q.850;cause=34
+
+Received **from the carrier**, four times in twenty seconds, once for every
+call past the fifth. Q.850 cause 34 is "no circuit or channel available".
+
+The carrier had told the owner the line limit was unlimited. Their own server
+returns the text "Maximum Concurrent Calls".
+
+### Everything on our side that was ruled out first
+
+    asterisk.conf maxcalls        commented out; "Maximum calls: Not set"
+    pjsip.conf [carrier]          no limit of any kind
+    PhoneNumber.concurrency_cap   0, and concurrency_enabled is False
+    CampaignCap.max_concurrency   0
+    Buyer.max_concurrency         10
+    Destination.concurrency_cap   10
+
+None of them is 5. The ceiling is not ours.
+
+### What this corrects in CH-057
+
+CH-057 concluded the failures were callers hanging up because they heard
+silence while the buyer rang, and the `r` flag on Dial was added for it. That
+was a real fault and the fix stands — the dialplan answers before it knows
+where to route, so without ringback the caller hears dead air.
+
+But it was not the cause of the 70%. The captured SIP there showed a BYE from
+the caller and a CANCEL onward, which is what happens *after* a call has been
+sitting unanswered. The 503 is what happens *first*, and only above five
+concurrent calls.
+
+Both are true. The carrier limit is the one that matters.
+
+### The shape of the day, finally explained
+
+    volume      answered
+    1-3 /min     92-100%
+    46-48 /hr     37-79%
+    70-98 /hr      3-32%
+
+Five channels, saturated. Everything above that refused instantly. It was
+never the buyer, never the platform, and never a code change — the publisher's
+volume simply grew past a ceiling that has been there all along, which is also
+why the carrier is right that they changed nothing.
+
+### How it was found, and how it should have been found
+
+Four wrong answers came first: the buyer's capacity, our own concurrency caps,
+the dialplan not dialling, and a `403 Forbidden` from a test that sent
+`From: Anonymous` because the caller ID is set by the dialplan and not by an
+originate.
+
+The thing that settled it was turning on `pjsip set logger` while real traffic
+was flowing and reading what the carrier actually said. That should have been
+the first step. Every theory before it was reasoning about a conversation we
+could simply have listened to.
+
+### Still open
+
+The carrier must raise the channel limit. Until then the platform can carry
+about 30% of the traffic the publisher sends, and no change on this server
+will alter that.
