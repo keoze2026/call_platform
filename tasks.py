@@ -413,6 +413,7 @@ def enrich_call_carrier(call_log_id, caller_number):
     # lookup inside route_call took calls down twice on 29 and 30 September.
     fields = {'ipqs_checked': True}
     raw_carrier = ''
+    raw_line_type = ''
     source = 'telnyx'
 
     rv = {}
@@ -431,9 +432,12 @@ def enrich_call_carrier(call_log_id, caller_number):
         fields.update(
             carrier_name=raw_carrier,
             carrier=normalise_carrier(raw_carrier),
-            ipqs_line_type=line_type,
-            ipqs_is_voip=line_type.lower() == 'voip',
         )
+        # Line type is normalised rather than stored as it arrived. The two
+        # providers spell the same thing differently - today's data holds
+        # "Mobile" 742 and "mobile" 265, which is one line type counted twice
+        # in every report that groups on it.
+        raw_line_type = line_type
         # The caller profile panel showed blank city, zip and timezone because
         # nothing ever wrote them. RealValidito returns all three.
         fields.update(
@@ -451,11 +455,27 @@ def enrich_call_carrier(call_log_id, caller_number):
         raw_carrier = (result.get('carrier_name', '') or '')[:100]
         fields.update(
             ipqs_fraud_score=result.get('fraud_score', 0) or 0,
-            ipqs_is_voip=result.get('VOIP', False) or False,
-            ipqs_line_type=(result.get('line_type', '') or '')[:50],
             carrier_name=raw_carrier,
             carrier=normalise_carrier(raw_carrier),
         )
+        raw_line_type = (result.get('line_type', '') or '')
+
+    # VOIP, decided here and nowhere else.
+    #
+    # The VoIP Shield has existed in the interface since the beginning with
+    # nothing behind it: `TelnyxLookupService.should_block`, the function that
+    # refuses a VOIP caller, has no callers anywhere. This is that half, built
+    # after the call like the DNC check and for the same reason.
+    #
+    # It costs no lookup - the line type is already in hand from the carrier
+    # call above.
+    try:
+        from spam_protection.voip import check_and_record as voip_check
+        fields.update(voip_check(call_log, raw_line_type))
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('voip check failed for %s', call_log_id)
+        fields.setdefault('ipqs_line_type', (raw_line_type or '')[:50])
 
     # Do-not-call, checked here and nowhere else.
     #

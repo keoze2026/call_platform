@@ -4346,3 +4346,72 @@ It is **not** pre-call blocking. A first call to a listed number still
 connects. Real TCPA prevention means checking before the dial, which means an
 external request inside routing, which is the thing that took the platform down.
 If that is ever wanted it needs a local copy of the register, not a live lookup.
+
+---
+
+## CH-063 — The VoIP Shield blocks something for the first time
+
+**Date:** 2026-10-03
+**Files:** `spam_protection/voip.py` (new), `tasks.py`
+
+### Where it was
+
+`Campaign.block_voip` exists. The shields page writes to it.
+`CallLog.ipqs_is_voip` is filled in on every call. And
+`TelnyxLookupService.should_block`, the function that decides to refuse a VOIP
+caller, has **no callers anywhere in the codebase** — the only other VOIP check
+sits in `routing/twilio_handler.py`, which is unreachable because calls arrive
+through Asterisk.
+
+So the toggle has never blocked anything. Same shape as the TCPA shield an hour
+earlier: detection without enforcement.
+
+### Where it is now
+
+In the enrichment task, after the call, like the DNC check and for the same
+reason. `grep -c voip` on `routing/engine.py` and `routing/asterisk_handler.py`
+is 0 and stays 0.
+
+It costs **no lookup at all**. RealValidito already returns the line type on
+every call and the task already stores it, so this reads a value sitting in
+hand.
+
+A VOIP caller is flagged. If the campaign has `block_voip` on, the number goes
+on the blacklist scoped to that campaign — `RoutingEngine.is_blacklisted` reads
+that table at routing time, from the database, so the second call is refused
+locally. Scoped to the campaign rather than org-wide, unlike the DNC block: a
+campaign that has not asked to block VOIP should still receive that caller.
+
+### Line types were being counted twice
+
+The data holds `Mobile` 742 and `mobile` 265 — the same line type, stored as
+two strings, because RealValidito and Telnyx spell it differently and nothing
+reconciled them. Also `Landline` 36 against `fixed line` 10. Every report
+grouping on line type was splitting one category in two, the same fault that put
+`Verizon` and `Verizon Wireless` in separate rows.
+
+`normalise_line_type` now maps them to one spelling, and the task stores the
+normalised value.
+
+### A bug caught by testing the function, not reading it
+
+The first version classified **`Non-Fixed VOIP` as a landline**. The substring
+`fixed` matched the landline family before VOIP was checked, so a VOIP caller
+would have been waved straight through the shield built to stop them — in the
+one function whose entire job is to recognise VOIP.
+
+Reading the code would not have found it; running it against the real values
+did, immediately. VOIP is now tested first, and an exact match is tried across
+every family before any substring.
+
+    'Non-Fixed VOIP'  ->  voip      (was: landline)
+    'Fixed VOIP'      ->  voip
+    'fixed line'      ->  landline
+    'Mobile'/'mobile' ->  mobile
+
+### Worth knowing
+
+This protects against very little today — **2 VOIP calls out of 1,068** last
+week, and `block_voip` is off on every campaign. It was built because the cost
+was an hour and the alternative was another switch in the interface that does
+nothing, which is what has been costing credibility all week.
