@@ -492,8 +492,30 @@ def enrich_call_carrier(call_log_id, caller_number):
         logging.getLogger(__name__).exception('dnc check failed for %s', call_log_id)
     fields.update(dnc_fields)
 
+    # Fraud score, from the provider the ipqs_* fields were named after.
+    #
+    # Silent and free until IPQS_API_KEY is set - check_and_record returns {}
+    # with no key, so this ships before the subscription is bought and starts
+    # working the moment the key is in .env.
+    #
+    # Here rather than in the call path, like everything else above it. A
+    # caller over the campaign's max_fraud_score is blacklisted, so they are
+    # refused on their next call with no lookup at routing time.
+    ipqs_fields = {}
+    try:
+        from spam_protection.ipqs import check_and_record as ipqs_check
+        ipqs_fields = ipqs_check(call_log)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('ipqs check failed for %s', call_log_id)
+    # Last, so a real score always wins over the hardcoded 0 the Telnyx branch
+    # writes into the same field.
+    fields.update(ipqs_fields)
+
     CallLog.objects.filter(id=call_log_id).update(**fields)
     flag = ' [DNC]' if dnc_fields.get('is_dnc') else ''
+    if ipqs_fields.get('ipqs_block_reason'):
+        flag += f" [{ipqs_fields['ipqs_block_reason']}]"
     return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}{flag}"
 
 

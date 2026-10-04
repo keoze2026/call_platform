@@ -302,6 +302,23 @@ REALVALIDITO_DNC_TIMEOUT = config('REALVALIDITO_DNC_TIMEOUT', default=4, cast=fl
 DNC_CHECK_ENABLED = config('DNC_CHECK_ENABLED', default=False, cast=bool)
 DNC_BLOCK_LISTED = config('DNC_BLOCK_LISTED', default=False, cast=bool)
 
+# IPQualityScore: the fraud score the ipqs_* fields are named after and have
+# never held. Telnyx hardcodes 0 and RealValidito does not sell a score, so
+# Campaign.max_fraud_score has never blocked a call - the comparison was always
+# 0 > 85.
+#
+# Blank by default, which switches the whole check off. Set IPQS_API_KEY in
+# .env to turn it on; no code change and no restart of anything but the worker.
+IPQS_API_KEY = config('IPQS_API_KEY', default='')
+IPQS_ENABLED = config('IPQS_ENABLED', default=True, cast=bool)
+IPQS_TIMEOUT = config('IPQS_TIMEOUT', default=6, cast=float)
+# Billed per lookup, so a repeat caller costs one credit. Shorter than the
+# carrier profile's 30 days: a clean number can start abusing.
+IPQS_CACHE_DAYS = config('IPQS_CACHE_DAYS', default=7, cast=int)
+# IPQS's own aggressiveness, 0-3. 0 is their default and the least likely to
+# score a legitimate caller highly.
+IPQS_STRICTNESS = config('IPQS_STRICTNESS', default=0, cast=int)
+
 # ── Notifications ─────────────────────────────────────────────────────────────
 # Which alerts a workspace gets without asking. Every workspace had no rules at
 # all, so detected alerts were dropped; these are created automatically and
@@ -423,8 +440,6 @@ CAPITALIST_SECRET = config('CAPITALIST_SECRET', default='')
 
 
 ASTERISK_SHARED_SECRET = config('ASTERISK_SHARED_SECRET', default='')
-
-IPQS_API_KEY = config('IPQS_API_KEY', default='')
 
 UNFOLD = {
     "SITE_TITLE": "Call Platform Admin",

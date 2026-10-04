@@ -47,6 +47,9 @@ class CallRecord(models.Model):
     caller_city       = models.CharField(max_length=100, blank=True, default='')
     caller_zip        = models.CharField(max_length=20, blank=True, default='')
     caller_timezone   = models.CharField(max_length=60, blank=True, default='')
+    # Null, not 0. 0 is a real IPQS score meaning "clean", so a default of 0
+    # would make every unscored call look verified. Null means "not scored".
+    ipqs_fraud_score  = models.IntegerField(null=True, blank=True)
     called_number     = models.CharField(max_length=20, blank=True)
     # Where the call was sent. Absent from the mirror, so the dashboard's
     # "All destinations" dropdown had nothing to filter on.
