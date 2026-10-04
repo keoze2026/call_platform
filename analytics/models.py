@@ -31,6 +31,22 @@ class CallRecord(models.Model):
     twilio_call_sid   = models.CharField(max_length=50, blank=True, db_index=True)
     caller_number     = models.CharField(max_length=20, blank=True)
     caller_state      = models.CharField(max_length=10, blank=True)
+    # The rest of what the lookup already paid for.
+    #
+    # RealValidito returns country, city, zip and timezone on every call and
+    # the enrichment task stores all four on CallLog - but the mirror carried
+    # only caller_state across, and the reports list endpoint reads this table.
+    # So Caller Profile's Country, City, Zip code and Timezone groupings had no
+    # column behind them, which is why the frontend filled them with invented
+    # values until it was stripped back to "Not available".
+    #
+    # Lengths match routing.CallLog exactly so the mirror copy can never
+    # truncate. (caller_state above is 10 against the call log's 50; the values
+    # are two-letter codes, so it has not bitten yet.)
+    caller_country    = models.CharField(max_length=50, blank=True, default='')
+    caller_city       = models.CharField(max_length=100, blank=True, default='')
+    caller_zip        = models.CharField(max_length=20, blank=True, default='')
+    caller_timezone   = models.CharField(max_length=60, blank=True, default='')
     called_number     = models.CharField(max_length=20, blank=True)
     # Where the call was sent. Absent from the mirror, so the dashboard's
     # "All destinations" dropdown had nothing to filter on.

@@ -86,6 +86,15 @@ def mirror_call_log(call_log_id) -> bool:
             'twilio_call_sid': call.twilio_call_sid or '',
             'caller_number': call.caller_number,
             'caller_state': call.caller_state or '',
+            # Carried across for the same reason caller_state is: the reports
+            # list endpoint reads CallRecord, so a field missing here is a
+            # Caller Profile grouping with nothing behind it. The enrichment
+            # task saves CallLog after the call, which fires this receiver a
+            # second time, so these fill in on the re-mirror.
+            'caller_country': call.caller_country or '',
+            'caller_city': call.caller_city or '',
+            'caller_zip': call.caller_zip or '',
+            'caller_timezone': call.caller_timezone or '',
             'called_number': call.called_number,
             'destination_number': call.destination_number or '',
             'platform_cost': call.platform_cost or 0,
