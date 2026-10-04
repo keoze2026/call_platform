@@ -49,6 +49,21 @@ class CallRecordSchema(Schema):
     twilio_call_sid:  str
     caller_number:    str
     caller_state:     str
+    # Declared because Ninja serialises the response through this schema and
+    # drops every key it does not name. _format_record has been sending these
+    # since the mirror started carrying them; without a line here they were
+    # removed on the way out and Caller Profile grouped every call as Unknown.
+    caller_country:   Optional[str] = ''
+    caller_city:      Optional[str] = ''
+    caller_zip:       Optional[str] = ''
+    caller_timezone:  Optional[str] = ''
+    # Same reason. _format_record sends all three and none was declared, so
+    # the call list has never carried the carrier or the qualified verdict -
+    # the Caller Profile carrier rows come from a separate breakdown endpoint,
+    # which is why this went unnoticed.
+    carrier:          Optional[str] = ''
+    carrier_name:     Optional[str] = ''
+    is_qualified:     Optional[bool] = None
     called_number:    str
     destination_number: Optional[str] = None
     destinationNumber: Optional[str] = None
