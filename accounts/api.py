@@ -707,6 +707,16 @@ def workspace_sessions(request: HttpRequest):
             })
         return 200, data
     except Exception:
+        # Still returns an empty list rather than an error, because an empty
+        # Active Sessions page is better than a broken one - but it is logged
+        # now. Swallowed silently, this hid the fact that the token_blacklist
+        # app was never installed: the table did not exist, every request
+        # landed here, and the page reported "no active sessions" for months.
+        import logging
+        logging.getLogger(__name__).exception(
+            'could not list active sessions for organization %s',
+            getattr(request.auth, 'organization_id', None),
+        )
         return 200, []
 
 

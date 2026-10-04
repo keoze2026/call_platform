@@ -61,6 +61,15 @@ INSTALLED_APPS = [
 
     # Third party
     'corsheaders',
+    # Needed by the Active Sessions page and the Revoke button in Workspace.
+    # accounts/api.py has queried OutstandingToken and written BlacklistedToken
+    # since the page was built, but the app was never installed, so the tables
+    # did not exist: workspace_sessions caught the error and returned [] - an
+    # always-empty list that read as "no one is signed in" - and revoke_session
+    # could not blacklist anything. The button reported success and ended no
+    # session. Found during the go-live sweep, straight after an ex-employee
+    # credential lockout that relied on exactly this working.
+    'rest_framework_simplejwt.token_blacklist',
 
     # Local apps
     'accounts',
@@ -183,6 +192,12 @@ AUTH_PASSWORD_VALIDATORS = [
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+    # Left off deliberately on the eve of go-live. Turning rotation on changes
+    # what every client does on refresh, and a bad night for that is the night
+    # before launch. Revoke works without it: blacklisting the refresh token
+    # stops it being exchanged again. The access token stays valid until it
+    # expires - 60 minutes above - so a revoked session dies within the hour
+    # rather than instantly. Reconsider rotation once live and quiet.
     'ROTATE_REFRESH_TOKENS': False,
     'BLACKLIST_AFTER_ROTATION': False,
     'ALGORITHM': 'HS256',
