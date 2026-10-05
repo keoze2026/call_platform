@@ -303,6 +303,39 @@ class RoutingEngine:
         return rule.destinations.order_by('priority').first()
 
     @staticmethod
+    def is_destination_enabled(buyer, destination_number: str) -> bool:
+        """Is the operator's Destination row for this number switched on?
+
+        The `enabled` toggle on buyers.Destination decided only whether a row
+        appeared on the dashboard. Routing never read it, so a destination
+        switched off kept taking calls and simply vanished from the operator's
+        view - on 5 October one took 155 calls while showing as paused. Pausing
+        a destination to stop traffic did nothing but hide it.
+
+        Absence is not a pause. Calls route through RoutingRule/RuleDestination,
+        and not every one of those has a matching buyers.Destination row; when
+        there is no row there is nothing to honour, so the call proceeds. Only
+        a row that exists and says `enabled=False` stops it.
+        """
+        if not destination_number:
+            return True
+        from buyers.destination import Destination
+        try:
+            row = Destination.objects.filter(
+                buyer=buyer, tfn=destination_number
+            ).only('enabled').first()
+        except Exception:
+            # A lookup failure must never cost a call. Worst case we route as
+            # before, which is what happened for every call until now.
+            logger.exception(
+                'could not read the enabled flag for %s', destination_number
+            )
+            return True
+        if row is None:
+            return True
+        return bool(row.enabled)
+
+    @staticmethod
     def get_valid_destination(rule: RoutingRule, call_data: dict):
         """Pick the first destination that passes every check.
 
@@ -320,6 +353,10 @@ class RoutingEngine:
                 buyer = destination.buyer
                 if buyer.status != 'active':
                     reason = f'buyer {buyer.name} is {buyer.status}'
+                elif not RoutingEngine.is_destination_enabled(
+                    buyer, destination.destination
+                ):
+                    reason = f'destination {destination.destination} is switched off'
                 elif not RoutingEngine.check_buyer_caps(buyer):
                     reason = f'buyer {buyer.name} has reached its cap'
                 elif not RoutingEngine.check_buyer_concurrency(
