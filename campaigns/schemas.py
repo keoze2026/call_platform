@@ -117,6 +117,19 @@ class UpdateCampaignSchema(Schema):
     queue_max_wait_seconds: Optional[int] = None
     queue_music_url: Optional[str] = None
     queue_message: Optional[str] = None
+    # Declared because Ninja validates the request body through this schema and
+    # drops every key it does not name. None of the shield fields were here, so
+    # a client sending block_voip had it discarded before anything was saved -
+    # which is why every campaign still read block_voip=False however many times
+    # the VoIP Shield switch was flipped.
+    status: Optional[str] = None
+    ipqs_enabled: Optional[bool] = None
+    block_voip: Optional[bool] = None
+    block_risky: Optional[bool] = None
+    block_spammer: Optional[bool] = None
+    block_recent_abuse: Optional[bool] = None
+    block_invalid_numbers: Optional[bool] = None
+    max_fraud_score: Optional[int] = None
 
 
 # ===== RESPONSE SCHEMAS =====

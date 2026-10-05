@@ -93,22 +93,81 @@ class CampaignService:
         campaign = CampaignService.get_campaign(campaign_id, user)
 
         ALLOWED_FIELDS = {
-            'name', 'description', 'routing_type',
+            'name', 'description', 'routing_type', 'status',
             'payout_amount', 'revenue_amount',
             'min_call_duration', 'duplicate_call_block',
             'duplicate_call_block_hours',
             'greeting_enabled', 'greeting_message',
             'whisper_enabled', 'whisper_message',
             'auto_sms_enabled', 'auto_sms_message',
-            'recording_enabled', 'advanced_settings'
+            'recording_enabled', 'advanced_settings',
+            # A second gate after the schema, and these were missing from it.
+            # queue_enabled and the rest were declared on UpdateCampaignSchema
+            # and still never saved, because this set did not list them.
+            'queue_enabled', 'queue_max_size', 'queue_max_wait_seconds',
+            'queue_music_url', 'queue_message',
+            'bid_floor', 'rtb_timeout_seconds',
+            'ipqs_enabled', 'block_voip', 'block_risky', 'block_spammer',
+            'block_recent_abuse', 'block_invalid_numbers', 'max_fraud_score',
         }
 
         for field, value in data.model_dump(exclude_none=True).items():
             if field in ALLOWED_FIELDS:
                 setattr(campaign, field, value)
 
+        # The Advanced Settings switches write into the advanced_settings JSON
+        # blob, and every piece of code that acts on them reads a real column:
+        # spam_protection/voip.py reads campaign.block_voip, the recorder reads
+        # recording_enabled, the queue reads queue_enabled. The two never met,
+        # so a switch moved, something was saved, and nothing changed.
+        CampaignService._apply_advanced_settings(campaign, data)
+
         campaign.save()
         return campaign
+
+    # Which switch in the interface owns which column. Only the enabled flag
+    # and the fields with a column behind them; the rest of each block stays in
+    # the JSON, which is the only place that holds it.
+    ADVANCED_TOGGLES = {
+        'voipShield': {'enabled': 'block_voip'},
+        'autoRecord': {'enabled': 'recording_enabled'},
+        'spamFilter': {'enabled': 'ipqs_enabled'},
+        'greetingsMessage': {'enabled': 'greeting_enabled', 'message': 'greeting_message'},
+        'whisperMessage': {'enabled': 'whisper_enabled', 'message': 'whisper_message'},
+        'callQueue': {
+            'enabled': 'queue_enabled',
+            'maxQueueSize': 'queue_max_size',
+            'maxWaitSec': 'queue_max_wait_seconds',
+            'musicUrl': 'queue_music_url',
+        },
+    }
+
+    @staticmethod
+    def _apply_advanced_settings(campaign: Campaign, data) -> None:
+        """Copy the Advanced Settings switches onto the columns that are read.
+
+        Does nothing when the request did not carry advanced_settings, so a
+        PATCH of one unrelated field cannot reset a shield.
+        """
+        settings = getattr(data, 'advanced_settings', None)
+        if not isinstance(settings, dict):
+            return
+
+        for block_name, mapping in CampaignService.ADVANCED_TOGGLES.items():
+            block = settings.get(block_name)
+            if not isinstance(block, dict):
+                continue
+            for key, column in mapping.items():
+                if key not in block:
+                    continue
+                value = block[key]
+                if value is None:
+                    continue
+                # An explicit field on the request wins over the JSON: a client
+                # that sends block_voip directly means it.
+                if getattr(data, column, None) is not None:
+                    continue
+                setattr(campaign, column, value)
 
     @staticmethod
     def pause(campaign_id: str, user: User) -> Campaign:
