@@ -151,10 +151,16 @@ def scan_dead_controls() -> None:
     for path in walk(FRONTEND, ('.tsx',)):
         text = path.read_text(encoding='utf-8', errors='replace')
         for i, line in enumerate(text.splitlines(), 1):
+            # A comment describing a control that used to be dead is not a dead
+            # control. Without this the three fixes made today reported
+            # themselves as faults, which is a fast way to stop trusting a tool.
+            stripped = line.strip()
+            if stripped.startswith(('*', '//', '/*')):
+                continue
             if DEAD_HANDLER.search(line):
-                report('controls that do nothing', f'{rel(path, FRONTEND)}:{i}', line.strip()[:160])
+                report('controls that do nothing', f'{rel(path, FRONTEND)}:{i}', stripped[:160])
             elif COMING_SOON.search(line) and ('onClick' in line or 'toast' in line):
-                report('controls that do nothing', f'{rel(path, FRONTEND)}:{i}', line.strip()[:160])
+                report('controls that do nothing', f'{rel(path, FRONTEND)}:{i}', stripped[:160])
 
 
 # ─────────────────────────────────────────────────────────────────────────────
