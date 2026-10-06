@@ -36,6 +36,19 @@ Newest at the bottom. Each change has an ID — quote the ID when discussing one
 | [CH-027](#ch-027) | 2026-09-25 | **Security** | API-wide rate limiting; RTB bid scoping; error responses no longer leak internals | Done — commit `1f8e7b91` |
 | [CH-028](#ch-028) | 2026-09-25 | Billing / Analytics | Cost calculated in the backend for the first time | Done — commit `7a2668c9` |
 | [CH-006](#ch-006) | 2026-09-17 | Analytics | Dynamic Dashboard Pricing & PhoneNumber Formatting | Done |
+| [CH-064](#ch-064) | 2026-10-05 | Analytics | Caller geo reaches reports; response schema was dropping fields | Done — commit `dcbc573a, d0771d53` |
+| [CH-065](#ch-065) | 2026-10-05 | Spam / Billing | IPQualityScore connected — the fraud score the fields were named after | Done — commit `72809dea` |
+| [CH-066](#ch-066) | 2026-10-05 | Security | Revoking a session actually ends it | Done — commit `e4a599ad` |
+| [CH-067](#ch-067) | 2026-10-05 | Routing | Switching a destination off stops calls to it | Done — commit `d477ac47` |
+| [CH-068](#ch-068) | 2026-10-05 | Campaigns | The Advanced Settings switches do something | Done — commit `42884a73` |
+| [CH-069](#ch-069) | 2026-10-05 | Tooling | A scan for features that are built but not joined up | Done — commit `ec9a099b` |
+| [CH-070](#ch-070) | 2026-10-06 | Campaigns | The auto schedule plays and pauses the campaign | Done — commit `fdbfe913` |
+| [CH-071](#ch-071) | 2026-10-06 | Routing / Asterisk | Auto Record Calls controls recording | Done — commit `b6087964` |
+| [CH-072](#ch-072) | 2026-10-06 | Destinations | Stats count only what can take a call | Done — commit `4db17dfc` |
+| [CH-073](#ch-073) | 2026-10-06 | Accounts | The activity feed records what changed | Done — commit `2884a57a` |
+| [CH-074](#ch-074) | 2026-10-06 | Performance | Dashboard stops computing 164 destinations it will not show | Done — commit `6848ff0b` |
+| [CH-075](#ch-075) | 2026-10-06 | Performance | Index the columns the hot queries filter on | Done — commit `793e3aad` |
+| [CH-076](#ch-076) | 2026-10-06 | Billing | Service fees that were priced and never charged | Done — commit `978014b5` |
 
 ## Open items (not done yet)
 
@@ -4415,3 +4428,264 @@ This protects against very little today — **2 VOIP calls out of 1,068** last
 week, and `block_voip` is off on every campaign. It was built because the cost
 was an hour and the alternative was another switch in the interface that does
 nothing, which is what has been costing credibility all week.
+
+
+## CH-064 — Caller geo reaches reports; response schema was dropping fields
+
+**2026-10-05 · Analytics · commit `dcbc573a, d0771d53`**
+
+The reports list endpoint reads `analytics.CallRecord`, and `mirror_call_log`
+carried only `caller_state` across. Country, city, zip and timezone were
+collected on every call by RealValidito, stored on `CallLog`, and stopped at the
+mirror — 1074 of 1074 calls had a country, 696 a city, 656 a zip, 770 a
+timezone, and none of it reached a report.
+
+That is why the frontend was filling those columns from hardcoded lists: the
+five-country even split came from a table with no country column at all.
+
+Four columns added to the mirror with lengths matching `CallLog` exactly, so
+the copy cannot truncate. Backfill is a separate migration from the schema
+change — schema and data in one transaction is what produced `pending trigger
+events` on buyers.
+
+### The second half, which cost longer than the first
+
+Everything above was done and the UI still showed Unknown. `/api/analytics/calls`
+declares `response={200: CallLogListSchema}`, and Ninja serialises through the
+schema and **deletes every key the schema does not name**. No error, no log.
+
+`ipqs_line_type` was declared, which is why Line type worked and the geo
+options did not — one line in `analytics/schemas.py`, not the data.
+
+Two more fields had been dropped the same way for months: `carrier`, and
+`is_qualified`. Qualified had been reading **309 when the real figure was 346**,
+and nobody knew.
+
+
+## CH-065 — IPQualityScore connected — the fraud score the fields were named after
+
+**2026-10-05 · Spam / Billing · commit `72809dea`**
+
+`CallLog.ipqs_fraud_score`, `Campaign.max_fraud_score` and the fraud filter in
+`TelnyxLookupService.should_block` have existed since the beginning. None had
+ever held a real number: Telnyx returns `"fraud_score": 0,  # Telnyx does not
+provide this` and RealValidito does not sell a score, so the filter only ever
+evaluated `0 > 85` and has never blocked a call.
+
+Wired like the DNC and VOIP checks — in the worker, after the call, never on
+the call path. A caller over the campaign's limit is blacklisted so they are
+refused on their next call with no lookup at routing time.
+
+Switched off until `IPQS_API_KEY` is set, so it shipped before the subscription
+was bought. Live the same day: **157 calls scored, 6 came back risky** at 65,
+78 and 85.
+
+
+## CH-066 — Revoking a session actually ends it
+
+**2026-10-05 · Security · commit `e4a599ad`**
+
+`accounts/api.py` has queried `OutstandingToken` and written `BlacklistedToken`
+since the Active Sessions page was built, but
+`rest_framework_simplejwt.token_blacklist` was never in `INSTALLED_APPS`, so
+neither table existed. `workspace_sessions` caught the error and returned `[]`,
+which reads as "nobody is signed in", and `revoke_session` could not blacklist
+anything — the button reported success and ended no session.
+
+Found during the go-live sweep, immediately after a credential lockout carried
+out on the assumption this worked.
+
+The bare `except: return 200, []` is why it went unnoticed for months. It still
+returns an empty list, because an empty page beats a broken one, but it logs
+now. The handler also referenced `logging` in a module that never imported it,
+so the error path would have raised `NameError` on its way to being swallowed.
+
+
+## CH-067 — Switching a destination off stops calls to it
+
+**2026-10-05 · Routing · commit `d477ac47`**
+
+`buyers.Destination.enabled` decided only whether a row appeared on the
+dashboard. The routing engine never read it — calls go through
+`RoutingRule`/`RuleDestination`, and the Destination row was loaded solely to
+read `concurrency_cap`.
+
+So a destination switched off kept taking calls and simply disappeared from the
+operator's view. On 5 October the ADC11 destination took **155 calls while the
+dashboard showed it paused** and the Destinations panel showed nothing at all.
+
+Absence is not a pause: not every `RuleDestination` has a matching
+`buyers.Destination` row, so a missing row routes as before. Only a row that
+exists and says `enabled=False` stops the call.
+
+
+## CH-068 — The Advanced Settings switches do something
+
+**2026-10-05 · Campaigns · commit `42884a73`**
+
+Every switch wrote into the `advanced_settings` JSON blob. Every piece of code
+that acts on them reads a real column — `spam_protection/voip.py` reads
+`campaign.block_voip`, the recorder reads `recording_enabled`, the queue reads
+`queue_enabled`. The two never met. The switch moved, something was saved, and
+nothing changed.
+
+Three gates were dropping the fields and all three are fixed:
+
+  `UpdateCampaignSchema`  had no `block_voip` or any spam field; Ninja discards
+                          what the schema does not name, on the way in as well
+                          as out.
+  `ALLOWED_FIELDS`        a second filter in the service. `queue_*`, `bid_floor`
+                          and `rtb_timeout_seconds` were on the schema and
+                          still never saved.
+  the JSON blob           `_apply_advanced_settings` now copies each switch onto
+                          the column that is read.
+
+Only acts when the request carried `advanced_settings`, so a PATCH of one
+unrelated field cannot reset a shield.
+
+
+## CH-069 — A scan for features that are built but not joined up
+
+**2026-10-05 · Tooling · commit `ec9a099b`**
+
+`full_scan.py` reads the backend for faults a parser can see and had reported
+"0 critical" all week. It was right every time, while the platform told
+customers things that were not true.
+
+Every fault that mattered on 5 October was invisible to it: the response schema
+dropping fields, switches writing to a blob nothing reads, an "Add destination"
+button that was a toast saying *coming soon*, a publisher invite that wrote to
+localStorage and sent no email, and an API method that would have failed on
+first use and had never been called.
+
+None is a syntax error. Each is a seam where two halves were built and never
+joined. `deep_scan.py` looks for the seams. First run: 162 findings, which
+named the Call Detail panel inventing a carrier for every call and five
+fabricated columns on Number Pools.
+
+
+## CH-070 — The auto schedule plays and pauses the campaign
+
+**2026-10-06 · Campaigns · commit `fdbfe913`**
+
+The play/pause times have been on every campaign page since the beginning,
+held in a browser store. They never reached the server, nothing read them, and
+they differed on every machine that opened the page. A campaign set to pause at
+5pm took calls all night.
+
+Six columns, and the times are stored in local time with their zone rather than
+UTC — a schedule is written in the hours a person works, and storing UTC would
+shift it twice a year when the clocks change.
+
+`apply_auto_schedules` runs every minute, not hourly: "pause at 17:00" has to
+mean 17:00. It handles windows that cross midnight, treats a zero-length window
+as no schedule rather than pausing the campaign for ever, and never resurrects
+a campaign somebody archived.
+
+
+## CH-071 — Auto Record Calls controls recording
+
+**2026-10-06 · Routing / Asterisk · commit `b6087964`**
+
+`recording_enabled` was read only in `routing/twilio_handler.py` — a path no
+call takes, proven by 2,709 calls of which **all 2,709 went through Asterisk and
+none through Twilio** — while the dialplan ran `MixMonitor` on every call
+unconditionally. The switch was decorative and every call was recorded whatever
+it said.
+
+The routing response now carries the flag, the AGI sets `RECORD_CALL`, and the
+dialplan gates `MixMonitor` on it. The condition is `!= "0"` rather than
+`== "1"`: if the variable is ever unset the call still records, which is
+today's behaviour. No path exists where a missing flag stops a call.
+
+`call_ended.sh` was also posting a recording URL on every call, so with
+recording off it would have pointed at a file that does not exist.
+
+
+## CH-072 — Stats count only what can take a call
+
+**2026-10-06 · Destinations · commit `4db17dfc`**
+
+`active_live` was the same query as `total_live`, so Active Live always
+equalled Total Live and the figure said nothing — a call on a paused
+destination counted as active capacity in use.
+
+`total_cc` summed `concurrency_cap` across every destination including disabled
+ones. On production that read **612 when the only enabled destination had a cap
+of 6**, so Unfilled CC claimed 606 free slots that did not exist.
+
+Daily and monthly counts were cut on UTC midnight: for an Eastern user the
+Daily count reset at 8pm the previous evening. Both endpoints now take the
+reader's IANA zone, the same parameter the Reports endpoints already took.
+
+In `get_destination_stats` the django timezone import is aliased — the request
+parameter is also called `timezone`, and a plain import would have rebound the
+name and silently discarded the caller's zone.
+
+
+## CH-073 — The activity feed records what changed
+
+**2026-10-06 · Accounts · commit `2884a57a`**
+
+Every row read "Update" and nothing else, so the feed could not answer the one
+question it exists for.
+
+`on_pre_save` snapshots the row before the save, `on_save` diffs it and stores
+`{field: {'old': …, 'new': …}}`, and the endpoint returns that as `changes`.
+
+A save that altered nothing visible no longer writes an entry at all — that is
+what fills a feed with thousands of identical Update rows. `NOISE_FIELDS` keeps
+`updated_at`, `password`, `last_login` and the live/hourly/daily counters out
+of the diff; the counters alone would have put a row in the feed for every
+call.
+
+
+## CH-074 — Dashboard stops computing 164 destinations it will not show
+
+**2026-10-06 · Performance · commit `6848ff0b`**
+
+The snapshot formatted every destination in the organisation — 165 — and
+`format_destination` runs seven COUNT queries per row. **1,155 queries and 1.66
+seconds on every dashboard load**, to build a panel that displays only enabled
+destinations, of which there is one.
+
+Measured after: 7 queries, 0.02s.
+
+
+## CH-075 — Index the columns the hot queries filter on
+
+**2026-10-06 · Performance · commit `793e3aad`**
+
+Seven indexes across four tables, chosen from what the code filters on rather
+than added everywhere — an index on a column nothing queries costs a write on
+every insert and buys nothing.
+
+  `CallLog`          `destination_number` and `buyer` had none. The destination
+                     counters run several counts per row and
+                     `check_buyer_concurrency` runs on every incoming call.
+  `CallRecord`       `started_at` had none, and it is the field every report
+                     buckets on since `CALL_TIME` became
+                     `Coalesce('started_at', 'created_at')`.
+  `WebhookDelivery`  no indexes at all; the retry job scans it every 5 minutes.
+  `NotificationLog`  no indexes at all.
+
+Confirmed against `pg_indexes` afterwards: **71 models, zero tables without an
+index**.
+
+
+## CH-076 — Service fees that were priced and never charged
+
+**2026-10-06 · Billing · commit `978014b5`**
+
+Minute Call Recording, VoIP Shield and Rejected Call all appear on the pricing
+page. None existed in the billing account and none was ever charged:
+`platform_cost` was only ever `ceil(minutes) x per_minute_rate x markup`.
+
+Four decimal places, not two — these are fractions of a cent and rounding to
+cents would charge nothing at all for recording. The markup is deliberately not
+applied to them: it is a margin on call time, these are pass-through costs.
+
+`rejected_call_cost` exists but is **not yet charged anywhere**. A refused call
+never reaches the billing step, because charging only happens on a converted
+call. Wiring it means taking the fee at the point of refusal, which is the path
+every call goes through.
