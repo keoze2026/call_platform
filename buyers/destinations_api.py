@@ -60,17 +60,33 @@ class DestinationUpdateSchema(Schema):
     business_hour_slots: Optional[list] = None
 
 
-def format_destination(d, start_date=None, end_date=None):
+def format_destination(d, start_date=None, end_date=None, tz_name=None):
+    """One destination row.
+
+    `tz_name` is the IANA zone the caller reads these numbers in. Without it
+    the day and month were cut on UTC midnight, so an Eastern user's Daily
+    count reset at 8pm the previous evening - calls taken after 8pm were
+    counted against tomorrow. Falls back to the destination's own timezone,
+    which is the zone its schedule is written in.
+    """
     from django.utils import timezone
     from routing.models import CallLog
     from analytics.models import CallRecord
     from django.db.models import Q, Count, Sum
     from django.db.models.functions import Coalesce
     from decimal import Decimal
+    from zoneinfo import ZoneInfo
 
     org = d.organization
+    try:
+        tz = ZoneInfo(tz_name or d.timezone or 'America/New_York')
+    except Exception:
+        tz = ZoneInfo('America/New_York')
+
     now = timezone.now()
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    # Midnight where the reader is, converted back to an absolute instant.
+    local_now = timezone.localtime(now, tz)
+    today_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
 
     from datetime import timedelta
     # 1. Real-time live calls for this destination
@@ -125,7 +141,7 @@ def format_destination(d, start_date=None, end_date=None):
 
     # 4. Hourly, monthly and all-time, each measured from the destination alone.
     hour_ago = now - timedelta(hours=1)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     hourly_count = CallLog.objects.filter(dest_q, created_at__gte=hour_ago).count()
     monthly_count = CallLog.objects.filter(dest_q, created_at__gte=month_start).count()
@@ -182,7 +198,12 @@ def list_destinations(
     created_at__gte: Optional[str] = None,
     created_at__lte: Optional[str] = None,
     start_date: Optional[str] = None,
-    end_date: Optional[str] = None
+    end_date: Optional[str] = None,
+    # IANA name, e.g. "America/New_York". Decides where the Daily and Monthly
+    # counters are cut. Without it they were cut on UTC midnight, so an Eastern
+    # user's Daily count reset at 8pm the evening before. The Reports endpoints
+    # already take this parameter; these did not.
+    timezone: Optional[str] = None,
 ):
     from config.pagination import paginate_list
     from buyers.destination import Destination
@@ -195,37 +216,64 @@ def list_destinations(
     val_from = start_date or created_at__gte
     val_to = end_date or created_at__lte
     
-    data = [format_destination(d, val_from, val_to) for d in qs]
+    data = [format_destination(d, val_from, val_to, tz_name=timezone) for d in qs]
     return 200, paginate_list(data, page, page_size)
 
 
 @router.get("/stats/", response={200: dict})
-def get_destination_stats(request):
+def get_destination_stats(request, timezone: Optional[str] = None):
+    """Headline numbers for the Destinations page.
+
+    active_live and total_live were the same query, so Active Live always
+    equalled Total Live and the figure said nothing: a call on a paused
+    destination counted as active capacity in use.
+
+    total_cc summed the concurrency cap of every destination including the
+    disabled ones, so Unfilled CC claimed free capacity on destinations that
+    cannot take a call.
+    """
     from buyers.destination import Destination
     from routing.models import CallLog
     org = request.auth.organization
     qs = Destination.objects.filter(organization=org)
 
     from datetime import timedelta
-    from django.utils import timezone
-    total_live = CallLog.objects.filter(
+    # Aliased: the request parameter is called `timezone`, and a plain
+    # `from django.utils import timezone` here would rebind that name and
+    # throw the caller's zone away.
+    from django.utils import timezone as djtz
+    live_q = CallLog.objects.filter(
         organization=org,
         status__in=['in_progress', 'ringing'],
         ended_at__isnull=True,
-        created_at__gte=timezone.now() - timedelta(hours=4)
-    ).count()
+        created_at__gte=djtz.now() - timedelta(hours=4)
+    )
+    # Everything in flight, active or paused. Unchanged.
+    total_live = live_q.count()
+
+    # Only what is on an enabled destination, matched on the number dialled -
+    # the same way format_destination decides which calls belong to a row.
+    enabled_tfns = list(
+        qs.filter(enabled=True).values_list('tfn', flat=True)
+    )
+    active_live = (
+        live_q.filter(destination_number__in=enabled_tfns).count()
+        if enabled_tfns else 0
+    )
 
     stats = qs.aggregate(
-        total_cc=Sum('concurrency_cap'),
+        # Capacity only counts where a call could actually land.
+        total_cc=Sum('concurrency_cap', filter=Q(enabled=True)),
         active_tfns=Count('id', filter=Q(enabled=True)),
     )
     total_cc = stats['total_cc'] or 0
     return 200, {
-        'active_live': total_live,
+        'active_live': active_live,
         'total_live': total_live,
         'total_cc': total_cc,
         'active_tfns': stats['active_tfns'] or 0,
-        'vacant_cc': max(0, total_cc - total_live),
+        # Free capacity on active destinations, never negative.
+        'vacant_cc': max(0, total_cc - active_live),
     }
 
 
