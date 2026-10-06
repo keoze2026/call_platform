@@ -141,7 +141,8 @@ class BillingService:
         )
 
     @staticmethod
-    def call_cost(organization, duration_seconds: int) -> Decimal:
+    def call_cost(organization, duration_seconds: int,
+                  recorded: bool = False, voip_checked: bool = False) -> Decimal:
         """What this client is charged for a call of this length.
 
             ceil(duration / 60) x per_minute_rate x (1 + markup)
@@ -159,7 +160,8 @@ class BillingService:
 
         try:
             account = BillingAccount.objects.only(
-                'per_minute_rate', 'markup_percent'
+                'per_minute_rate', 'markup_percent',
+                'recording_fee_per_minute', 'voip_shield_fee_per_call',
             ).get(organization=organization)
         except BillingAccount.DoesNotExist:
             return Decimal('0.00')
@@ -169,7 +171,35 @@ class BillingService:
         markup = Decimal(account.markup_percent or 0) / Decimal('100')
 
         cost = minutes * rate * (Decimal('1') + markup)
+
+        # Service fees on top. Priced on the pricing page and charged nowhere
+        # until now: the cost of a call was only ever minutes x rate x markup.
+        # The markup is not applied to these - they are pass-through costs, not
+        # call time.
+        if recorded:
+            cost += minutes * Decimal(account.recording_fee_per_minute or 0)
+        if voip_checked:
+            cost += Decimal(account.voip_shield_fee_per_call or 0)
+
         return cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+
+    @staticmethod
+    def rejected_call_cost(organization) -> Decimal:
+        """What a refused call costs.
+
+        A call turned away before routing - blacklisted, capped, no rule - still
+        cost us the carrier leg and the lookups. Nothing was charged for it,
+        because charging only happened on a converted call.
+        """
+        try:
+            account = BillingAccount.objects.only('rejected_call_fee').get(
+                organization=organization
+            )
+        except BillingAccount.DoesNotExist:
+            return Decimal('0.00')
+        return Decimal(account.rejected_call_fee or 0).quantize(
+            Decimal('0.01'), rounding=ROUND_HALF_UP
+        )
 
     @staticmethod
     @transaction.atomic

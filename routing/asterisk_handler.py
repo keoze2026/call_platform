@@ -351,7 +351,17 @@ def call_ended(request):
 
             # Per-minute pricing: ceil(duration / 60) x rate x (1 + markup).
             # A missed call has no duration and therefore no cost.
-            amount = BillingService.call_cost(call_log.organization, duration)
+            # Recording and the VoIP Shield are billable. Asterisk records
+            # when the campaign asks, and ipqs_checked is set when the lookup
+            # ran, so both are known by the time the call ends.
+            amount = BillingService.call_cost(
+                call_log.organization,
+                duration,
+                recorded=bool(call_log.recording_url) or bool(
+                    getattr(campaign, 'recording_enabled', False)
+                ),
+                voip_checked=bool(getattr(call_log, 'ipqs_checked', False)),
+            )
 
             if amount > 0:
                 charge = BillingService.charge_call(

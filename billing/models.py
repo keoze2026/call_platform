@@ -39,6 +39,22 @@ class BillingAccount(models.Model):
         help_text='Percentage added on top of the per-minute rate. 0 = no markup'
     )
 
+    # Per-call and per-minute service fees, charged on top of the call rate.
+    # Four decimal places: these are fractions of a cent and rounding them to
+    # two would charge nothing on the recording fee.
+    recording_fee_per_minute = models.DecimalField(
+        max_digits=10, decimal_places=4, default=Decimal('0.0025'),
+        help_text='Charged per minute when the call was recorded. 0 disables it'
+    )
+    voip_shield_fee_per_call = models.DecimalField(
+        max_digits=10, decimal_places=4, default=Decimal('0.0100'),
+        help_text='Charged per call checked by the VoIP Shield. 0 disables it'
+    )
+    rejected_call_fee = models.DecimalField(
+        max_digits=10, decimal_places=4, default=Decimal('0.0150'),
+        help_text='Charged per call refused before routing. 0 disables it'
+    )
+
     tfn_purchase_fee = models.DecimalField(
         max_digits=10, decimal_places=2, default=Decimal('20.00'),
         help_text='Charged when this client provisions a tracking number'
