@@ -66,7 +66,14 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
         start = _f(filters, 'date_from') or _f(filters, 'start_date')
         end = _f(filters, 'date_to') or _f(filters, 'end_date')
         dests = Destination.objects.filter(
-            buyer__organization=request.auth.organization
+            buyer__organization=request.auth.organization,
+            # Enabled only. format_destination runs several COUNT queries
+            # against the call log per row, and this was formatting all 165
+            # destinations on every dashboard load - over a thousand queries -
+            # to build a panel that then shows only the enabled ones. With one
+            # destination enabled, 164 of those rows were computed and thrown
+            # away, and the dashboard took seconds to arrive because of it.
+            enabled=True,
         ).select_related('buyer')
         # Honour the "All destinations" dropdown when one is picked.
         chosen = _f(filters, 'destination')
