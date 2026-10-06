@@ -109,6 +109,8 @@ class CampaignService:
             'bid_floor', 'rtb_timeout_seconds',
             'ipqs_enabled', 'block_voip', 'block_risky', 'block_spammer',
             'block_recent_abuse', 'block_invalid_numbers', 'max_fraud_score',
+            'auto_schedule_enabled', 'play_hour', 'play_minute',
+            'pause_hour', 'pause_minute', 'auto_schedule_timezone',
         }
 
         for field, value in data.model_dump(exclude_none=True).items():
@@ -319,6 +321,12 @@ class CampaignService:
             'auto_sms_message': campaign.auto_sms_message,
             'recording_enabled': campaign.recording_enabled,
             'advanced_settings': campaign.advanced_settings,
+            'auto_schedule_enabled': campaign.auto_schedule_enabled,
+            'play_hour': campaign.play_hour,
+            'play_minute': campaign.play_minute,
+            'pause_hour': campaign.pause_hour,
+            'pause_minute': campaign.pause_minute,
+            'auto_schedule_timezone': campaign.auto_schedule_timezone,
             'bid_floor': str(campaign.bid_floor),
             'rtb_timeout_seconds': campaign.rtb_timeout_seconds,
             'live_calls': live_calls,

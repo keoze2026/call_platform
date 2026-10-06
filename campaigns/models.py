@@ -90,6 +90,21 @@ class Campaign(models.Model):
     queue_music_url = models.URLField(blank=True, default='')
     queue_message = models.TextField(blank=True, default='All agents are busy. Please hold.')
 
+    # ── Auto schedule ────────────────────────────────────────────────────
+    # The campaign page has had play/pause times since the beginning. They were
+    # kept in a zustand store backed by localStorage, so they existed only in
+    # the browser that set them, never reached the server, and nothing ever
+    # acted on them - a campaign set to pause at 5pm ran all night.
+    auto_schedule_enabled = models.BooleanField(default=False)
+    # Local time in auto_schedule_timezone, not UTC: a schedule is written in
+    # the hours a person works, and storing UTC would silently shift it twice a
+    # year when the clocks change.
+    play_hour = models.IntegerField(default=8)
+    play_minute = models.IntegerField(default=0)
+    pause_hour = models.IntegerField(default=17)
+    pause_minute = models.IntegerField(default=0)
+    auto_schedule_timezone = models.CharField(max_length=64, default='America/New_York')
+
     class Meta:
         db_table = 'campaigns'
         ordering = ['-created_at']

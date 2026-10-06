@@ -519,6 +519,73 @@ def enrich_call_carrier(call_log_id, caller_number):
     return f"Enriched {call_log_id} via {source}: {raw_carrier or 'unknown carrier'}{flag}"
 
 
+@app.task(name='tasks.apply_auto_schedules')
+def apply_auto_schedules():
+    """Play and pause campaigns at the times their schedule says.
+
+    The play/pause times sat in a browser store and nothing ever read them, so
+    a campaign set to pause at 5pm took calls all night. This is the half that
+    was missing.
+
+    Runs every minute. Compares the current local time in each campaign's own
+    timezone against its window, and only writes when the status is wrong -
+    so a campaign somebody paused by hand inside its play window is pushed back
+    to active, which is what "automatically play and pause" means, while a
+    campaign with the switch off is never touched at all.
+    """
+    import logging
+    from datetime import time as dtime
+    from zoneinfo import ZoneInfo
+    from django.utils import timezone as djtz
+    from campaigns.models import Campaign
+
+    # tasks.py has no module-level logger - it is created inside the one other
+    # function that logs. Referencing a bare `logger` here would have raised
+    # NameError the first time a campaign had a bad timezone.
+    logger = logging.getLogger(__name__)
+    played = paused = 0
+    for c in Campaign.objects.filter(auto_schedule_enabled=True):
+        try:
+            tz = ZoneInfo(c.auto_schedule_timezone or 'America/New_York')
+        except Exception:
+            logger.warning('campaign %s has an unknown timezone %r', c.name, c.auto_schedule_timezone)
+            continue
+
+        now = djtz.localtime(djtz.now(), tz).time()
+        start = dtime(c.play_hour % 24, c.play_minute % 60)
+        end = dtime(c.pause_hour % 24, c.pause_minute % 60)
+
+        if start == end:
+            # A zero-length window would pause the campaign permanently. Treat
+            # it as "no schedule" rather than silently killing the traffic.
+            continue
+        if start < end:
+            inside = start <= now < end
+        else:
+            # Crosses midnight, e.g. 18:00 -> 02:00.
+            inside = now >= start or now < end
+
+        want = Campaign.Status.ACTIVE if inside else Campaign.Status.PAUSED
+        if c.status == want:
+            continue
+        # Never resurrect a campaign somebody archived.
+        if c.status not in (Campaign.Status.ACTIVE, Campaign.Status.PAUSED):
+            continue
+
+        Campaign.objects.filter(id=c.id).update(status=want)
+        if want == Campaign.Status.ACTIVE:
+            played += 1
+        else:
+            paused += 1
+        logger.info(
+            'auto schedule: %s -> %s (%s local, window %s-%s)',
+            c.name, want, now.strftime('%H:%M'),
+            start.strftime('%H:%M'), end.strftime('%H:%M'),
+        )
+
+    return f'auto schedule: played {played}, paused {paused}'
+
+
 @app.task(name='tasks.mirror_call_record')
 def mirror_call_record(call_log_id):
     """Mirror a terminal CallLog into the CallRecord analytics table."""

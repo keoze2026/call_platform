@@ -130,6 +130,14 @@ class UpdateCampaignSchema(Schema):
     block_recent_abuse: Optional[bool] = None
     block_invalid_numbers: Optional[bool] = None
     max_fraud_score: Optional[int] = None
+    # Auto schedule. Held in a browser store until now, so a campaign set to
+    # pause at 5pm ran all night and the times differed per machine.
+    auto_schedule_enabled: Optional[bool] = None
+    play_hour: Optional[int] = None
+    play_minute: Optional[int] = None
+    pause_hour: Optional[int] = None
+    pause_minute: Optional[int] = None
+    auto_schedule_timezone: Optional[str] = None
 
 
 # ===== RESPONSE SCHEMAS =====
@@ -176,6 +184,12 @@ class CampaignOutSchema(Schema):
     auto_sms_message: str = ''
     recording_enabled: bool = True
     advanced_settings: Optional[dict] = None
+    auto_schedule_enabled: bool = False
+    play_hour: int = 8
+    play_minute: int = 0
+    pause_hour: int = 17
+    pause_minute: int = 0
+    auto_schedule_timezone: str = 'America/New_York'
     created_at: str
     updated_at: str
     live_calls: int = 0

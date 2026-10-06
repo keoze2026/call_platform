@@ -354,6 +354,12 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 CELERY_BEAT_SCHEDULE = {
+    # Every minute: a schedule that says "pause at 17:00" has to mean 17:00,
+    # not up to an hour later.
+    'apply-auto-schedules': {
+        'task': 'tasks.apply_auto_schedules',
+        'schedule': 60.0,
+    },
     'reset-daily-caps': {
         'task': 'tasks.reset_daily_caps',
         'schedule': 86400.0,  # every 24 hours
