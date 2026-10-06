@@ -131,7 +131,7 @@ class ConversionEvent(models.Model):
     def __str__(self):
         indexes = [
             # Retries scan by status and age; neither was indexed.
-            models.Index(fields=['status', 'created_at']),
-            models.Index(fields=['webhook', 'created_at']),
+            models.Index(fields=['status', 'created_at'], name='whdeliv_status_created_idx'),
+            models.Index(fields=['webhook', 'created_at'], name='whdeliv_hook_created_idx'),
         ]
         return f"Conversion for {self.caller_number} (${self.conversion_value})"

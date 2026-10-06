@@ -201,8 +201,8 @@ class CallLog(models.Model):
             # these two, and neither was indexed. format_destination runs
             # several counts per row and check_buyer_concurrency runs on every
             # call, so both were doing sequential scans.
-            models.Index(fields=['destination_number', 'status', 'created_at']),
-            models.Index(fields=['buyer', 'status', 'created_at']),
+            models.Index(fields=['destination_number', 'status', 'created_at'], name='calllog_dest_status_idx'),
+            models.Index(fields=['buyer', 'status', 'created_at'], name='calllog_buyer_status_idx'),
         ]
 
     def __str__(self):

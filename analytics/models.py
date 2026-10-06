@@ -154,8 +154,8 @@ class CallRecord(models.Model):
             # started_at is the field every report buckets and filters on -
             # CALL_TIME is Coalesce('started_at', 'created_at') - and it had no
             # index at all, so each one scanned the table.
-            models.Index(fields=['organization', 'started_at']),
-            models.Index(fields=['started_at']),
+            models.Index(fields=['organization', 'started_at'], name='callrec_org_started_idx'),
+            models.Index(fields=['started_at'], name='callrec_started_idx'),
         ]
 
     def __str__(self):
