@@ -68,6 +68,9 @@ class NotificationLog(models.Model):
     class Meta:
         db_table = 'notification_logs'
         ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['organization', 'created_at'], name='notiflog_org_created_idx'),
+        ]
 
     def __str__(self):
         return f"{self.event} → {self.recipient} ({self.status})"
@@ -117,6 +120,3 @@ class NotificationPreference(models.Model):
 
     def wants_popup(self, event: str) -> bool:
         return self.popups_enabled and event in (self.popup_events or [])
-        indexes = [
-            models.Index(fields=['organization', 'created_at'], name='notiflog_org_created_idx'),
-        ]

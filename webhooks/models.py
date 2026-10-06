@@ -75,6 +75,12 @@ class WebhookDelivery(models.Model):
     class Meta:
         db_table = 'webhook_deliveries'
         ordering = ['-created_at']
+        indexes = [
+            # The retry job scans by status and age every five minutes and
+            # neither column was indexed.
+            models.Index(fields=['status', 'created_at'], name='whdeliv_status_created_idx'),
+            models.Index(fields=['webhook', 'created_at'], name='whdeliv_hook_created_idx'),
+        ]
 
     def __str__(self):
         return f"{self.event} → {self.webhook.url} ({self.status})"
@@ -129,9 +135,4 @@ class ConversionEvent(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
-        indexes = [
-            # Retries scan by status and age; neither was indexed.
-            models.Index(fields=['status', 'created_at'], name='whdeliv_status_created_idx'),
-            models.Index(fields=['webhook', 'created_at'], name='whdeliv_hook_created_idx'),
-        ]
         return f"Conversion for {self.caller_number} (${self.conversion_value})"
