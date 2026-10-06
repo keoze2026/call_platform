@@ -85,6 +85,8 @@ api.add_router("/notifications/", notifications_router)
 api.add_router("/billing/", billing_router)
 api.add_router("/queue/", call_queue_router)
 api.add_router("/spam/", spam_router)
+from security.api import router as security_router
+api.add_router("/security/", security_router)
 api.add_router("/ai/", ai_router)
 api.add_router("/kyc/", kyc_router)
 api.add_router("/accounts/access-requests/", access_requests_router)
@@ -98,3 +100,20 @@ api.add_router("/destinations/", destinations_router)
 api.add_router("/referrals/", referrals_router)
 from integrations.api import router as integrations_router
 api.add_router("/integrations/", integrations_router)
+
+
+# ── Reports PIN ───────────────────────────────────────────────────────────────
+# 423 Locked with this exact code is the contract the frontend watches for on
+# every request: when it sees it, the app switches to the PIN screen and stops
+# asking for history. The PIN endpoints themselves never raise it, so a
+# pin_locked_out 423 is not mistaken for "enter the PIN".
+from security.enforcement import ReportsPinRequired
+
+
+@api.exception_handler(ReportsPinRequired)
+def _reports_pin_required(request, exc):
+    return api.create_response(
+        request,
+        {'detail': exc.detail, 'code': exc.code},
+        status=423,
+    )

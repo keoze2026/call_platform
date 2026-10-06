@@ -80,6 +80,7 @@ INSTALLED_APPS = [
     'phone_numbers',
     'routing',
     'spam_protection',
+    'security',
     'referrals',
     'support',
     'ivr',
@@ -316,6 +317,12 @@ REALVALIDITO_DNC_TIMEOUT = config('REALVALIDITO_DNC_TIMEOUT', default=4, cast=fl
 # turning traffic away, which is the safer order to switch them on.
 DNC_CHECK_ENABLED = config('DNC_CHECK_ENABLED', default=False, cast=bool)
 DNC_BLOCK_LISTED = config('DNC_BLOCK_LISTED', default=False, cast=bool)
+
+# Reports PIN. Locks yesterday-and-older report data behind a 4-digit PIN that
+# every login in the workspace shares. No PIN set = nothing locked.
+REPORTS_PIN_UNLOCK_MINUTES = config('REPORTS_PIN_UNLOCK_MINUTES', default=30, cast=int)
+REPORTS_PIN_MAX_ATTEMPTS = config('REPORTS_PIN_MAX_ATTEMPTS', default=5, cast=int)
+REPORTS_PIN_LOCKOUT_MINUTES = config('REPORTS_PIN_LOCKOUT_MINUTES', default=5, cast=int)
 
 # IPQualityScore: the fraud score the ipqs_* fields are named after and have
 # never held. Telnyx hardcodes 0 and RealValidito does not sell a score, so

@@ -5,6 +5,8 @@ from accounts.api import JWTAuth
 from accounts.permissions import Capability, require, scope_queryset
 from django.db.models.functions import Coalesce
 import logging
+from security.enforcement import require_reports_unlock
+
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ router = Router(tags=["Analytics"], auth=JWTAuth())
 @router.get("/dashboard", response={200: DashboardSchema})
 def dashboard(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Real-time dashboard — total calls, live calls, revenue, conversion rate."""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_dashboard(request.auth, filters)
     return 200, data
 
@@ -48,6 +51,7 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     consistent even mid-call. The individual endpoints stay for anything that
     wants one section on its own.
     """
+    require_reports_unlock(request, filters)
     from django.utils import timezone
 
     taken_at = timezone.now()
@@ -92,6 +96,7 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
 @router.get("/time-series", response={200: List[TimeSeriesPointSchema]})
 def time_series(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Calls/revenue/profit over time. granularity: hour | day | week | month"""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_time_series(request.auth, filters)
     return 200, data
 
@@ -99,6 +104,7 @@ def time_series(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...
 @router.get("/campaigns", response={200: list})
 def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per campaign."""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_campaign_performance(request.auth, filters)
     return 200, data
 
@@ -106,6 +112,7 @@ def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = 
 @router.get("/carriers", response={200: list})
 def carrier_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per caller carrier — the CALLER PROFILE tab."""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_carrier_performance(request.auth, filters)
     return 200, data
 
@@ -113,6 +120,7 @@ def carrier_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Q
 @router.get("/buyers", response={200: list})
 def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per buyer — win rate, avg bid, payout."""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_buyer_performance(request.auth, filters)
     return 200, data
 
@@ -120,6 +128,7 @@ def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Que
 @router.get("/publishers", response={200: list})
 def publisher_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per publisher — calls, conversion, spam rate."""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_publisher_performance(request.auth, filters)
     return 200, data
 
@@ -127,6 +136,7 @@ def publisher_performance(request: HttpRequest, filters: AnalyticsFilterSchema =
 @router.get("/calls", response={200: CallLogListSchema})
 def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Full paginated call log with all filters."""
+    require_reports_unlock(request, filters)
     data = AnalyticsService.get_call_log(request.auth, filters)
     return 200, data
 
@@ -134,6 +144,7 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
 @router.get("/calls/export", auth=JWTAuth(), response=None)
 def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Download full call log as CSV."""
+    require_reports_unlock(request, filters)
     from django.http import StreamingHttpResponse
 
     # "Download Reports" is one of the toggles on a partner's settings page. It
@@ -163,6 +174,8 @@ def get_recording(request: HttpRequest, call_id: str):
             id=call_id,
             organization=request.auth.organization
         )
+        # A recording of a call from before today is history like any other.
+        require_reports_unlock(request, None, started_at=call.created_at)
         if not call.recording_url:
             return 404, {"detail": "No recording available for this call"}
         return 200, {
@@ -192,6 +205,7 @@ def call_detail(request: HttpRequest, call_id: str):
         call = scope_queryset(request.auth, CallLog.objects.select_related(
             'campaign', 'buyer', 'publisher', 'routing_rule'
         )).get(id=call_id, organization=request.auth.organization)
+        require_reports_unlock(request, None, started_at=call.created_at)
     except CallLog.DoesNotExist:
         return 404, {"detail": "Call not found"}
 
