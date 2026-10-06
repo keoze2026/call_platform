@@ -197,6 +197,12 @@ class CallLog(models.Model):
             models.Index(fields=['twilio_call_sid']),
             models.Index(fields=['called_number', 'status']),
             models.Index(fields=['status']),
+            # The destination counters and every concurrency check filter on
+            # these two, and neither was indexed. format_destination runs
+            # several counts per row and check_buyer_concurrency runs on every
+            # call, so both were doing sequential scans.
+            models.Index(fields=['destination_number', 'status', 'created_at']),
+            models.Index(fields=['buyer', 'status', 'created_at']),
         ]
 
     def __str__(self):

@@ -117,3 +117,6 @@ class NotificationPreference(models.Model):
 
     def wants_popup(self, event: str) -> bool:
         return self.popups_enabled and event in (self.popup_events or [])
+        indexes = [
+            models.Index(fields=['organization', 'created_at']),
+        ]

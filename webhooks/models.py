@@ -129,4 +129,9 @@ class ConversionEvent(models.Model):
         ordering = ['-created_at']
 
     def __str__(self):
+        indexes = [
+            # Retries scan by status and age; neither was indexed.
+            models.Index(fields=['status', 'created_at']),
+            models.Index(fields=['webhook', 'created_at']),
+        ]
         return f"Conversion for {self.caller_number} (${self.conversion_value})"
