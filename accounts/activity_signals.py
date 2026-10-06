@@ -20,7 +20,7 @@ is never worth losing the save it was describing.
 """
 import logging
 
-from django.db.models.signals import post_delete, post_save
+from django.db.models.signals import post_delete, post_save, pre_save
 
 from .current_request import get_current_request, get_current_user
 
@@ -33,6 +33,7 @@ TRACKED = {
     'publishers.Publisher': ('publisher', 'name'),
     'campaigns.Campaign': ('campaign', 'name'),
     'routing.RoutingRule': ('routing_rule', 'name'),
+    'routing.RuleDestination': ('campaign_destination', 'destination'),
     'phone_numbers.PhoneNumber': ('phone_number', 'number'),
     'notifications.NotificationRule': ('notification_rule', 'name'),
     'accounts.User': ('user', 'email'),
@@ -91,6 +92,64 @@ def _client_ip(request):
     return ip
 
 
+# Fields nobody wants to read in an audit feed: they change on every save and
+# say nothing about what a person did.
+NOISE_FIELDS = {'updated_at', 'password', 'last_login', 'live_calls',
+                'hourly_calls', 'daily_calls', 'monthly_calls', 'global_calls'}
+
+
+def _snapshot(instance) -> dict:
+    """The row as it is in the database right now, before this save."""
+    try:
+        current = type(instance).objects.filter(pk=instance.pk).first()
+    except Exception:
+        return {}
+    if current is None:
+        return {}
+    out = {}
+    for f in type(instance)._meta.concrete_fields:
+        if f.name in NOISE_FIELDS:
+            continue
+        try:
+            out[f.name] = getattr(current, f.attname)
+        except Exception:
+            continue
+    return out
+
+
+def on_pre_save(sender, instance, **kwargs):
+    """Stash the old values so on_save can say what actually changed.
+
+    Without this the feed could only say "updated", which is why every row read
+    the same and told nobody anything.
+    """
+    if instance.pk is None:
+        instance._activity_before = {}
+        return
+    instance._activity_before = _snapshot(instance)
+
+
+def _changed_fields(instance) -> dict:
+    """{field: {'old': …, 'new': …}} for everything this save altered."""
+    before = getattr(instance, '_activity_before', None)
+    if not before:
+        return {}
+    changes = {}
+    for name, old in before.items():
+        try:
+            field = type(instance)._meta.get_field(name)
+            new = getattr(instance, field.attname)
+        except Exception:
+            continue
+        if old == new:
+            continue
+        changes[name] = {
+            'old': None if old is None else str(old)[:200],
+            'new': None if new is None else str(new)[:200],
+        }
+    return changes
+
+
 def on_save(sender, instance, created, **kwargs):
     from .models import ActivityLog
 
@@ -102,10 +161,21 @@ def on_save(sender, instance, created, **kwargs):
     if update_fields and set(update_fields) <= {'last_login', 'password', 'updated_at'}:
         return
 
+    extra = {'fields': sorted(update_fields)} if update_fields else None
+
+    if not created:
+        changes = _changed_fields(instance)
+        if not changes:
+            # Nothing a reader would care about moved. Logging it anyway is how
+            # a feed fills with thousands of identical "Update" rows that say
+            # nothing - which is exactly what was reported.
+            return
+        extra = {**(extra or {}), 'changes': changes}
+
     _write(
         instance,
         ActivityLog.Action.RECORD_CREATED if created else ActivityLog.Action.RECORD_UPDATED,
-        {'fields': sorted(update_fields)} if update_fields else None,
+        extra,
     )
 
 
@@ -134,6 +204,9 @@ def connect():
             logger.warning('activity log: no model %s, not tracking it', label)
             continue
 
+        pre_save.connect(
+            on_pre_save, sender=model, dispatch_uid=f'activity_log_pre_{label}',
+        )
         post_save.connect(
             on_save, sender=model, dispatch_uid=f'activity_log_save_{label}',
         )

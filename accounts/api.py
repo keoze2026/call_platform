@@ -675,6 +675,11 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
                 or meta.get('campaign_name')
                 or meta.get('email')
             ),
+            # Field-level before/after, as {field: {'old': …, 'new': …}}.
+            # Surfaced at the top level rather than buried in metadata so the
+            # feed can render a change table without digging. Empty for a
+            # create or a delete, where there is no previous value.
+            'changes': meta.get('changes') or {},
             'metadata': meta,
             'ip_address': str(log.ip_address) if log.ip_address else None,
             'user_agent': (log.user_agent or '')[:200],
