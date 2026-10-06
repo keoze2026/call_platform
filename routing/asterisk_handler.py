@@ -173,6 +173,12 @@ def route_incoming_call(request):
         "buyer_number": dest_number,
         "call_log_id": str(call_log.id),
         "max_duration": 3600,
+        # Whether to record. The Auto Record Calls switch on the campaign has
+        # never controlled anything: recording_enabled was read only in
+        # routing/twilio_handler.py, a path no call takes, while the dialplan
+        # ran MixMonitor on every call unconditionally. The AGI turns this into
+        # a channel variable and the dialplan gates MixMonitor on it.
+        "recording_enabled": bool(getattr(campaign, 'recording_enabled', True)),
     })
 
 
