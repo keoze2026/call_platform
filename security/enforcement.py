@@ -37,6 +37,18 @@ def _resolve_tz(filters):
         return timezone.get_current_timezone()
 
 
+def _is_api_key(request) -> bool:
+    """Was this request authenticated by an API key rather than a login?
+
+    APIKeyAuth sets `auth_org` on the request and nothing else does; key tokens
+    are also prefixed `avx_`. Either is enough on its own.
+    """
+    if getattr(request, 'auth_org', None) is not None:
+        return True
+    header = getattr(request, 'META', {}).get('HTTP_AUTHORIZATION', '')
+    return 'avx_' in header
+
+
 def _first(filters, *names):
     for name in names:
         value = getattr(filters, name, None) if filters is not None else None
@@ -85,6 +97,13 @@ def require_reports_unlock(request, filters=None, *, started_at=None):
     user = getattr(request, 'auth', None)
     organization = getattr(user, 'organization', None)
     if organization is None:
+        return
+
+    # API keys are exempt. A key cannot type a PIN, so refusing it would break
+    # an integration the admin deliberately created, silently and with no way
+    # for anyone to fix it from the interface. The PIN exists to stop a person
+    # browsing history in the portal; a key is not a person.
+    if _is_api_key(request):
         return
 
     if get_pin(organization) is None:
