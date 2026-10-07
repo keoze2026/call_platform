@@ -4750,3 +4750,41 @@ which is `auto_now_add` — the moment the mirror row is written, i.e. when the
 call *ended*. Every subtraction came out negative and `max(0, ...)` turned the
 lot into 0. It now measures from `started_at`, the real call start, the same
 field the reports bucket on.
+
+
+## CH-079 — TCL and AHT: voicemail in the numerator, live calls in neither bucket
+
+**2026-10-07 · Reporting · commit pending**
+
+The boss read AHT 8.32 against the portal's 9:19 and asked which was right.
+Neither was: ACL is `TCL / Connected`, and both sides of that division were
+wrong in the same direction.
+
+**Voicemail counted in the time but not in the count.** `connected_calls` is
+`status in (completed, in_progress)`, so a voicemail is Not Connected. But
+`total_duration_sec` was `Sum('duration_seconds')` over **every** row, so the
+seconds of every voicemail went into TCL while the call itself stayed out of the
+denominator. A voicemail carries real duration — the message — so AHT was pushed
+up by exactly the time of calls it refused to count.
+
+The averages had a third definition again: `~Q(status__in=['failed',
+'no_answer', 'busy', 'canceled'])`. That list never named `voicemail`, and
+`canceled` is not a status this model has — the six are `completed`,
+`no_answer`, `busy`, `failed`, `voicemail`, `in_progress`. Three tabs used that
+exclusion, three used no filter at all, so Campaign, Buyer and the dashboard
+card each answered "average call length" differently. All six now use the
+Connected definition, so every average on the platform means the same thing.
+
+**Live calls were in Incoming and in neither bucket.** `total_calls` added the
+live count, `connected_calls` did not, and `not_connected_calls` did not either
+— against the comment two lines above saying the two always sum to Incoming. On
+screen: **443 Incoming, 145 + 291 = 436**, seven calls in no bucket, and the AHT
+denominator seven short. `get_time_series` has always counted a live call as
+connected; Campaign, Buyer and Publisher now do too.
+
+`aht_check` prints the whole breakdown for a day — calls and seconds per status,
+both TCLs, and AHT under each definition — so this is settled with numbers
+instead of two screenshots.
+
+Carrier performance is untouched on the live-call point: it reports
+`live_calls: 0` and never had them.

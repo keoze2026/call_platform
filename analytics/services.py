@@ -232,7 +232,9 @@ class AnalyticsService:
             total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
             total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
             total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
-            avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
+            avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0.0),
             billable_minutes=Coalesce(
                 Sum(
                     Ceil(Cast('duration_seconds', FloatField()) / 60.0),
@@ -319,7 +321,9 @@ class AnalyticsService:
                 revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
-                avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0.0),
             )
             .order_by('period')
         )
@@ -433,7 +437,9 @@ class AnalyticsService:
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
-                avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 
                 # Columns the summary table was deriving client-side. Definitions
@@ -449,7 +455,13 @@ class AnalyticsService:
                 paid_calls=Count('id', filter=Q(
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
-                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                # TCL is divided by Connected to make ACL, so it has to be the
+                # time of the calls that connected. Summing every row put the
+                # seconds of calls that are not in the denominator into the
+                # numerator and pushed ACL up.
+                total_duration_sec=Coalesce(Sum('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0),
                 billable_minutes=Coalesce(
                     Sum(
                         Ceil(Cast('duration_seconds', FloatField()) / 60.0),
@@ -490,7 +502,12 @@ class AnalyticsService:
                 # each of these spellings.
                 'dupe': r['repeat_answered'],
                 'duplicates': r['repeat_answered'],
-                'connected_calls': r['connected_calls'],
+                # A live call is connected - the time series has always counted
+                # it that way. These three did not, so Incoming included it and
+                # neither bucket did: 443 Incoming against 145 + 291 = 436, and
+                # the stated invariant (the two sum to Incoming) was false on
+                # screen. ACL is TCL / Connected, so the denominator was short.
+                'connected_calls': r['connected_calls'] + lc,
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
                 'live_calls':      lc,
@@ -725,9 +742,9 @@ class AnalyticsService:
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
-                avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(
-                    status__in=['failed', 'no_answer', 'busy', 'canceled']
-                )), 0.0),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 
                 repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
@@ -740,7 +757,13 @@ class AnalyticsService:
                 paid_calls=Count('id', filter=Q(
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
-                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                # TCL is divided by Connected to make ACL, so it has to be the
+                # time of the calls that connected. Summing every row put the
+                # seconds of calls that are not in the denominator into the
+                # numerator and pushed ACL up.
+                total_duration_sec=Coalesce(Sum('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0),
                 billable_minutes=Coalesce(
                     Sum(
                         Ceil(Cast('duration_seconds', FloatField()) / 60.0),
@@ -811,7 +834,13 @@ class AnalyticsService:
                 paid_calls=Count('id', filter=Q(
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
-                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                # TCL is divided by Connected to make ACL, so it has to be the
+                # time of the calls that connected. Summing every row put the
+                # seconds of calls that are not in the denominator into the
+                # numerator and pushed ACL up.
+                total_duration_sec=Coalesce(Sum('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0),
                 billable_minutes=Coalesce(
                     Sum(
                         Ceil(Cast('duration_seconds', FloatField()) / 60.0),
@@ -822,7 +851,9 @@ class AnalyticsService:
                 # What was actually charged, summed from the calls rather than
                 # recalculated. See _cost_from_minutes for why.
                 charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
-                avg_duration=Coalesce(Avg('duration_seconds'), 0.0),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0.0),
             )
         )
 
@@ -848,7 +879,12 @@ class AnalyticsService:
                 'duplicate_calls': r['repeat_answered'],
                 'dupe': r['repeat_answered'],
                 'duplicates': r['repeat_answered'],
-                'connected_calls': r['connected_calls'],
+                # A live call is connected - the time series has always counted
+                # it that way. These three did not, so Incoming included it and
+                # neither bucket did: 443 Incoming against 145 + 291 = 436, and
+                # the stated invariant (the two sum to Incoming) was false on
+                # screen. ACL is TCL / Connected, so the denominator was short.
+                'connected_calls': r['connected_calls'] + lc,
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
                 'live_calls':      lc,
@@ -911,7 +947,13 @@ class AnalyticsService:
                 paid_calls=Count('id', filter=Q(
                     is_converted=True, campaign__payout_amount__gt=0,
                 )),
-                total_duration_sec=Coalesce(Sum('duration_seconds'), 0),
+                # TCL is divided by Connected to make ACL, so it has to be the
+                # time of the calls that connected. Summing every row put the
+                # seconds of calls that are not in the denominator into the
+                # numerator and pushed ACL up.
+                total_duration_sec=Coalesce(Sum('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0),
                 billable_minutes=Coalesce(
                     Sum(
                         Ceil(Cast('duration_seconds', FloatField()) / 60.0),
@@ -922,7 +964,9 @@ class AnalyticsService:
                 # What was actually charged, summed from the calls rather than
                 # recalculated. See _cost_from_minutes for why.
                 charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
-                avg_duration=Coalesce(Avg('duration_seconds', filter=~Q(status__in=['failed', 'no_answer', 'busy', 'canceled'])), 0.0),
+                avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
+                    CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
+                ])), 0.0),
             )
         )
 
@@ -947,7 +991,12 @@ class AnalyticsService:
                 'duplicate_calls': r['repeat_answered'],
                 'dupe': r['repeat_answered'],
                 'duplicates': r['repeat_answered'],
-                'connected_calls': r['connected_calls'],
+                # A live call is connected - the time series has always counted
+                # it that way. These three did not, so Incoming included it and
+                # neither bucket did: 443 Incoming against 145 + 291 = 436, and
+                # the stated invariant (the two sum to Incoming) was false on
+                # screen. ACL is TCL / Connected, so the denominator was short.
+                'connected_calls': r['connected_calls'] + lc,
                 'not_connected_calls': r['not_connected_calls'],
                 'paid_calls':      r['paid_calls'],
                 'live_calls':      lc,
