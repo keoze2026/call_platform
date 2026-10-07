@@ -11,7 +11,7 @@ difference can be named rather than guessed.
 from datetime import datetime, time, timedelta
 
 from django.core.management.base import BaseCommand
-from django.db.models import Count, Sum, Q
+from django.db.models import Count, Sum, Q, F, DurationField, ExpressionWrapper
 from django.utils import timezone
 
 from analytics.models import CallRecord
@@ -97,6 +97,32 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 f'  {hhmmss(all_secs - conn_secs)} belongs to calls that are NOT in the '
                 f'Connected count, so it inflated AHT'))
+
+        # Our duration_seconds is the whole call. A buyer's own AHT is usually
+        # talk time: from the moment they picked up, not from the moment the
+        # call arrived. The difference is the ringing, and over 170 calls it is
+        # not small. answered_at is on the record, so both can be shown.
+        connected = qs.filter(status__in=CONNECTED)
+        answered = connected.filter(answered_at__isnull=False, ended_at__isnull=False)
+        talk = answered.annotate(
+            talk=ExpressionWrapper(F('ended_at') - F('answered_at'), output_field=DurationField()),
+        ).aggregate(total=Sum('talk'), n=Count('id'))
+
+        self.stdout.write('')
+        self.stdout.write(f'connected calls with an answer time   {talk["n"]} of {conn}')
+        if talk['n'] and talk['total']:
+            talk_secs = talk['total'].total_seconds()
+            self.stdout.write(f'talk time (answered -> ended)          {hhmmss(talk_secs)}')
+            self.stdout.write(self.style.SUCCESS(
+                f'AHT on talk time only                  {mmss(talk_secs / talk["n"])}'))
+            ring = conn_secs - talk_secs
+            if ring > 0:
+                self.stdout.write(
+                    f'ringing inside our duration            {hhmmss(ring)}'
+                    f'  ({mmss(ring / talk["n"])} per call)')
+        else:
+            self.stdout.write(self.style.WARNING(
+                'answered_at is not being filled, so talk time cannot be measured'))
 
         self.stdout.write('')
         if conn:
