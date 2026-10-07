@@ -4724,3 +4724,29 @@ hangup handler, after the call is over.
 This is the five-layer field chain again — CallLog, mirror column, mirror
 defaults, formatter, schema. A fix applied only to the call log is invisible,
 exactly as with caller geo and `block_reason`.
+
+
+## CH-078 — The calls the repair could not see, and TTC
+
+**2026-10-07 · Recordings · Export · commit pending**
+
+The export now carries recording links, masked onto `rec.v0l1.com`. Two things
+were still wrong in it.
+
+**Recent completed calls had no link while their audio sat on disk.** Since
+`Stop storing broken recording links` shipped, the hangup handler refused the
+malformed value from the dialplan and stored an empty string. `repair_recordings`
+walks `CallLog.objects.exclude(recording_url='')` — rows that still hold
+*something* — so every one of those calls was invisible to it. The file name is
+the call id, so the blanks are now filled directly from the listing. Reported
+separately as **recovered**, because they are a different failure from the 341
+that held `https`.
+
+Blank rows on **Failed** and **No answer** calls are correct and stay blank: a
+call that never connected has nothing to record.
+
+**TTC printed 0 on every answered call.** It measured from `CallRecord.created_at`,
+which is `auto_now_add` — the moment the mirror row is written, i.e. when the
+call *ended*. Every subtraction came out negative and `max(0, ...)` turned the
+lot into 0. It now measures from `started_at`, the real call start, the same
+field the reports bucket on.

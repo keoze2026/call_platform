@@ -1185,8 +1185,14 @@ class AnalyticsService:
             # which would read as "answered instantly".
             ttc = ''
             answered_at = getattr(r, 'answered_at', None)
-            if answered_at and r.created_at:
-                ttc = max(0, int((answered_at - r.created_at).total_seconds()))
+            # CallRecord.created_at is auto_now_add - the moment the mirror row
+            # was written, which is when the call ENDED. Measuring from it made
+            # every TTC negative and `max(0, ...)` printed 0 on every answered
+            # call. started_at holds the real start, same Coalesce the reports
+            # bucket on.
+            call_start = getattr(r, 'started_at', None) or r.created_at
+            if answered_at and call_start:
+                ttc = max(0, int((answered_at - call_start).total_seconds()))
 
             yield writer.writerow([
                 timezone.localtime(r.created_at, tz).strftime('%Y-%m-%d %H:%M:%S'),

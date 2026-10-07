@@ -12,6 +12,7 @@ the call id and every broken link can be rebuilt from the file beside it.
 Runs on the HOST or in a container that can see the recordings directory.
 """
 import os
+import uuid
 
 from django.conf import settings
 from django.core.management.base import BaseCommand
@@ -111,6 +112,31 @@ class Command(BaseCommand):
                 cleared += 1
                 missing += 1
 
+        # A call whose link the hangup handler refused and dropped stored an
+        # empty string, so the loop above - which walks rows that still hold a
+        # value - never sees it, even with the .wav sitting on disk. Every call
+        # since `Stop storing broken recording links` shipped is in that state.
+        # The file name is the call id, so the blanks can be filled directly.
+        recovered = 0
+        ids = []
+        for key in on_disk:
+            try:
+                ids.append(uuid.UUID(key))
+            except ValueError:
+                continue   # a file whose name is not a call id
+
+        for i in range(0, len(ids), 500):
+            chunk = ids[i:i + 500]
+            blanks = CallLog.objects.filter(
+                pk__in=chunk, recording_url='',
+            ).values_list('pk', flat=True)
+            for pk in blanks:
+                new = f'{base}/{on_disk[str(pk)]}'
+                if not o['dry_run']:
+                    CallLog.objects.filter(pk=pk).update(recording_url=new)
+                    CallRecord.objects.filter(pk=pk).update(recording_url=new)
+                recovered += 1
+
         # The main loop walks CallLog rows that still have a value. An earlier
         # run that cleared a row leaves the loop blind to it while its mirror
         # copy still holds the broken link, so the mirror is reconciled against
@@ -133,6 +159,8 @@ class Command(BaseCommand):
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(f'{fixed} {verb} repaired from a file on disk'))
         self.stdout.write(f'{cleared} {verb} cleared (broken link, no file)')
+        self.stdout.write(self.style.SUCCESS(
+            f'{recovered} {verb} recovered (link was dropped, file on disk)'))
         self.stdout.write(f'{kept} already had a usable link')
         self.stdout.write(f'{stale} stale mirror rows {verb} reconciled')
         if o['dry_run']:
