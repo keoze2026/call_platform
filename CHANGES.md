@@ -4821,3 +4821,50 @@ What differs is the call set: Ringba counted **162**, we counted **170
 connected** out of 488 incoming. Two different populations produce two different
 averages, and 162 against our 443 Incoming is not a comparison at all. The
 number to ask the boss for is which window and filter his 162 covers.
+
+
+## Open — picked up 2026-10-08
+
+Left deliberately, in the order they should be taken.
+
+**1. Confirm the dialplan fix on a real call.** `[macro-call_end]` was replaced
+and reloaded at the end of 2026-10-07, but no call has completed through it yet.
+Backup at `/etc/asterisk/extensions.conf.before-recfix`.
+
+    tail -3 /tmp/call_end_debug.log
+    docker compose exec -T web python manage.py shell -c "from routing.models import CallLog; from routing.recordings import public_recording_url; [print(c.created_at.strftime('%H:%M'), c.status, repr(c.recording_url), '->', public_recording_url(c.recording_url)) for c in CallLog.objects.order_by('-created_at')[:5]]"
+
+Stored should read `recordings/<call-id>.wav`, rendered
+`https://rec.v0l1.com/recordings/<call-id>.wav`. Stored `https` means the
+dialplan did not take; a blank rendering means `RECORDING_BASE_URL` is missing
+from `/opt/call_platform/.env`.
+
+**2. Re-run the repair.** The pull brought in the `recovered` pass (calls whose
+link the handler dropped, with the `.wav` still on disk) but it has not been run
+since. Those calls still show no recording.
+
+    ls /var/spool/asterisk/recordings > /opt/call_platform/recordings.txt
+    docker compose exec -T web python manage.py repair_recordings --from-list /app/recordings.txt
+
+**3. The links do not play yet.** nginx on `rec.v0l1.com` still has to serve the
+recordings folder with `Accept-Ranges`, or every link is a URL that 404s. This
+is the last thing between the client and a working recording.
+
+**4. Check TTC in the export.** It measured from the mirror row's write time and
+printed 0 on every call; it now measures from `started_at`. Unverified against
+real rows.
+
+**5. TCL renders `mm:ss`, should be `hh:mm:ss`.** `formatTimer` in
+`Avortyx/lib/format.ts` is minutes and seconds only, so 26 hours of call time
+prints as `1560:12`. `formatHMS` in the same file already does it correctly and
+the call log uses it. Frontend change, and the boss is reading this column.
+
+**6. Ask the boss which window the Ringba 162 covers.** Our AHT is talk time
+from buyer pickup, the same definition Ringba uses (CH-080), so the formula is
+settled. What is not settled is whether the two systems are looking at the same
+calls: 162 there against 170 connected and 488 incoming here.
+
+Still open from before: the super admin page (built, switched off — enable as-is
+or lock down first), Traffic Source and Tags export columns (nothing tracks
+them, boss's call), the DNC block-versus-record-only decision, and C-11 running
+at $0 revenue against $1 payout.
