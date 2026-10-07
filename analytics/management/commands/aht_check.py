@@ -98,10 +98,11 @@ class Command(BaseCommand):
                 f'  {hhmmss(all_secs - conn_secs)} belongs to calls that are NOT in the '
                 f'Connected count, so it inflated AHT'))
 
-        # Our duration_seconds is the whole call. A buyer's own AHT is usually
-        # talk time: from the moment they picked up, not from the moment the
-        # call arrived. The difference is the ringing, and over 170 calls it is
-        # not small. answered_at is on the record, so both can be shown.
+        # This cannot disagree with duration, and that is the finding.
+        # asterisk_handler sets answered_at = hangup - duration, so
+        # (ended_at - answered_at) is duration rebuilt from itself. It is
+        # printed to make that visible: the two lines matching to the second
+        # means we never receive an answer time, not that there is no ringing.
         connected = qs.filter(status__in=CONNECTED)
         answered = connected.filter(answered_at__isnull=False, ended_at__isnull=False)
         talk = answered.annotate(
@@ -116,7 +117,14 @@ class Command(BaseCommand):
             self.stdout.write(self.style.SUCCESS(
                 f'AHT on talk time only                  {mmss(talk_secs / talk["n"])}'))
             ring = conn_secs - talk_secs
-            if ring > 0:
+            if abs(ring) <= talk['n']:
+                self.stdout.write(self.style.WARNING(
+                    'talk time equals duration because answered_at is derived '
+                    'from duration (asterisk_handler.py). We are not told when '
+                    'the buyer picked up, so ring time cannot be separated out '
+                    'on this side - it depends on whether the dialplan sends '
+                    'CDR(duration) or CDR(billsec).'))
+            elif ring > 0:
                 self.stdout.write(
                     f'ringing inside our duration            {hhmmss(ring)}'
                     f'  ({mmss(ring / talk["n"])} per call)')
