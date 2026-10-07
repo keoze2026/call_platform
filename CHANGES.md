@@ -4728,7 +4728,7 @@ exactly as with caller geo and `block_reason`.
 
 ## CH-078 — The calls the repair could not see, and TTC
 
-**2026-10-07 · Recordings · Export · commit pending**
+**2026-10-07 · Recordings · Export · commit `2a15e730`**
 
 The export now carries recording links, masked onto `rec.v0l1.com`. Two things
 were still wrong in it.
