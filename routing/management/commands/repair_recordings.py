@@ -27,6 +27,16 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument('--dir', default=DEFAULT_DIR)
+        parser.add_argument(
+            '--from-list', default='',
+            help=(
+                'A text file of recording file names, one per line. The audio '
+                'lives on the host and this runs in a container, so listing '
+                'the folder into a file the container can see is simpler than '
+                'remounting anything: '
+                'ls /var/spool/asterisk/recordings > /opt/call_platform/recordings.txt'
+            ),
+        )
         parser.add_argument('--dry-run', action='store_true')
         parser.add_argument(
             '--base', default='',
@@ -34,11 +44,25 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **o):
+        listing = o['from_list']
         folder = o['dir']
-        if not os.path.isdir(folder):
+
+        if listing:
+            if not os.path.isfile(listing):
+                self.stderr.write(self.style.ERROR(f'{listing} does not exist.'))
+                return
+            with open(listing) as fh:
+                names = [line.strip() for line in fh if line.strip()]
+        elif os.path.isdir(folder):
+            names = os.listdir(folder)
+        else:
             self.stderr.write(self.style.ERROR(
-                f'{folder} is not readable from here. Run it on the host, or '
-                f'mount the recordings directory into the container.'
+                f'{folder} is not readable from here, and no --from-list was given.\n'
+                f'The recordings are on the host and this runs in a container. '
+                f'Simplest route:\n'
+                f'  ls {folder} > /opt/call_platform/recordings.txt\n'
+                f'  docker compose exec -T web python manage.py repair_recordings '
+                f'--from-list /app/recordings.txt'
             ))
             return
 
@@ -47,10 +71,10 @@ class Command(BaseCommand):
         # The file name is the call id, so one listing answers every row.
         on_disk = {
             os.path.splitext(f)[0]: f
-            for f in os.listdir(folder)
+            for f in names
             if f.lower().endswith(('.wav', '.mp3'))
         }
-        self.stdout.write(f'{len(on_disk)} recording files in {folder}')
+        self.stdout.write(f'{len(on_disk)} recording files found')
 
         fixed = cleared = kept = missing = 0
         for call in CallLog.objects.exclude(recording_url='').only('id', 'recording_url').iterator(chunk_size=500):
