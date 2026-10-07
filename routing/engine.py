@@ -147,6 +147,25 @@ class RoutingEngine:
             if global_count >= cap.max_calls_global:
                 return False
 
+        # Concurrency. This was the one cap on the campaign that nothing read:
+        # daily, monthly and global were all enforced here and max_concurrency
+        # was skipped, so the Campaigns page showed "8 / 6" on a campaign whose
+        # limit was 6 and kept dispatching.
+        #
+        # Counted the same way as the buyer and destination checks: only rows
+        # still open, and only from the last four hours so a row left behind by
+        # a missing end-of-call webhook cannot block a campaign for ever.
+        if cap.max_concurrency > 0:
+            from datetime import timedelta
+            live = CallLog.objects.filter(
+                campaign=campaign,
+                status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
+                ended_at__isnull=True,
+                created_at__gte=timezone.now() - timedelta(hours=4),
+            ).count()
+            if live >= cap.max_concurrency:
+                return False
+
         return True
 
     @staticmethod
