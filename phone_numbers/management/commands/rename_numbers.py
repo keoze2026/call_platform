@@ -23,10 +23,11 @@ class Command(BaseCommand):
     help = 'Set friendly_name on numbers from a template.'
 
     def add_arguments(self, parser):
-        # What the boss asked for: the name, the carrier code, the assigned
-        # date. It is still an argument so the wording can change without a
-        # deploy, but it does not have to be supplied to do the job asked.
-        parser.add_argument('--name', default='TFN Non DID {code} {assigned}',
+        # The name stays short. The carrier code and the assigned date are
+        # their own columns on the Numbers page, which is what was chosen over
+        # packing all three into the name. Still an argument, so the wording
+        # changes without a deploy.
+        parser.add_argument('--name', default='TFN Non DID',
                             help='The name, with optional {code} {assigned} {number} {last4}')
         parser.add_argument('--type', default='toll_free',
                             help='Only numbers of this type: toll_free, local, mobile')

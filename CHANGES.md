@@ -4950,7 +4950,9 @@ template, so the wording is an argument rather than something in the code:
     python manage.py rename_numbers --type toll_free --name "TFN Non DID" --dry-run
     python manage.py rename_numbers --type toll_free --name "TFN Non DID {code} {assigned}"
 
-`{code}` is the carrier code, `{assigned}` the assigned date, `{number}` and
-`{last4}` the number itself. An empty placeholder collapses rather than leaving
+The name itself stays short — `TFN Non DID` — with the carrier code and the
+assigned date in their own columns, chosen over packing all three into one
+field. `{code}` is the carrier code, `{assigned}` the assigned date, `{number}`
+and `{last4}` the number itself, for anyone who wants them inline. An empty placeholder collapses rather than leaving
 a gap, so a number with no carrier yet reads `TFN Non DID` and not
 `TFN Non DID  `.
