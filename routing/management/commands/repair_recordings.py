@@ -111,10 +111,29 @@ class Command(BaseCommand):
                 cleared += 1
                 missing += 1
 
+        # The main loop walks CallLog rows that still have a value. An earlier
+        # run that cleared a row leaves the loop blind to it while its mirror
+        # copy still holds the broken link, so the mirror is reconciled against
+        # the call log directly.
+        stale = 0
+        mirror = CallRecord.objects.exclude(recording_url='').only('id', 'recording_url')
+        for rec in mirror.iterator(chunk_size=500):
+            if is_recording_link(rec.recording_url or ''):
+                continue
+            truth = CallLog.objects.filter(pk=rec.pk).values_list(
+                'recording_url', flat=True,
+            ).first() or ''
+            if not is_recording_link(truth):
+                truth = ''
+            if not o['dry_run']:
+                CallRecord.objects.filter(pk=rec.pk).update(recording_url=truth)
+            stale += 1
+
         verb = 'would be' if o['dry_run'] else ''
         self.stdout.write('')
         self.stdout.write(self.style.SUCCESS(f'{fixed} {verb} repaired from a file on disk'))
         self.stdout.write(f'{cleared} {verb} cleared (broken link, no file)')
         self.stdout.write(f'{kept} already had a usable link')
+        self.stdout.write(f'{stale} stale mirror rows {verb} reconciled')
         if o['dry_run']:
             self.stdout.write(self.style.WARNING('dry run - nothing was written'))

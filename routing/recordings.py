@@ -35,6 +35,24 @@ def is_recording_link(value: str) -> bool:
     return '/' in value and '.' in value.rsplit('/', 1)[-1]
 
 
+def rebuilt_recording_url(call_log_id) -> str:
+    """The link the dialplan should have sent, built from the call id.
+
+    Asterisk writes <call-id>.wav and sends the URL truncated at the first
+    colon, so the only part of what arrives that can be trusted is none of it.
+    The file name is derivable from the call, so a malformed value is replaced
+    rather than dropped - dropping it is why completed calls with audio on disk
+    showed no recording at all.
+
+    Same shape as `repair_recordings` writes, so the live path and the repair
+    agree on what a stored link looks like.
+    """
+    base = (getattr(settings, 'FRONTEND_URL', '') or '').strip().rstrip('/')
+    if not base or not call_log_id:
+        return ''
+    return f'{base}/recordings/{call_log_id}.wav'
+
+
 def public_recording_url(url: str) -> str:
     """Rewrite a recording URL onto RECORDING_BASE_URL.
 

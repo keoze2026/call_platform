@@ -324,14 +324,26 @@ def call_ended(request):
         # the recordings domain to make https://rec.v0l1.com/https on every
         # completed call. Storing something that cannot be a file is how a
         # whole export of dead links gets shipped to a client.
-        from routing.recordings import is_recording_link
+        from routing.recordings import is_recording_link, rebuilt_recording_url
         if is_recording_link(recording_url):
             call_log.recording_url = recording_url
         else:
-            logger.warning(
-                'call %s: ignoring malformed recording_url %r',
-                call_log_id, recording_url,
-            )
+            # The audio is on disk as <call-id>.wav whatever the dialplan sent,
+            # so the link is rebuilt from the call id instead of thrown away.
+            # Discarding it meant every new call with a recording reported none
+            # and only `repair_recordings` could put it back.
+            rebuilt = rebuilt_recording_url(call_log_id)
+            if rebuilt:
+                call_log.recording_url = rebuilt
+                logger.info(
+                    'call %s: rebuilt recording_url from the call id (got %r)',
+                    call_log_id, recording_url,
+                )
+            else:
+                logger.warning(
+                    'call %s: ignoring malformed recording_url %r',
+                    call_log_id, recording_url,
+                )
 
     campaign = call_log.campaign
     min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0

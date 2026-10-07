@@ -4689,3 +4689,38 @@ applied to them: it is a margin on call time, these are pass-through costs.
 never reaches the billing step, because charging only happens on a converted
 call. Wiring it means taking the fee at the point of refusal, which is the path
 every call goes through.
+
+
+## CH-077 — Recording links: the mirror, and new calls
+
+**2026-10-07 · Recordings · commit pending**
+
+Three separate reasons a recording link could be missing, found one after the
+other because each one hid the next.
+
+  **The repair only fixed half of it.** `repair_recordings` rebuilt 341 links in
+  `routing.CallLog` and reported success. The export and every report read
+  `analytics.CallRecord`, the reporting mirror, which keeps its **own** copy of
+  `recording_url` written when the call ended. The repair ran, said 341 fixed,
+  and the Recording column stayed empty. It now writes both, and refreshes the
+  mirror on rows whose call log was already correct.
+
+  **Rows an earlier run cleared were invisible.** The loop walks call logs that
+  still hold a value, so a row cleared on a previous run is skipped while its
+  mirror copy still holds `https`. A second pass reconciles the mirror against
+  the call log directly.
+
+  **New calls still recorded nothing.** The dialplan sends the URL truncated at
+  the first colon, so `call_ended` received `https`, correctly refused to store
+  it, and dropped it — meaning every new call with audio on disk reported no
+  recording and only the repair command could put it back. Asterisk writes
+  `<call-id>.wav` whatever it posts, so the link is now rebuilt from the call id
+  instead of discarded. Same shape the repair writes, so the live path and the
+  repair agree.
+
+Routing is untouched: the change is inside the `recording_url` branch of the
+hangup handler, after the call is over.
+
+This is the five-layer field chain again — CallLog, mirror column, mirror
+defaults, formatter, schema. A fix applied only to the call log is invisible,
+exactly as with caller geo and `block_reason`.
