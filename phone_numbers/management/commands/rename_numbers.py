@@ -23,9 +23,12 @@ class Command(BaseCommand):
     help = 'Set friendly_name on numbers from a template.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--name', required=True,
+        # What the boss asked for: the name, the carrier code, the assigned
+        # date. It is still an argument so the wording can change without a
+        # deploy, but it does not have to be supplied to do the job asked.
+        parser.add_argument('--name', default='TFN Non DID {code} {assigned}',
                             help='The name, with optional {code} {assigned} {number} {last4}')
-        parser.add_argument('--type', default='',
+        parser.add_argument('--type', default='toll_free',
                             help='Only numbers of this type: toll_free, local, mobile')
         parser.add_argument('--vendor', default='',
                             help='Only numbers from this vendor, e.g. Other')
