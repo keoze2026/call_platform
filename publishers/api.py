@@ -1,5 +1,5 @@
 from accounts.permissions import require, Capability
-from ninja import Router
+from ninja import Router, Schema
 from django.http import HttpRequest
 from typing import List
 from .schemas import (
@@ -218,3 +218,41 @@ def list_publisher_payouts(request: HttpRequest, publisher_id: str, page: int = 
         return 200, paginate_list(data, page, page_size)
     except ValueError as e:
         return 404, {"detail": str(e)}
+
+
+class RemoveMemberSchema(Schema):
+    email: str
+
+
+@router.post("/{publisher_id}/members/remove", response={200: dict, 403: dict, 404: dict})
+def remove_publisher_member(request: HttpRequest, publisher_id: str, data: RemoveMemberSchema):
+    """Take one person's access to this publisher away.
+
+    The trash icon in the Members table had no endpoint behind it, so removing
+    somebody changed the browser and nothing else - they kept their password and
+    their open sessions.
+
+    `member_not_found` is a distinct code because the interface treats it as
+    "already removed" and clears the row, while a missing endpoint (a plain 404)
+    means the login is still live and it has to say so.
+    """
+    from accounts.models import User
+    from accounts.partner_access import revoke_partner_access
+
+    require(request.auth, Capability.EDIT)
+
+    email = (data.email or '').strip().lower()
+    user = User.objects.filter(
+        email__iexact=email,
+        publisher_id=publisher_id,
+        organization=request.auth.organization,
+    ).first()
+    if user is None:
+        return 404, {"detail": f"{email} is not a member of this publisher.",
+                     "code": "member_not_found"}
+
+    if not revoke_partner_access(user, reason='removed from publisher'):
+        return 403, {"detail": "That account is a staff login and was not changed.",
+                     "code": "not_a_partner"}
+
+    return 200, {"detail": "removed"}

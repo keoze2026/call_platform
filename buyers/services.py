@@ -148,6 +148,17 @@ class BuyerService:
         buyer.status = Buyer.Status.ARCHIVED
         buyer.save(update_fields=['status', 'updated_at'])
 
+        # Archiving the buyer left every login attached to it fully
+        # working - same password, sessions still valid - so a removed
+        # partner kept access to a workspace they were no longer part of.
+        # Staff accounts are never touched.
+        from accounts.partner_access import revoke_partner_logins
+        revoked = revoke_partner_logins(buyer, 'buyer', reason='buyer deleted')
+        if revoked:
+            import logging
+            logging.getLogger(__name__).info(
+                'revoked %s login(s) after deleting buyer %s', revoked, buyer.name)
+
     @staticmethod
     def update_cap(buyer_id: str, cap_data, user: User) -> BuyerCap:
         """Update buyer caps"""

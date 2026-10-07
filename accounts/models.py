@@ -78,6 +78,26 @@ class User(AbstractUser):
     
     # Tracking
     last_login_ip = models.GenericIPAddressField(null=True, blank=True)
+
+    # ── Invitation state ──────────────────────────────────────────────────
+    # Deleting a partner only archived it; the login account was left intact
+    # with its password and sessions. Inviting the same address again reused
+    # that account as it stood, so a brand-new invitation showed as
+    # "Registered" and the person could sign straight in with the old
+    # password. Nothing recorded where an invitation stood, so the interface
+    # was guessing from login sessions and two browsers could disagree.
+    class InviteStatus(models.TextChoices):
+        INVITED = 'invited', 'Invited'
+        REGISTERED = 'registered', 'Registered'
+        REVOKED = 'revoked', 'Access removed'
+
+    invite_status = models.CharField(
+        max_length=20, choices=InviteStatus.choices, null=True, blank=True,
+        help_text='Where the current invitation stands. Null for staff accounts.'
+    )
+    invited_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

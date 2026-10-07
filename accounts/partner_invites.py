@@ -77,6 +77,8 @@ def invite_partner(*, organization, partner, kind: str, email: str,
         )
         # No usable password until they set one through the link.
         user.set_unusable_password()
+        user.invite_status = User.InviteStatus.INVITED
+        user.invited_at = timezone.now()
         user.save()
         created = True
     else:
@@ -86,6 +88,24 @@ def invite_partner(*, organization, partner, kind: str, email: str,
                 f"invited here."
             )
         created = False
+
+        # Inviting an address that already has a partner login is a new
+        # invitation, not a re-link. The account was being reused exactly as it
+        # stood - same password, same open sessions - so a brand-new invitation
+        # showed as "Registered" and the person could sign straight in with the
+        # old password.
+        #
+        # Staff are deliberately excluded: resetting an admin's password
+        # because somebody invited their address would lock them out of their
+        # own workspace.
+        from accounts.partner_access import is_partner_account, reset_for_new_invite
+        if is_partner_account(user):
+            reset_for_new_invite(user, kind=kind, partner=partner, organization=organization)
+        else:
+            logger.info(
+                'invite: %s is %r, not resetting the password or sessions',
+                email, user.role,
+            )
 
     # The link that makes the scoping work: without it the login has the role but
     # no way to know which buyer or publisher it is, and sees nothing.

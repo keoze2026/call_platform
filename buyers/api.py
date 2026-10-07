@@ -1,6 +1,6 @@
 from accounts.permissions import require, Capability
 from django.conf import settings
-from ninja import Router
+from ninja import Router, Schema
 from django.http import HttpRequest
 from typing import List
 from .schemas import (
@@ -248,3 +248,41 @@ def update_reporting_config(request: HttpRequest, buyer_id: str):
         return 200, config
     except Buyer.DoesNotExist:
         return 404, {"detail": "Buyer not found"}
+
+
+class RemoveMemberSchema(Schema):
+    email: str
+
+
+@router.post("/{buyer_id}/members/remove", response={200: dict, 403: dict, 404: dict})
+def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberSchema):
+    """Take one person's access to this buyer away.
+
+    The trash icon in the Members table had no endpoint behind it, so removing
+    somebody changed the browser and nothing else - they kept their password and
+    their open sessions.
+
+    `member_not_found` is a distinct code because the interface treats it as
+    "already removed" and clears the row, while a missing endpoint (a plain 404)
+    means the login is still live and it has to say so.
+    """
+    from accounts.models import User
+    from accounts.partner_access import revoke_partner_access
+
+    require(request.auth, Capability.EDIT)
+
+    email = (data.email or '').strip().lower()
+    user = User.objects.filter(
+        email__iexact=email,
+        buyer_id=buyer_id,
+        organization=request.auth.organization,
+    ).first()
+    if user is None:
+        return 404, {"detail": f"{email} is not a member of this buyer.",
+                     "code": "member_not_found"}
+
+    if not revoke_partner_access(user, reason='removed from buyer'):
+        return 403, {"detail": "That account is a staff login and was not changed.",
+                     "code": "not_a_partner"}
+
+    return 200, {"detail": "removed"}

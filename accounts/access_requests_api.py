@@ -240,6 +240,15 @@ def set_password(request, payload: SetPasswordSchema):
     setup_token.is_used = True
     setup_token.save()
 
+    from django.utils import timezone as _tz
+    from accounts.models import User as _User
+    # Accepting the invitation. Without this the status stays "invited"
+    # forever and the members list has to guess from login sessions.
+    user.invite_status = _User.InviteStatus.REGISTERED
+    user.accepted_at = _tz.now()
+    user.save(update_fields=['invite_status', 'accepted_at'])
+
+
     # Return same shape as login
     from rest_framework_simplejwt.tokens import RefreshToken
     refresh = RefreshToken.for_user(user)
