@@ -4693,7 +4693,7 @@ every call goes through.
 
 ## CH-077 — Recording links: the mirror, and new calls
 
-**2026-10-07 · Recordings · commit pending**
+**2026-10-07 · Recordings · commit `1b932311`**
 
 Three separate reasons a recording link could be missing, found one after the
 other because each one hid the next.
