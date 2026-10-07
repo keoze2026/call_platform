@@ -28,16 +28,32 @@ def _frontend_url() -> str:
     return settings.FRONTEND_URL.rstrip('/')
 
 
-def send_account_email(to_email: str, subject: str, body: str):
-    """Send one account email. Returns (sent: bool, error: str | None)."""
+def send_account_email(to_email: str, subject: str, body: str, html_body: str = None):
+    """Send one account email. Returns (sent: bool, error: str | None).
+
+    `body` is the plain-text version and is always sent. `html_body` is added
+    as an alternative when given, so a client that refuses HTML still gets a
+    working link rather than an empty message.
+    """
     try:
-        delivered = send_mail(
-            subject=subject,
-            message=body,
-            from_email=_from_email(),
-            recipient_list=[to_email],
-            fail_silently=False,
-        )
+        if html_body:
+            from django.core.mail import EmailMultiAlternatives
+            msg = EmailMultiAlternatives(
+                subject=subject,
+                body=body,
+                from_email=_from_email(),
+                to=[to_email],
+            )
+            msg.attach_alternative(html_body, 'text/html')
+            delivered = msg.send(fail_silently=False)
+        else:
+            delivered = send_mail(
+                subject=subject,
+                message=body,
+                from_email=_from_email(),
+                recipient_list=[to_email],
+                fail_silently=False,
+            )
         if delivered:
             return True, None
         # send_mail returning 0 means the backend accepted nothing

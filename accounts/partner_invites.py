@@ -118,7 +118,7 @@ def invite_partner(*, organization, partner, kind: str, email: str,
 
     setup_link = f"{settings.FRONTEND_URL}/set-password?token={token_str}"
 
-    sent = _send(email, name, kind, partner, setup_link)
+    sent = _send(email, name, kind, partner, setup_link, invited_by=invited_by)
 
     return {
         'success': True,
@@ -137,7 +137,8 @@ def invite_partner(*, organization, partner, kind: str, email: str,
     }
 
 
-def _send(email: str, name: str, kind: str, partner, setup_link: str) -> bool:
+def _send(email: str, name: str, kind: str, partner, setup_link: str,
+          invited_by=None) -> bool:
     """Send the invitation. Returns whether it went.
 
     Not silent: the caller reports the outcome, and the link is returned either
@@ -148,22 +149,56 @@ def _send(email: str, name: str, kind: str, partner, setup_link: str) -> bool:
     greeting = f"Hi {name}," if name else "Hi,"
     label = 'buyer' if kind == 'buyer' else 'publisher'
 
+    subject = f"You have been invited to Avortyx as a {label}"
+    text_body = (
+        f"{greeting}\n\n"
+        f"You have been invited to Avortyx as a {label} for "
+        f"{getattr(partner, 'name', '')}.\n\n"
+        f"Set your password and sign in here:\n\n{setup_link}\n\n"
+        f"This link expires in {INVITE_VALID_HOURS} hours.\n\n"
+        f"Avortyx Team"
+    )
+
+    # What a partner gets out of the account, by role. Kept here rather than in
+    # the template so the wording is next to the rest of the invite copy.
+    benefits = {
+        'publisher': [
+            'Live revenue, payout share and per-campaign earnings',
+            'Number provisioning and routing assignment in seconds',
+            'Direct payouts with full transparency on every billable call',
+        ],
+        'buyer': [
+            'Live call volume, connection rate and spend per campaign',
+            'Destination, cap and concurrency control in one place',
+            'Full detail on every call you are billed for',
+        ],
+    }.get(label, [])
+
+    html_body = None
     try:
-        send_mail(
-            subject=f"You have been invited to Avortyx as a {label}",
-            message=(
-                f"{greeting}\n\n"
-                f"You have been invited to Avortyx as a {label} for "
-                f"{getattr(partner, 'name', '')}.\n\n"
-                f"Set your password and sign in here:\n\n{setup_link}\n\n"
-                f"This link expires in {INVITE_VALID_HOURS} hours.\n\n"
-                f"Avortyx Team"
+        from django.template.loader import render_to_string
+        html_body = render_to_string('emails/partner_invite.html', {
+            'subject': subject,
+            'recipient_name': name or email.split('@')[0],
+            'recipient_email': email,
+            'inviter_name': (
+                f"{getattr(invited_by, 'first_name', '')} {getattr(invited_by, 'last_name', '')}".strip()
+                or getattr(invited_by, 'email', '') or 'Avortyx'
             ),
-            from_email=settings.PLATFORM_FROM_EMAIL,
-            recipient_list=[email],
-            fail_silently=False,
-        )
-        return True
+            'role_label': label,
+            'action_url': setup_link,
+            'expiry_hours': INVITE_VALID_HOURS,
+            'benefits': benefits,
+            'support_email': settings.PLATFORM_FROM_EMAIL,
+            'site_url': getattr(settings, 'FRONTEND_URL', 'https://www.avortyx.com'),
+        })
     except Exception:
-        logger.exception('partner invite email failed for %s', email)
-        return False
+        # A template problem must not stop the invite. The plain-text version
+        # carries the link and is the thing that actually matters.
+        logger.exception('partner invite template failed for %s, sending plain text', email)
+
+    from accounts.emails import send_account_email
+    sent, error = send_account_email(email, subject, text_body, html_body)
+    if not sent:
+        logger.error('partner invite email failed for %s: %s', email, error)
+    return sent

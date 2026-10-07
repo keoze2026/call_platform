@@ -1,0 +1,97 @@
+{% comment %}
+Partner invitation email.
+
+Tables and inline styles throughout, not because anyone likes them but because
+Gmail strips <style> blocks and Outlook renders with Word. A <div> layout with a
+stylesheet looks right in a browser preview and collapses in the two clients
+that matter most.
+
+Every colour and size is inline for the same reason. The plain-text part is
+sent alongside this, so a client that refuses HTML still gets a working link.
+{% endcomment %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ subject }}</title>
+</head>
+<body style="margin:0;padding:0;background:#eef1f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f6;padding:24px 12px;">
+<tr><td align="center">
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;">
+
+    <tr><td style="padding:36px 36px 0 36px;">
+      <h1 style="margin:0 0 20px 0;font-size:22px;line-height:1.3;color:#0f172a;font-weight:700;">
+        You're invited to Avortyx as a {{ role_label|title }}
+      </h1>
+      <p style="margin:0 0 14px 0;font-size:15px;line-height:1.6;color:#334155;">Hi {{ recipient_name }},</p>
+      <p style="margin:0 0 6px 0;font-size:15px;line-height:1.6;color:#334155;">
+        <strong style="color:#0f172a;">{{ inviter_name }}</strong> invited you to join their {{ role_label }} workspace on Avortyx.
+      </p>
+      <p style="margin:0 0 28px 0;font-size:15px;line-height:1.6;color:#334155;">
+        Accept the invitation to set your password and get started.
+      </p>
+    </td></tr>
+
+    <tr><td align="center" style="padding:0 36px;">
+      <table role="presentation" cellpadding="0" cellspacing="0"><tr><td align="center"
+        style="background:#2563eb;border-radius:8px;">
+        <a href="{{ action_url }}" style="display:inline-block;padding:14px 28px;font-size:15px;font-weight:600;color:#ffffff;text-decoration:none;">
+          Accept invitation &rarr;
+        </a>
+      </td></tr></table>
+      <p style="margin:12px 0 0 0;font-size:12px;color:#94a3b8;">This invitation link is valid for {{ expiry_hours }} hours.</p>
+    </td></tr>
+
+    <tr><td style="padding:28px 36px 0 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #e2e8f0;border-radius:10px;">
+        <tr><td style="padding:20px 22px;">
+          <p style="margin:0 0 14px 0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">What you'll get</p>
+          {% for benefit in benefits %}
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:10px;"><tr>
+            <td valign="top" width="26" style="font-size:14px;color:#2563eb;">&#10003;</td>
+            <td style="font-size:14px;line-height:1.5;color:#334155;">{{ benefit }}</td>
+          </tr></table>
+          {% endfor %}
+        </td></tr>
+      </table>
+    </td></tr>
+
+    <tr><td style="padding:26px 36px 0 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e2e8f0;"><tr><td style="padding-top:22px;">
+        <p style="margin:0 0 6px 0;font-size:15px;font-weight:700;color:#0f172a;">Have a question?</p>
+        <p style="margin:0 0 10px 0;font-size:14px;line-height:1.6;color:#334155;">
+          Our team can help with setup, routing or pricing. Just reply to this email &mdash; we're here to help.
+        </p>
+        <p style="margin:0;font-size:14px;">
+          <a href="mailto:{{ support_email }}" style="color:#2563eb;text-decoration:none;font-weight:600;">Talk to an expert</a>
+          <span style="color:#cbd5e1;">&nbsp;/&nbsp;</span>
+          <a href="{{ site_url }}" style="color:#2563eb;text-decoration:none;font-weight:600;">Visit avortyx.com</a>
+        </p>
+      </td></tr></table>
+    </td></tr>
+
+    <tr><td style="padding:24px 36px 36px 36px;">
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f8fafc;border-radius:8px;">
+        <tr><td style="padding:16px 18px;">
+          <p style="margin:0 0 8px 0;font-size:12px;color:#64748b;">If the button doesn't work, copy this link into your browser:</p>
+          {# Breaks anywhere so a long token cannot stretch the email sideways on a phone. #}
+          <p style="margin:0;font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:#0f172a;word-break:break-all;">{{ action_url }}</p>
+        </td></tr>
+      </table>
+    </td></tr>
+
+  </table>
+
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;">
+    <tr><td style="padding:18px 24px;text-align:center;font-size:12px;line-height:1.6;color:#94a3b8;">
+      You're receiving this because {{ inviter_name }} invited {{ recipient_email }} to Avortyx.
+      If you weren't expecting it, you can safely ignore this email &mdash; nothing is activated until you accept.
+    </td></tr>
+  </table>
+
+</td></tr>
+</table>
+</body>
+</html>
