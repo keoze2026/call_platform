@@ -4754,7 +4754,7 @@ field the reports bucket on.
 
 ## CH-079 — TCL and AHT: voicemail in the numerator, live calls in neither bucket
 
-**2026-10-07 · Reporting · commit pending**
+**2026-10-07 · Reporting · commit `a1c90a05`**
 
 The boss read AHT 8.32 against the portal's 9:19 and asked which was right.
 Neither was: ACL is `TCL / Connected`, and both sides of that division were
