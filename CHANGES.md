@@ -4872,7 +4872,7 @@ at $0 revenue against $1 payout.
 
 ## CH-081 — "Caller is blacklisted" was hiding the do-not-call check
 
-**2026-10-07 · Reporting · Compliance · commit pending**
+**2026-10-07 · Reporting · Compliance · commit `956d3ce5`**
 
 The boss read `Caller is blacklisted` on rows he took for duplicate drops and
 asked for the reason to say Duplicate and the Duplicate column to say Yes.
