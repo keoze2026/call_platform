@@ -2,9 +2,14 @@
 from ninja import Router, Schema
 from django.http import HttpRequest
 
+from accounts.api import JWTAuth
+
 from .services import PinError, lock, remove_pin, set_pin, status, verify
 
-router = Router(tags=['security'])
+# auth=JWTAuth() like every other router. Without it request.auth is None and
+# the first attribute access on it raises, so an unauthenticated call produced
+# a 500 instead of a 401.
+router = Router(tags=['security'], auth=JWTAuth())
 
 
 class SetPinSchema(Schema):
