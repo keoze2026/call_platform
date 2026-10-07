@@ -1056,6 +1056,7 @@ class AnalyticsService:
             'caller_zip':       getattr(r, 'caller_zip', '') or '',
             'caller_timezone':  getattr(r, 'caller_timezone', '') or '',
             'ipqs_fraud_score': getattr(r, 'ipqs_fraud_score', None),
+            'block_reason':     getattr(r, 'block_reason', '') or '',
             'called_number':    r.called_number,
             'destination_number': r.destination_number,
             'destinationNumber':  r.destination_number,
@@ -1097,6 +1098,7 @@ class AnalyticsService:
             'caller_zip':       getattr(r, 'caller_zip', '') or '',
             'caller_timezone':  getattr(r, 'caller_timezone', '') or '',
             'ipqs_fraud_score': getattr(r, 'ipqs_fraud_score', None),
+            'block_reason':     getattr(r, 'block_reason', '') or '',
             'called_number':    r.called_number,
             'destination_number': dest_num,
             'destinationNumber':  dest_num,
@@ -1138,14 +1140,30 @@ class AnalyticsService:
                 
         qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
         writer = csv.writer(PseudoBuffer())
-        
+
+        # The day is cut, and the Date column written, in the reader's own zone.
+        # It was UTC, so an Eastern reader's export disagreed with the portal
+        # beside it and the day began at 8pm the previous evening.
+        tz = _tz(filters)
+
+        # Destination names, resolved once rather than per row.
+        from buyers.destination import Destination
+        dest_names = dict(
+            Destination.objects.filter(organization=user.organization)
+            .values_list('tfn', 'name')
+        )
+
         # Qualified and Duplicate were absent, so the two columns most often
         # queried against this export could not be checked from it at all.
         # Call ID lets a row be matched back to the call detail view.
         yield writer.writerow([
             'Date', 'Call ID', 'Caller', 'State', 'Carrier', 'Called Number',
-            'Campaign', 'Buyer', 'Publisher',
-            'Status', 'Duration (s)', 'Qualified', 'Converted', 'Duplicate',
+            'Campaign', 'Buyer',
+            'Destination Name', 'Destination Number',
+            'Publisher',
+            'Status', 'Fail Reason',
+            'Duration (s)', 'TTC (s)',
+            'Qualified', 'Converted', 'Duplicate',
             'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
         ])
 
@@ -1160,12 +1178,25 @@ class AnalyticsService:
             clean_caller = raw_caller.lstrip('+')
             if clean_caller.startswith('1') and len(clean_caller) == 11:
                 clean_caller = clean_caller[1:]
+            dest_number = getattr(r, 'destination_number', '') or ''
+
+            # Time to connect: how long the caller waited before a buyer picked
+            # up. Blank for a call that was never answered, rather than 0 -
+            # which would read as "answered instantly".
+            ttc = ''
+            answered_at = getattr(r, 'answered_at', None)
+            if answered_at and r.created_at:
+                ttc = max(0, int((answered_at - r.created_at).total_seconds()))
+
             yield writer.writerow([
-                r.created_at.strftime('%Y-%m-%d %H:%M:%S'),
+                timezone.localtime(r.created_at, tz).strftime('%Y-%m-%d %H:%M:%S'),
                 str(r.id),
                 clean_caller, r.caller_state, r.carrier or '', r.called_number,
-                r.campaign_name, r.buyer_name, r.publisher_name,
-                r.status, r.duration_seconds,
+                r.campaign_name, r.buyer_name,
+                dest_names.get(dest_number, ''), dest_number,
+                r.publisher_name,
+                r.status, getattr(r, 'block_reason', '') or '',
+                r.duration_seconds, ttc,
                 'Yes' if r.is_qualified else 'No',
                 'Yes' if r.is_converted else 'No',
                 'Yes' if r.is_duplicate else 'No',

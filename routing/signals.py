@@ -96,6 +96,7 @@ def mirror_call_log(call_log_id) -> bool:
             'caller_zip': call.caller_zip or '',
             'caller_timezone': call.caller_timezone or '',
             'ipqs_fraud_score': call.ipqs_fraud_score,
+            'block_reason': call.block_reason or '',
             'called_number': call.called_number,
             'destination_number': call.destination_number or '',
             'platform_cost': call.platform_cost or 0,

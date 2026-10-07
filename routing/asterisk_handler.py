@@ -319,7 +319,19 @@ def call_ended(request):
         call_log.answered_at = timezone.now() - timezone.timedelta(seconds=duration)
 
     if recording_url:
-        call_log.recording_url = recording_url
+        # Asterisk was sending `https` - the URL truncated at the first colon by
+        # the shell that posts it - and it was stored as-is, then joined onto
+        # the recordings domain to make https://rec.v0l1.com/https on every
+        # completed call. Storing something that cannot be a file is how a
+        # whole export of dead links gets shipped to a client.
+        from routing.recordings import is_recording_link
+        if is_recording_link(recording_url):
+            call_log.recording_url = recording_url
+        else:
+            logger.warning(
+                'call %s: ignoring malformed recording_url %r',
+                call_log_id, recording_url,
+            )
 
     campaign = call_log.campaign
     min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0

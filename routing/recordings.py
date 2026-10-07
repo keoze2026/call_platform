@@ -13,6 +13,28 @@ from urllib.parse import urlsplit, urlunsplit
 from django.conf import settings
 
 
+def is_recording_link(value: str) -> bool:
+    """Does this look like a link to an actual file?
+
+    Asterisk was sending `https` - the URL truncated at the first colon - and
+    it was stored and joined onto the base, producing
+    https://rec.v0l1.com/https for every completed call. Identical on every
+    row, 404 on every click.
+
+    A real one has a scheme and host, or is a path with a file name in it.
+    """
+    value = (value or '').strip()
+    if not value:
+        return False
+
+    parts = urlsplit(value)
+    if parts.scheme in ('http', 'https'):
+        return bool(parts.netloc) and parts.path not in ('', '/')
+
+    # Not a full URL, so it has to be a path that names a file.
+    return '/' in value and '.' in value.rsplit('/', 1)[-1]
+
+
 def public_recording_url(url: str) -> str:
     """Rewrite a recording URL onto RECORDING_BASE_URL.
 
@@ -21,6 +43,11 @@ def public_recording_url(url: str) -> str:
     """
     if not url:
         return url
+
+    # A value that cannot name a file is reported as no recording rather than
+    # as a link that 404s. A blank cell is honest; a dead link is not.
+    if not is_recording_link(url):
+        return ''
 
     base = (getattr(settings, 'RECORDING_BASE_URL', '') or '').strip().rstrip('/')
     if not base:

@@ -63,6 +63,7 @@ class CallRecordSchema(Schema):
     caller_zip:       Optional[str] = ''
     caller_timezone:  Optional[str] = ''
     ipqs_fraud_score: Optional[int] = None
+    block_reason:     Optional[str] = ''
     # Same reason. _format_record sends all three and none was declared, so
     # the call list has never carried the carrier or the qualified verdict -
     # the Caller Profile carrier rows come from a separate breakdown endpoint,

@@ -50,6 +50,11 @@ class CallRecord(models.Model):
     # Null, not 0. 0 is a real IPQS score meaning "clean", so a default of 0
     # would make every unscored call look verified. Null means "not scored".
     ipqs_fraud_score  = models.IntegerField(null=True, blank=True)
+    # Why a call was refused - "Caller is blacklisted", "Campaign cap reached".
+    # The reports read this table, so without it the Fail Reason column in the
+    # export and the call log is empty on every row while the real reason sits
+    # on CallLog.
+    block_reason      = models.CharField(max_length=100, blank=True, default='')
     called_number     = models.CharField(max_length=20, blank=True)
     # Where the call was sent. Absent from the mirror, so the dashboard's
     # "All destinations" dropdown had nothing to filter on.
