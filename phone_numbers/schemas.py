@@ -36,6 +36,8 @@ _UNSET = object()
 class UpdateNumberSchema(Schema):
     friendly_name: Optional[str] = None
     vendor: Optional[str] = None
+    # Empty string clears the carrier; omitted leaves it as it was.
+    carrier_id: Optional[str] = None
     state: Optional[str] = None
     allocated_capacity: Optional[int] = None
     renews_at: Optional[str] = None
@@ -80,6 +82,10 @@ class PhoneNumberOutSchema(Schema):
     country_code: str
     twilio_sid: Optional[str] = None
     vendor: str
+    carrier_id: Optional[str] = None
+    carrier_name: str = ''
+    carrier_code: str = ''
+    assigned_at: Optional[str] = None
     state: str
     allocated_capacity: int
     label: str
@@ -118,6 +124,10 @@ class PhoneNumberListSchema(Schema):
     status: str
     country_code: str
     vendor: str
+    carrier_id: Optional[str] = None
+    carrier_name: str = ''
+    carrier_code: str = ''
+    assigned_at: Optional[str] = None
     state: str
     allocated_capacity: int
     label: str
@@ -145,3 +155,27 @@ class PhoneNumberListSchema(Schema):
 class MessageResponseSchema(Schema):
     message: str
     success: bool = True
+
+
+class CarrierInSchema(Schema):
+    name: str
+    code: str
+    is_active: Optional[bool] = True
+    notes: Optional[str] = ''
+
+
+class CarrierUpdateSchema(Schema):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    is_active: Optional[bool] = None
+    notes: Optional[str] = None
+
+
+class CarrierOutSchema(Schema):
+    id: str
+    name: str
+    code: str
+    is_active: bool
+    notes: str
+    numbers_count: int = 0
+    created_at: str

@@ -4907,3 +4907,38 @@ Nothing about which calls are refused changes. Only the words in Fail Reason.
 register, which is the TCPA Shield protecting the client from a lawsuit, and 142
 are the campaign cap — a third of the day's traffic refused by a limit that can
 be raised.
+
+
+## CH-082 — Carrier codes and the assigned date on the Numbers page
+
+**2026-10-07 · Numbers · commit pending**
+
+The boss asked for a code on each number so it is clear which carrier is
+carrying it, and for the date the number was assigned. `vendor` could not
+answer either question: it records where the number was *bought* — Twilio, or
+`Other` for one handed over directly — which is why eleven toll-frees from two
+different carriers all read `Other`.
+
+**Carrier is a table, not a list in the code.** The codes belong to the people
+running the platform, so a carrier is a row with a name and a short code,
+scoped to the organization, added through `POST /api/carriers/` or
+`add_carrier`. Signing a carrier next month is a command, never an edit and a
+deploy.
+
+    python manage.py add_carrier --name Freedom --code KMQ
+    python manage.py add_carrier --name XOLO --code HYU
+    python manage.py add_carrier --list
+
+**`assigned_at`** is stamped when a number is put on a campaign, and only when
+the campaign actually changes, so re-saving a number does not keep moving the
+date. Both assignment paths set it — `POST /{id}/assign` and the campaign
+change inside `PATCH /{id}`.
+
+Carried to the client through `format_number` **and declared on both
+`PhoneNumberOutSchema` and `PhoneNumberListSchema`** — Ninja drops any key a
+response schema does not name, which is how caller geo, `carrier` and
+`is_qualified` each disappeared for months. `carrier` is in `select_related`,
+so the list does not fire a query per row.
+
+Deleting a carrier leaves its numbers working; they stop naming one. The API
+returns how many were affected so the interface can say so.

@@ -233,7 +233,7 @@ class PhoneNumberService:
         return PhoneNumber.objects.filter(
             organization=user.organization,
             status__in=['active', 'pending', 'available']
-        ).select_related('campaign', 'publisher').order_by('-created_at')
+        ).select_related('campaign', 'publisher', 'carrier').order_by('-created_at')
 
     @staticmethod
     def assign_number(number_id: str, data, user: User) -> PhoneNumber:
@@ -242,7 +242,10 @@ class PhoneNumberService:
             from campaigns.models import Campaign
             try:
                 campaign = Campaign.objects.get(id=data.campaign_id, organization=user.organization)
+                _was = phone_number.campaign_id
                 phone_number.campaign = campaign
+                if _was != campaign.id or not phone_number.assigned_at:
+                    phone_number.assigned_at = timezone.now()
             except Campaign.DoesNotExist:
                 raise ValueError("Campaign not found")
         if data.publisher_id:
@@ -277,6 +280,18 @@ class PhoneNumberService:
             phone_number.friendly_name = data.friendly_name
         if getattr(data, 'vendor', None) is not None:
             phone_number.vendor = data.vendor
+        _carrier_id = getattr(data, 'carrier_id', None)
+        if _carrier_id is not None:
+            from phone_numbers.models import Carrier
+            if _carrier_id == '':
+                phone_number.carrier = None
+            else:
+                try:
+                    phone_number.carrier = Carrier.objects.get(
+                        id=_carrier_id, organization=user.organization,
+                    )
+                except Carrier.DoesNotExist:
+                    raise ValueError("Carrier not found")
         if getattr(data, 'state', None) is not None:
             phone_number.state = data.state
         if getattr(data, 'allocated_capacity', None) is not None:
@@ -310,9 +325,14 @@ class PhoneNumberService:
             # assigned in the UI while routing saw no campaign at all.
             from campaigns.models import Campaign
             try:
+                _was = phone_number.campaign_id
                 phone_number.campaign = Campaign.objects.get(
                     id=data.campaign_id, organization=user.organization
                 )
+                # The day a number was put on a campaign, which the Numbers
+                # page had no way of showing.
+                if _was != phone_number.campaign_id or not phone_number.assigned_at:
+                    phone_number.assigned_at = timezone.now()
             except Campaign.DoesNotExist:
                 raise ValueError("Campaign not found")
         phone_number.save()
@@ -335,6 +355,12 @@ class PhoneNumberService:
             'country_code': phone_number.country_code,
             'twilio_sid': phone_number.twilio_sid,
             'vendor': phone_number.vendor,
+            # Who carries the traffic, as opposed to who the number was bought
+            # from. vendor has never been able to answer that.
+            'carrier_id': str(phone_number.carrier_id) if phone_number.carrier_id else None,
+            'carrier_name': phone_number.carrier.name if phone_number.carrier_id else '',
+            'carrier_code': phone_number.carrier.code if phone_number.carrier_id else '',
+            'assigned_at': phone_number.assigned_at.isoformat() if phone_number.assigned_at else None,
             'state': phone_number.state,
             'allocated_capacity': phone_number.allocated_capacity,
             'label': phone_number.label,

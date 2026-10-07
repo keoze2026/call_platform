@@ -6,12 +6,14 @@ from .schemas import (
     SearchNumberSchema, PurchaseNumberSchema,
     AssignNumberSchema, UpdateNumberSchema,
     AvailableNumberSchema, PhoneNumberOutSchema,
-    PhoneNumberListSchema, MessageResponseSchema
+    PhoneNumberListSchema, MessageResponseSchema,
+    CarrierInSchema, CarrierUpdateSchema, CarrierOutSchema,
 )
 from .services import PhoneNumberService
 from accounts.api import JWTAuth
 
 router = Router(tags=["Phone Numbers"], auth=JWTAuth())
+carriers_router = Router(tags=["Carriers"], auth=JWTAuth())
 
 
 @router.post("/search", response={200: List[AvailableNumberSchema], 400: dict})
@@ -115,3 +117,88 @@ def release_number(request: HttpRequest, number_id: str):
         return 200, {"message": "Number released successfully", "success": True}
     except ValueError as e:
         return 400, {"detail": str(e)}
+
+
+# ── Carriers ─────────────────────────────────────────────────────────────────
+# Which carrier actually carries a number, kept as rows rather than choices in
+# the code so a new one can be added the day it is signed, without a deploy.
+# Routed before /{number_id} would match "carriers" as an id, so these are
+# declared on their own prefix.
+
+def _carrier_out(c) -> dict:
+    return {
+        'id': str(c.id),
+        'name': c.name,
+        'code': c.code,
+        'is_active': c.is_active,
+        'notes': c.notes,
+        'numbers_count': c.phone_numbers.count(),
+        'created_at': c.created_at.isoformat(),
+    }
+
+
+@carriers_router.get("", response={200: List[CarrierOutSchema]})
+def list_carriers(request: HttpRequest):
+    from .models import Carrier
+    rows = Carrier.objects.filter(organization=request.auth.organization)
+    return 200, [_carrier_out(c) for c in rows]
+
+
+@carriers_router.post("", response={201: CarrierOutSchema, 400: dict})
+def create_carrier(request: HttpRequest, data: CarrierInSchema):
+    require(request.auth, Capability.CREATE)
+    from django.db import IntegrityError
+    from .models import Carrier
+    name = (data.name or '').strip()
+    code = (data.code or '').strip().upper()
+    if not name or not code:
+        return 400, {"detail": "A carrier needs both a name and a code."}
+    try:
+        c = Carrier.objects.create(
+            organization=request.auth.organization,
+            name=name, code=code,
+            is_active=True if data.is_active is None else data.is_active,
+            notes=data.notes or '',
+        )
+    except IntegrityError:
+        return 400, {"detail": f"The code {code} is already used by another carrier."}
+    return 201, _carrier_out(c)
+
+
+@carriers_router.patch("/{carrier_id}", response={200: CarrierOutSchema, 400: dict, 404: dict})
+def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSchema):
+    require(request.auth, Capability.UPDATE)
+    from django.db import IntegrityError
+    from .models import Carrier
+    try:
+        c = Carrier.objects.get(id=carrier_id, organization=request.auth.organization)
+    except Carrier.DoesNotExist:
+        return 404, {"detail": "Carrier not found"}
+    if data.name is not None:
+        c.name = data.name.strip()
+    if data.code is not None:
+        c.code = data.code.strip().upper()
+    if data.is_active is not None:
+        c.is_active = data.is_active
+    if data.notes is not None:
+        c.notes = data.notes
+    try:
+        c.save()
+    except IntegrityError:
+        return 400, {"detail": f"The code {c.code} is already used by another carrier."}
+    return 200, _carrier_out(c)
+
+
+@carriers_router.delete("/{carrier_id}", response={200: MessageResponseSchema, 400: dict, 404: dict})
+def delete_carrier(request: HttpRequest, carrier_id: str):
+    require(request.auth, Capability.DELETE)
+    from .models import Carrier
+    try:
+        c = Carrier.objects.get(id=carrier_id, organization=request.auth.organization)
+    except Carrier.DoesNotExist:
+        return 404, {"detail": "Carrier not found"}
+    # Numbers keep working; they simply stop naming a carrier. Deactivating is
+    # the gentler option and the one the UI should offer first.
+    n = c.phone_numbers.count()
+    c.delete()
+    return 200, {"message": f"Carrier removed from {n} number(s)."}
