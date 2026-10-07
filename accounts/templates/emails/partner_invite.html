@@ -49,9 +49,15 @@ sent alongside this, so a client that refuses HTML still gets a working link.
         <tr><td style="padding:20px 22px;">
           <p style="margin:0 0 14px 0;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;font-weight:700;">What you'll get</p>
           {% for benefit in benefits %}
-          <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:10px;"><tr>
-            <td valign="top" width="26" style="font-size:14px;color:#2563eb;">&#10003;</td>
-            <td style="font-size:14px;line-height:1.5;color:#334155;">{{ benefit }}</td>
+          <table role="presentation" cellpadding="0" cellspacing="0" style="margin-bottom:12px;"><tr>
+            <td valign="middle" width="30">
+              <table role="presentation" cellpadding="0" cellspacing="0"><tr>
+                <td align="center" valign="middle" width="18" height="18"
+                    style="width:18px;height:18px;background:#2563eb;border-radius:9px;
+                           font-size:11px;line-height:18px;color:#ffffff;font-weight:700;">&#10003;</td>
+              </tr></table>
+            </td>
+            <td valign="middle" style="font-size:14px;line-height:1.5;color:#334155;">{{ benefit }}</td>
           </tr></table>
           {% endfor %}
         </td></tr>
@@ -62,9 +68,15 @@ sent alongside this, so a client that refuses HTML still gets a working link.
       <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-top:1px solid #e2e8f0;"><tr><td style="padding-top:22px;">
         <table role="presentation" cellpadding="0" cellspacing="0" width="100%"><tr>
 
-          {# Most clients block remote images until the reader allows them, so
-             the alt text has to read as a caption rather than a filename, and
-             the cell is sized so the layout does not jump when it loads. #}
+          {% comment %}
+            Most clients block remote images until the reader allows them, so
+            the alt text reads as a caption rather than a filename, and the
+            cell is sized so the layout does not jump when it loads.
+
+            This is a comment block, not the inline brace form: that one is
+            single-line only, and a multi-line version renders into the email
+            as visible text, which is exactly what reached the client.
+          {% endcomment %}
           <td valign="top" width="96" style="padding-right:18px;text-align:center;">
             <img src="{{ support_avatar_url }}" width="72" height="72" alt="Avortyx Support"
                  style="width:72px;height:72px;border-radius:50%;display:block;border:0;outline:none;text-decoration:none;margin:0 auto 8px auto;">
