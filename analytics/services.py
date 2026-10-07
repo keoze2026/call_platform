@@ -991,6 +991,30 @@ class AnalyticsService:
         hist_qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
         live_qs = AnalyticsService._live_qs(user, filters).order_by('-created_at')
 
+        # Free-text search, server side. Without it the search box could only
+        # filter the rows already in the browser, so a caller on any other page
+        # came back as "no matching calls" while sitting in the log.
+        #
+        # Digits only, then a contains match: the log stores "+14698366432"
+        # and a person types "4698366432" or "(469) 836-6432". Stripping both
+        # to digits and matching on the tail makes every one of those find it.
+        term = (_f(filters, 'search') or '').strip()
+        if term:
+            digits = ''.join(ch for ch in term if ch.isdigit())
+            if digits:
+                number_q = (
+                    Q(caller_number__contains=digits)
+                    | Q(called_number__contains=digits)
+                    | Q(destination_number__contains=digits)
+                )
+                hist_qs = hist_qs.filter(number_q)
+                live_qs = live_qs.filter(number_q)
+            # A term with no digits is left alone rather than guessed at. The
+            # two querysets are different models - the mirror carries
+            # campaign_name as text, the call log carries the foreign key - so
+            # one name filter cannot be applied to both, and half of it would
+            # have raised.
+
         total = hist_qs.count() + live_qs.count()
         
         offset = getattr(filters, 'offset', 0)

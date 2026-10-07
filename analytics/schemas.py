@@ -37,6 +37,11 @@ class AnalyticsFilterSchema(Schema):
     # started at 8pm the previous evening.
     timezone:     Optional[str] = None
 
+    # Free-text search over the call log. There was none, so the search box
+    # could only filter the rows the browser already held - a caller on any
+    # other page found nothing, which read as "that number is not here".
+    search:       Optional[str] = None
+
     granularity:  Optional[str] = 'day'   # hour | day | week | month
     limit:        int = 100
     offset:       int = 0
