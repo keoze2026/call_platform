@@ -69,7 +69,17 @@ def check_and_record(call_log) -> dict:
         number, reason, call_log.id,
     )
 
-    _blacklist(call_log, number, reason)
+    # DNC_BLOCK_LISTED has existed since this was written and was never read,
+    # so a listed caller was blacklisted whatever the setting said - and it
+    # defaults to False. 161 calls were refused on 2026-10-07 alone.
+    #
+    # These are INBOUND calls. The register governs who you may call, not who
+    # may call you, so a listed number dialling our TFN is not the exposure
+    # this was built for. The flag is still worth recording: a publisher
+    # sending a run of DNC callers is robocalling them and transferring them
+    # in, and that shows up in the flag, not in a block.
+    if getattr(settings, 'DNC_BLOCK_LISTED', False):
+        _blacklist(call_log, number, reason)
 
     return {'is_dnc': True, 'dnc_reason': reason}
 
