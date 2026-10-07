@@ -16,6 +16,7 @@ import os
 from django.conf import settings
 from django.core.management.base import BaseCommand
 
+from analytics.models import CallRecord
 from routing.models import CallLog
 from routing.recordings import is_recording_link
 
@@ -81,6 +82,12 @@ class Command(BaseCommand):
             current = call.recording_url or ''
             if is_recording_link(current):
                 kept += 1
+                # The call log is fine but the mirror may still carry the old
+                # broken copy, and the mirror is what the export reads.
+                if not o['dry_run']:
+                    CallRecord.objects.filter(pk=call.pk).exclude(
+                        recording_url=current
+                    ).update(recording_url=current)
                 continue
 
             filename = on_disk.get(str(call.id))
@@ -88,6 +95,11 @@ class Command(BaseCommand):
                 new = f'{base}/{filename}'
                 if not o['dry_run']:
                     CallLog.objects.filter(pk=call.pk).update(recording_url=new)
+                    # The reports and the export read the mirror, which holds
+                    # its own copy taken when the call ended. Repairing only
+                    # CallLog left every exported Recording cell empty - the
+                    # fix was real and invisible.
+                    CallRecord.objects.filter(pk=call.pk).update(recording_url=new)
                 fixed += 1
             else:
                 # The link was broken and the audio is gone. An empty value
@@ -95,6 +107,7 @@ class Command(BaseCommand):
                 # keeps producing a 404 for ever.
                 if not o['dry_run']:
                     CallLog.objects.filter(pk=call.pk).update(recording_url='')
+                    CallRecord.objects.filter(pk=call.pk).update(recording_url='')
                 cleared += 1
                 missing += 1
 
