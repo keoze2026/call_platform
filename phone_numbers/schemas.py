@@ -86,6 +86,8 @@ class PhoneNumberOutSchema(Schema):
     carrier_name: str = ''
     carrier_code: str = ''
     assigned_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    used_at: Optional[str] = None
     state: str
     allocated_capacity: int
     label: str
@@ -128,6 +130,8 @@ class PhoneNumberListSchema(Schema):
     carrier_name: str = ''
     carrier_code: str = ''
     assigned_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    used_at: Optional[str] = None
     state: str
     allocated_capacity: int
     label: str
@@ -162,6 +166,10 @@ class CarrierInSchema(Schema):
     code: str
     is_active: Optional[bool] = True
     notes: Optional[str] = ''
+    # A number from this carrier is retired once a call has used it.
+    single_use: Optional[bool] = False
+    # Hours a number stays usable. 0 means no limit.
+    lifetime_hours: Optional[int] = 0
 
 
 class CarrierUpdateSchema(Schema):
@@ -169,6 +177,8 @@ class CarrierUpdateSchema(Schema):
     code: Optional[str] = None
     is_active: Optional[bool] = None
     notes: Optional[str] = None
+    single_use: Optional[bool] = None
+    lifetime_hours: Optional[int] = None
 
 
 class CarrierOutSchema(Schema):
@@ -177,5 +187,7 @@ class CarrierOutSchema(Schema):
     code: str
     is_active: bool
     notes: str
+    single_use: bool = False
+    lifetime_hours: int = 0
     numbers_count: int = 0
     created_at: str

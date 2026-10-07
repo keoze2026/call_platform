@@ -22,6 +22,7 @@ class NotificationRule(models.Model):
         DESTINATION_CAP_REACHED = 'destination.cap_reached', 'Destination Cap Reached'
         BUYER_MISSED = 'buyer.missed', 'Buyer Missed Call'
         LOW_AHT = 'aht.low', 'Average Handle Time Dropped'
+        NUMBER_DELETED = 'number.deleted', 'TFN Deleted'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='notification_rules')

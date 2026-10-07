@@ -395,6 +395,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.charge_portal_fees',
         'schedule': 86400.0,  # daily; each account charged on its own 30-day cycle
     },
+    'retire-expired-numbers': {
+        'task': 'tasks.retire_expired_numbers',
+        'schedule': 300.0,  # every 5 minutes; a 24h number should not outlive
+                            # its window by most of a day
+    },
     'close-stale-calls': {
         'task': 'tasks.close_stale_calls',
         'schedule': 900.0,  # every 15 minutes

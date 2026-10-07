@@ -292,6 +292,10 @@ class PhoneNumberService:
                     )
                 except Carrier.DoesNotExist:
                     raise ValueError("Carrier not found")
+                # A carrier that hands numbers over for a fixed window sets the
+                # deadline the moment the number is put under it.
+                from phone_numbers.lifecycle import stamp_lifetime
+                stamp_lifetime(phone_number)
         if getattr(data, 'state', None) is not None:
             phone_number.state = data.state
         if getattr(data, 'allocated_capacity', None) is not None:
@@ -361,6 +365,8 @@ class PhoneNumberService:
             'carrier_name': phone_number.carrier.name if phone_number.carrier_id else '',
             'carrier_code': phone_number.carrier.code if phone_number.carrier_id else '',
             'assigned_at': phone_number.assigned_at.isoformat() if phone_number.assigned_at else None,
+            'expires_at': phone_number.expires_at.isoformat() if phone_number.expires_at else None,
+            'used_at': phone_number.used_at.isoformat() if phone_number.used_at else None,
             'state': phone_number.state,
             'allocated_capacity': phone_number.allocated_capacity,
             'label': phone_number.label,

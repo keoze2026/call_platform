@@ -414,4 +414,13 @@ def call_ended(request):
         except Exception:
             logger.exception("call_charge_error: call_log=%s", call_log.id)
 
+    # A number from a single-use carrier has now been used. Queued rather than
+    # done here: the call is over, nothing is waiting on it, and the call path
+    # stays as short as it was.
+    try:
+        from tasks import retire_used_number
+        retire_used_number.delay(call_log.called_number, str(call_log.id))
+    except Exception:
+        logger.warning('retire_not_queued: call_log=%s', call_log.id)
+
     return JsonResponse({"received": True, "call_log_id": str(call_log.id), "converted": converted})

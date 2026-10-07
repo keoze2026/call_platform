@@ -4956,3 +4956,51 @@ field. `{code}` is the carrier code, `{assigned}` the assigned date, `{number}`
 and `{last4}` the number itself, for anyone who wants them inline. An empty placeholder collapses rather than leaving
 a gap, so a number with no carrier yet reads `TFN Non DID` and not
 `TFN Non DID  `.
+
+
+## CH-083 — Numbers that retire themselves
+
+**2026-10-07 · Numbers · commit pending**
+
+A carrier hands over a toll-free for one call, or for a day. Nobody is going to
+watch eleven of them and delete each one by hand, so the terms now live on the
+carrier and the platform applies them.
+
+  `single_use`       the number is retired once a call has used it
+  `lifetime_hours`   it is retired this many hours after being taken on
+
+Both are columns on the carrier, not rules in the code, so a carrier on
+different terms is a different row. A carrier with neither set behaves exactly
+as it does today.
+
+**Retired, not erased.** The row stays and its status becomes `released`, which
+is already how the Numbers page decides what to show — so it disappears from the
+interface while the calls that came in on it keep their history. Deleting the
+row would take the number out of the call log with it.
+
+**Off the call path.** `call_ended` queues `tasks.retire_used_number` and
+returns. The call is already over and nothing waits on the retirement, so the
+path a live call takes is exactly as long as it was. Expiry is
+`tasks.retire_expired_numbers` every five minutes — a 24-hour number should not
+outlive its window by most of a day.
+
+**The message.** Retirement dispatches `number.deleted`, carrying `TFN Deleted`
+along with the number, its carrier and whether it was used or expired. It is a
+`NotificationRule.Event` like any other, so it can be routed to email or the
+in-app feed from the existing settings rather than through something built just
+for it.
+
+`import_tfns` takes a batch a carrier sends over:
+
+    python manage.py import_tfns --org Avortyx --carrier KMQ --numbers 18337417216,18337415406
+    python manage.py import_tfns --org Avortyx --carrier KMQ --file /opt/call_platform/tfns.txt
+
+They are not bought through a provider, so nothing is provisioned — they are
+recorded under the carrier, with `TFN-` in `twilio_sid` so `release_number`
+already knows there is nothing to hand back, and the expiry is taken from the
+carrier rather than typed in per number.
+
+**Note on migrations.** `phone_numbers/0008` and `analytics/0017` were generated
+by `makemigrations` on the server and are not in the repository. They are on
+disk there, so the server is consistent, but a fresh deploy would not be. They
+need committing.

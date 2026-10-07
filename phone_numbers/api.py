@@ -132,6 +132,8 @@ def _carrier_out(c) -> dict:
         'code': c.code,
         'is_active': c.is_active,
         'notes': c.notes,
+        'single_use': c.single_use,
+        'lifetime_hours': c.lifetime_hours,
         'numbers_count': c.phone_numbers.count(),
         'created_at': c.created_at.isoformat(),
     }
@@ -159,6 +161,8 @@ def create_carrier(request: HttpRequest, data: CarrierInSchema):
             name=name, code=code,
             is_active=True if data.is_active is None else data.is_active,
             notes=data.notes or '',
+            single_use=bool(data.single_use),
+            lifetime_hours=int(data.lifetime_hours or 0),
         )
     except IntegrityError:
         return 400, {"detail": f"The code {code} is already used by another carrier."}
@@ -182,6 +186,10 @@ def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSch
         c.is_active = data.is_active
     if data.notes is not None:
         c.notes = data.notes
+    if data.single_use is not None:
+        c.single_use = data.single_use
+    if data.lifetime_hours is not None:
+        c.lifetime_hours = data.lifetime_hours
     try:
         c.save()
     except IntegrityError:

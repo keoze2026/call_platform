@@ -23,6 +23,10 @@ class Command(BaseCommand):
         parser.add_argument('--code', default='')
         parser.add_argument('--org', default='',
                             help='Organization name; the only one is used when omitted')
+        parser.add_argument('--single-use', action='store_true',
+                            help='Retire a number once a call has used it')
+        parser.add_argument('--lifetime-hours', default=0, type=int,
+                            help='Hours a number stays usable; 0 means no limit')
         parser.add_argument('--list', action='store_true')
 
     def handle(self, *args, **o):
@@ -45,7 +49,15 @@ class Command(BaseCommand):
             self.stdout.write(f'{org.name}: {rows.count()} carriers')
             for c in rows:
                 state = '' if c.is_active else '  (inactive)'
-                self.stdout.write(f'  {c.code:<6} {c.name}  {c.phone_numbers.count()} numbers{state}')
+                terms = []
+                if c.single_use:
+                    terms.append('single use')
+                if c.lifetime_hours:
+                    terms.append(f'{c.lifetime_hours}h')
+                shown = ('  ' + ', '.join(terms)) if terms else ''
+                self.stdout.write(
+                    f'  {c.code:<6} {c.name}  {c.phone_numbers.count()} numbers'
+                    f'{shown}{state}')
             if not o['list']:
                 self.stderr.write(self.style.ERROR('Give both --name and --code to add one.'))
             return
@@ -53,7 +65,19 @@ class Command(BaseCommand):
         code = o['code'].strip().upper()
         carrier, created = Carrier.objects.update_or_create(
             organization=org, code=code,
-            defaults={'name': o['name'].strip(), 'is_active': True},
+            defaults={
+                'name': o['name'].strip(),
+                'is_active': True,
+                'single_use': o['single_use'],
+                'lifetime_hours': o['lifetime_hours'],
+            },
         )
         verb = 'added' if created else 'updated'
-        self.stdout.write(self.style.SUCCESS(f'{verb}: {carrier.name} ({carrier.code})'))
+        terms = []
+        if carrier.single_use:
+            terms.append('retired once used')
+        if carrier.lifetime_hours:
+            terms.append(f'expires after {carrier.lifetime_hours}h')
+        shown = (' - ' + ', '.join(terms)) if terms else ''
+        self.stdout.write(self.style.SUCCESS(
+            f'{verb}: {carrier.name} ({carrier.code}){shown}'))

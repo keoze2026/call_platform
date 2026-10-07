@@ -85,6 +85,13 @@ class PhoneNumber(models.Model):
         related_name='phone_numbers',
     )
     assigned_at = models.DateTimeField(null=True, blank=True)
+    # When this number stops being usable, taken from the carrier's
+    # lifetime_hours when the number is taken on. Null = no limit.
+    expires_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # The first call that landed on it. A single-use number is retired on the
+    # strength of this, and it is the record of which call consumed it.
+    used_at = models.DateTimeField(null=True, blank=True)
+    used_by_call_id = models.CharField(max_length=64, blank=True, default='')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -115,6 +122,14 @@ class Carrier(models.Model):
     name = models.CharField(max_length=100)
     # Short code shown on the Numbers page, e.g. KMQ.
     code = models.CharField(max_length=12)
+
+    # How this carrier's numbers behave. Policy belongs on the carrier because
+    # it is the carrier's terms: a number is handed over for one call, or for a
+    # day, and that is not something to re-enter per number or to fix in code.
+    # single_use retires the number once a call has used it.
+    single_use = models.BooleanField(default=False)
+    # Hours a number stays usable from the moment it is taken on. 0 = no limit.
+    lifetime_hours = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True, default='')
 

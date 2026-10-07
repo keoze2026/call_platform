@@ -1,3 +1,4 @@
+import logging
 from billing.models import Transaction
 from config.celery import app
 from django.utils import timezone
@@ -623,3 +624,35 @@ def send_telegram(self, bot_token, chat_id, message):
         print('Telegram response:', r.text)
     except Exception as e:
         print('Telegram failed:', e)
+
+
+@app.task(name='tasks.retire_used_number')
+def retire_used_number(called_number, call_log_id):
+    """Take a single-use number out of service after its call.
+
+    Queued from `call_ended`, so the retirement never sits on the call path.
+    The carrier decides whether it applies; a carrier that is not single-use
+    makes this a no-op.
+    """
+    from phone_numbers.lifecycle import retire_if_single_use
+    try:
+        if retire_if_single_use(called_number, str(call_log_id)):
+            return f'retired {called_number}'
+    except Exception:
+        logging.getLogger(__name__).exception(
+            'could not retire %s after call %s', called_number, call_log_id)
+    return 'nothing to retire'
+
+
+@app.task(name='tasks.retire_expired_numbers')
+def retire_expired_numbers():
+    """Retire numbers whose time with us is up.
+
+    A carrier hands a number over for a fixed window - 24 hours for these -
+    and after it the number is theirs again. Runs every five minutes, so a
+    number goes within five minutes of its deadline rather than at the end of
+    the day.
+    """
+    from phone_numbers.lifecycle import retire_expired
+    n = retire_expired()
+    return f'{n} expired numbers retired'
