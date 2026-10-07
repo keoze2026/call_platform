@@ -4792,7 +4792,7 @@ Carrier performance is untouched on the live-call point: it reports
 
 ## CH-080 — Why the dialplan sent `https`, and what our duration actually is
 
-**2026-10-07 · Recordings · Reporting · commit pending**
+**2026-10-07 · Recordings · Reporting · commit `ec36e577`**
 
 `[macro-call_end]` in `/etc/asterisk/extensions.conf` built the recording URL
 inside `${IF(...)}`:
