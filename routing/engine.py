@@ -92,6 +92,33 @@ class RoutingEngine:
         )
         return not result['allowed']
 
+    # Every refusal from the spam checks was reported as "Caller is
+    # blacklisted", whatever had actually put the number there. Most of these
+    # are the TCPA check adding a do-not-call hit automatically after a
+    # previous call (spam_protection/dnc.py), which reads nothing like a
+    # blacklist to whoever is looking at the export - the boss read them as
+    # duplicates. One query, and only for a call that is already refused.
+    BLOCK_LABELS = {
+        'auto_detected': 'Caller is on a do-not-call register',
+        'spam':          'Caller flagged as spam',
+        'fraud':         'Caller flagged as fraud',
+        'manual':        'Caller is blacklisted',
+    }
+
+    @staticmethod
+    def block_label(caller_number: str, organization_id: str, campaign_id: str = None) -> str:
+        from spam_protection.models import Blacklist
+        entry = Blacklist.objects.filter(
+            organization_id=organization_id,
+            phone_number=caller_number,
+            is_active=True,
+        ).order_by('campaign_id').first()
+        if not entry:
+            # Refused by a check that is not the blacklist - today that is the
+            # anonymous-caller block.
+            return 'Anonymous caller blocked'
+        return RoutingEngine.BLOCK_LABELS.get(entry.reason, 'Caller is blacklisted')
+
     @staticmethod
     def is_duplicate(caller_number: str, campaign_id: str, block_hours: int) -> bool:
         from datetime import timedelta
@@ -519,8 +546,9 @@ class RoutingEngine:
         trace = call_data.get('trace')
 
         if RoutingEngine.is_blacklisted(caller_number, str(campaign.organization_id)):
-            if trace: trace.step('blacklist', False, 'caller is blacklisted')
-            return {'destination': None, 'rule': None, 'error': 'Caller is blacklisted'}
+            label = RoutingEngine.block_label(caller_number, str(campaign.organization_id))
+            if trace: trace.step('blacklist', False, label.lower())
+            return {'destination': None, 'rule': None, 'error': label}
         if trace: trace.step('blacklist', True)
 
         if campaign.duplicate_call_block:

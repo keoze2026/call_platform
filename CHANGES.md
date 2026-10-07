@@ -4868,3 +4868,42 @@ Still open from before: the super admin page (built, switched off — enable as-
 or lock down first), Traffic Source and Tags export columns (nothing tracks
 them, boss's call), the DNC block-versus-record-only decision, and C-11 running
 at $0 revenue against $1 payout.
+
+
+## CH-081 — "Caller is blacklisted" was hiding the do-not-call check
+
+**2026-10-07 · Reporting · Compliance · commit pending**
+
+The boss read `Caller is blacklisted` on rows he took for duplicate drops and
+asked for the reason to say Duplicate and the Duplicate column to say Yes.
+`why_blocked` settled it in one line:
+
+```
+campaign settings
+  23 JUNE: duplicate blocking OFF, window 24h
+```
+
+Duplicate blocking is **switched off** on that campaign, so not one call that
+day was refused as a duplicate and the column is right to say No. Of 488 calls,
+303 were refused: **161 blacklist, 142 campaign cap**.
+
+What the label was hiding is the real finding. Every one of the top refused
+numbers is on the blacklist **org-wide, added 2026-10-06 or 2026-10-07** — by
+us. `spam_protection/dnc.py` adds a number to the blacklist when the TCPA check
+finds it on a do-not-call register, so the caller is refused on their *next*
+call. That is the feature working as designed, but every one of those refusals
+was then reported as `Caller is blacklisted`, which reads like somebody put the
+number on a list by hand.
+
+The reason now names the rule that fired: *Caller is on a do-not-call register*,
+*Caller flagged as spam*, *Caller flagged as fraud*, *Caller is blacklisted* for
+a manual entry, *Anonymous caller blocked* otherwise. One extra query, and only
+on a call that is already refused — nothing is added to the path of a call that
+connects.
+
+Nothing about which calls are refused changes. Only the words in Fail Reason.
+
+**For the boss:** these are not duplicates. 161 are callers on a do-not-call
+register, which is the TCPA Shield protecting the client from a lawsuit, and 142
+are the campaign cap — a third of the day's traffic refused by a limit that can
+be raised.
