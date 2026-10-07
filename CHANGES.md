@@ -4960,7 +4960,7 @@ a gap, so a number with no carrier yet reads `TFN Non DID` and not
 
 ## CH-083 — Numbers that retire themselves
 
-**2026-10-07 · Numbers · commit pending**
+**2026-10-07 · Numbers · commit `dc639fd6`**
 
 A carrier hands over a toll-free for one call, or for a day. Nobody is going to
 watch eleven of them and delete each one by hand, so the terms now live on the
