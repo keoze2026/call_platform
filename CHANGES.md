@@ -4911,7 +4911,7 @@ be raised.
 
 ## CH-082 — Carrier codes and the assigned date on the Numbers page
 
-**2026-10-07 · Numbers · commit pending**
+**2026-10-07 · Numbers · commit `a9fffd30`**
 
 The boss asked for a code on each number so it is clear which carrier is
 carrying it, and for the date the number was assigned. `vendor` could not
