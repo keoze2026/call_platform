@@ -4788,3 +4788,36 @@ instead of two screenshots.
 
 Carrier performance is untouched on the live-call point: it reports
 `live_calls: 0` and never had them.
+
+
+## CH-080 — Why the dialplan sent `https`, and what our duration actually is
+
+**2026-10-07 · Recordings · Reporting · commit pending**
+
+`[macro-call_end]` in `/etc/asterisk/extensions.conf` built the recording URL
+inside `${IF(...)}`:
+
+```
+"${IF($["${RECORD_CALL}" != "0"]?https://avortyx.io/recordings/${ARG1}.wav:)}"
+```
+
+`IF` splits its true branch from its false branch on the **first colon after the
+`?`**. The first colon in that URL is the one in `https:`. So the true branch
+was the word `https` and the rest of the URL was parsed as the false branch —
+which is why every recorded call stored exactly that string, every time, and why
+rebuilding the links from disk was the only way to get them back. `ExecIf`
+splits on a colon the same way, so the replacement in
+`docs/asterisk/macro-call_end.conf` keeps colons out of both: the dialplan now
+sends the **path** `recordings/<call-id>.wav` and Django puts
+`RECORDING_BASE_URL` in front of it. The recordings domain is now changed in one
+place rather than in the dialplan.
+
+**On AHT.** The same line passes `${ANSWEREDTIME}` as the duration. That is set
+by `Dial` and measures from the moment the **buyer** picked up — not from
+`Answer()` on line 7, and not including the ring. Our 9:10 is already talk time,
+which is the definition Ringba uses, so the formula is not what differs.
+
+What differs is the call set: Ringba counted **162**, we counted **170
+connected** out of 488 incoming. Two different populations produce two different
+averages, and 162 against our 443 Incoming is not a comparison at all. The
+number to ask the boss for is which window and filter his 162 covers.
