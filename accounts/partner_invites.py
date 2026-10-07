@@ -191,6 +191,12 @@ def _send(email: str, name: str, kind: str, partner, setup_link: str,
             'benefits': benefits,
             'support_email': settings.PLATFORM_FROM_EMAIL,
             'site_url': getattr(settings, 'FRONTEND_URL', 'https://www.avortyx.com'),
+            # Served from the frontend's public folder. Absolute, because an
+            # email has no site to be relative to.
+            'support_avatar_url': (
+                getattr(settings, 'FRONTEND_URL', 'https://www.avortyx.com').rstrip('/')
+                + '/email/support-avatar.png'
+            ),
         })
     except Exception:
         # A template problem must not stop the invite. The plain-text version
