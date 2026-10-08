@@ -5155,7 +5155,7 @@ never reached that buyer.
 
 ## CH-090 — Dupe counts the duplicates that came in, not the ones that got through
 
-**2026-10-08 · Reporting · commit pending**
+**2026-10-08 · Reporting · commit `0fc21610`**
 
 The boss's rule: duplicates should always appear in the report; when the user
 has duplicate blocking on they are dropped, not forwarded, and the report must
