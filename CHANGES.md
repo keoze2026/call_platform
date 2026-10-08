@@ -5127,7 +5127,7 @@ Eighth finding from the partner-access test. The snapshot endpoint reuses
 
 ## CH-089 — The mask covers every surface, not the one in the screenshot
 
-**2026-10-08 · Access · commit pending**
+**2026-10-08 · Access · commit `396bb671`**
 
 CH-088 masked the dashboard card the complaint was about, and the buyer's
 Reports page still showed everything: Payout and Profit in the performance
