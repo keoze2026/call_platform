@@ -221,19 +221,34 @@ class PhoneNumberService:
 
     @staticmethod
     def get_number(number_id: str, user: User) -> PhoneNumber:
+        qs = PhoneNumber.objects.select_related('campaign', 'publisher')
+        # Same slice as the list: a partner cannot fetch by id what the list
+        # would not have shown them.
+        if user.role == 'publisher':
+            qs = qs.filter(publisher_id=user.publisher_id) if user.publisher_id else qs.none()
+        elif user.role == 'buyer':
+            qs = qs.none()
         try:
-            return PhoneNumber.objects.select_related('campaign', 'publisher').get(
-                id=number_id, organization=user.organization
-            )
+            return qs.get(id=number_id, organization=user.organization)
         except PhoneNumber.DoesNotExist:
             raise ValueError("Phone number not found")
 
     @staticmethod
     def list_numbers(user: User):
-        return PhoneNumber.objects.filter(
+        qs = PhoneNumber.objects.filter(
             organization=user.organization,
             status__in=['active', 'pending', 'available']
         ).select_related('campaign', 'publisher', 'carrier').order_by('-created_at')
+        # Partner logins see their own slice, not the workspace inventory. A
+        # buyer login saw all 21 tracking numbers on the billing usage card -
+        # the list was scoped to the organization and to nothing else.
+        if user.role == 'publisher':
+            return qs.filter(publisher_id=user.publisher_id) if user.publisher_id else qs.none()
+        if user.role == 'buyer':
+            # Tracking numbers belong to publishers and campaigns; a buyer has
+            # destinations. There is no slice of this list that is theirs.
+            return qs.none()
+        return qs
 
     @staticmethod
     def assign_number(number_id: str, data, user: User) -> PhoneNumber:
