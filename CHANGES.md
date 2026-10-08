@@ -5073,3 +5073,30 @@ the country code for a toll-free, which has no state.
 
 Nothing fills Hourly or Global on an old deployment's cached page — the values
 come from the response, not the client.
+
+
+## CH-087 — What taking partner access on a temp email found
+
+**2026-10-08 · Access · found by the boss's test, fixed the same hour**
+
+Three real findings from doing exactly what the boss asked — take buyer and
+publisher access on a temp email and check everything.
+
+1. **Every invited partner hit "Add funds to activate your panel".** The
+   onboarding gate exempted only admin, so a partner was asked to KYC and fund
+   a workspace that is not theirs — and since a partner cannot read the billing
+   account (403 by role), their balance read as zero for ever. Buyers and
+   publishers now bypass the gate: it belongs to the workspace owner.
+
+2. **Billing sat in the partner sidebar.** The page they reached was a card of
+   dashes and a recharge form for a wallet that is not theirs. Admin-only now.
+
+3. **A buyer saw the whole number inventory.** `list_numbers` and the by-id
+   fetch were scoped to the organization and to nothing else, so the usage
+   card showed a buyer all 21 tracking numbers. A publisher now gets the
+   numbers assigned to them; a buyer gets none - tracking numbers belong to
+   publishers and campaigns, and no slice of that list is a buyer's.
+
+The partner's own data pages were already right - the role filtering in the
+sidebar held, and the data APIs refused what they should. The gaps were the
+pages built for the owner that nobody had ever opened as a partner.
