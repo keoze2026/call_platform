@@ -5203,7 +5203,7 @@ destination actually rings before answering.
 
 ## CH-092 — Duplicate routing: four switches that were never attached
 
-**2026-10-09 · Routing · commit pending**
+**2026-10-09 · Routing · commit `8bdefbf0`**
 
 The boss: duplicates still forward despite selecting "no to send" —
 Different + Strict, drop on our portal. He was right, and the reason was the
