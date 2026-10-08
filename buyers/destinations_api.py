@@ -1,4 +1,4 @@
-from accounts.permissions import require, Capability
+from accounts.permissions import require, Capability, scope_queryset
 from django.core.exceptions import ValidationError
 from ninja import Router, Schema
 from typing import Optional, List, Union
@@ -302,6 +302,10 @@ def list_destinations(
     from config.pagination import paginate_list
     from buyers.destination import Destination
     qs = Destination.objects.filter(organization=request.auth.organization).select_related('buyer')
+    # Organization-wide was the whole filter, so a buyer login saw every
+    # buyer's destinations with their calls and revenue on the dashboard card.
+    # A buyer gets their own; a publisher has no destinations at all.
+    qs = scope_queryset(request.auth, qs, buyer_field='buyer_id', publisher_field=None)
     if buyer_id:
         qs = qs.filter(buyer_id=buyer_id)
     if enabled is not None:
@@ -340,6 +344,9 @@ def get_destination_stats(request, timezone: Optional[str] = None):
     from routing.models import CallLog
     org = request.auth.organization
     qs = Destination.objects.filter(organization=org)
+    # Same slice as the list - the headline numbers must not say more than
+    # the rows underneath them do.
+    qs = scope_queryset(request.auth, qs, buyer_field='buyer_id', publisher_field=None)
 
     from datetime import timedelta
     # Aliased: the request parameter is called `timezone`, and a plain
