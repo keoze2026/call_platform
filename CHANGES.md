@@ -5056,7 +5056,7 @@ A zero fee on the account disables it, per client, same as the other two.
 
 ## CH-086 — The Numbers page counters were never sent
 
-**2026-10-08 · Numbers · commit pending**
+**2026-10-08 · Numbers · commit `c23de7f2`**
 
 The boss sent a reference Tracking Numbers page and asked what ours is missing.
 Not columns — ours has every one of theirs — but the data in four of them:
