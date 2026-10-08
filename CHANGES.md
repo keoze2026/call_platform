@@ -5179,7 +5179,7 @@ a duplicate of. That is the engine's definition and the engine was not touched.
 
 ## CH-091 — TTC was a hash of the call id
 
-**2026-10-09 · Reporting · commit pending**
+**2026-10-09 · Reporting · commit `00b23f9a`**
 
 The boss sent the export with TTC 00:00:00 on every row and said fix the data.
 The data was not the problem.
