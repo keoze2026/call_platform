@@ -5100,3 +5100,26 @@ publisher access on a temp email and check everything.
 The partner's own data pages were already right - the role filtering in the
 sidebar held, and the data APIs refused what they should. The gaps were the
 pages built for the owner that nobody had ever opened as a partner.
+
+
+## CH-088 — Partners stop seeing the workspace's economics
+
+**2026-10-08 · Access · commit pending**
+
+Side by side, the admin dashboard and the ADC11 buyer login agreed everywhere
+they should - 100 calls against the buyer's 58, each chart consistent with its
+own totals - and disagreed nowhere except the one card that mattered: the
+buyer's CALL PERFORMANCE showed **Payout $20.70 and Profit $25.30**, and the
+top bar showed the owner's **$9,542 wallet**. Payout is what the publisher is
+paid; profit is the margin between the two; a buyer who can see both can price
+the whole chain.
+
+`get_dashboard` now sends **null** for the figures a role is not told - a buyer
+loses payout and profit, a publisher loses revenue and profit, both lose the
+wallet balance - and the schema declares the fields Optional so Ninja passes
+the nulls through. Null, not zero: zero would be a claim about money, absence
+is the truth. The performance card drops the withheld cells and the top bar
+wallet hides on the same signal, since the balance rides the same payload.
+
+Eighth finding from the partner-access test. The snapshot endpoint reuses
+`get_dashboard`, so the dashboard and the standalone endpoint tell one story.

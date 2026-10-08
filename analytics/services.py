@@ -260,7 +260,7 @@ class AnalyticsService:
         actual_total_calls = (agg['total_calls'] or 0) + live_calls
 
         total = actual_total_calls or 1
-        return {
+        data = {
             'total_calls':       actual_total_calls,
             'calls_today':       calls_today + live_calls,
             'live_calls':        live_calls,
@@ -283,6 +283,22 @@ class AnalyticsService:
             # Answered calls from a caller who rang before, matching the summary table
             'duplicate_blocked': agg['repeat_answered'] or 0,
         }
+
+        # A partner is told about their slice, not the workspace's economics.
+        # Payout is what the publisher is paid and profit is the margin between
+        # the two - a buyer who can see both can price the whole chain. The
+        # balance is the owner's wallet and was reaching the partner's top bar.
+        # None, not zero: these are "not yours", and a zero would be a lie.
+        role = getattr(user, 'role', '')
+        if role == 'buyer':
+            data['total_payout'] = None
+            data['total_profit'] = None
+            data['balance'] = None
+        elif role == 'publisher':
+            data['total_revenue'] = None
+            data['total_profit'] = None
+            data['balance'] = None
+        return data
 
     # ── time series ──────────────────────────────────────────────────────────
 

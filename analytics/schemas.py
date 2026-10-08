@@ -108,15 +108,18 @@ class DashboardSchema(Schema):
     completed_calls:   int
     converted_calls:   int
     conversion_rate:   float
-    total_revenue:     Decimal
-    total_payout:      Decimal
-    total_profit:      Decimal
+    # Optional because a partner login does not receive all three: payout and
+    # profit are the workspace's economics, not a buyer's; revenue and profit
+    # are not a publisher's. None means "not yours", 0 would mean "zero".
+    total_revenue:     Optional[Decimal] = None
+    total_payout:      Optional[Decimal] = None
+    total_profit:      Optional[Decimal] = None
     avg_call_duration: float
     spam_blocked:      int
     duplicate_blocked: int
     # Account credit, so the header can show it without a second request.
     # Also served on its own at GET /api/billing/account.
-    balance:           Decimal = Decimal('0')
+    balance:           Optional[Decimal] = None
     currency:          str = 'USD'
 
 
