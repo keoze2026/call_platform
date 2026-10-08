@@ -140,7 +140,13 @@ class AnalyticsService:
         # rather than per endpoint so every report, chart, drill-down and export
         # built on this queryset is narrowed the same way - one place to be
         # right, and nothing new can leak by forgetting to filter.
-        qs = scope_queryset(user, qs)
+        #
+        # CallRecord denormalizes buyer_id and publisher_id as plain columns -
+        # there is no `buyer` relation here, unlike CallLog - and the default
+        # field names crashed the dashboard with a FieldError for the first
+        # real buyer who ever logged in. Every CallLog caller keeps the
+        # defaults, because there the fields are foreign keys.
+        qs = scope_queryset(user, qs, buyer_field='buyer_id', publisher_field='publisher_id')
             
         # Revenue and payout are earned per *converted* call, so an unconverted
         # call contributes zero. Applying campaign pricing to every row credited
