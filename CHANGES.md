@@ -5004,3 +5004,27 @@ carrier rather than typed in per number.
 by `makemigrations` on the server and are not in the repository. They are on
 disk there, so the server is consistent, but a fresh deploy would not be. They
 need committing.
+
+
+## CH-084 — The service fees appear under Billing
+
+**2026-10-08 · Billing · commit pending**
+
+The boss sent the pricing page's three tiles — Minute Call Recording $0.0025,
+VoIP Shield $0.0100, Rejected Call $0.0150 — and said they were missing under
+Billing. They were: charged since CH-076, configurable per client on the
+account, and absent from `format_account` **and** `BillingAccountOutSchema`, so
+the page had no way to show a price the client was already paying. The same
+five-layer gap as caller geo; the model and the charge were layers one and two,
+and nothing carried them out.
+
+Both now carry `recording_fee_per_minute`, `voip_shield_fee_per_call` and
+`rejected_call_fee`, and the rates card renders them at four decimals — these
+are fractions of a cent and two decimals reads $0.00. The tiles appear only
+when the backend sends the fields, so an older deployment shows the card it
+always showed rather than three zeros.
+
+Still true from CH-076: `rejected_call_fee` is priced and displayed but **not
+yet charged** — a refused call never reaches the billing step. Showing it on
+Billing makes that gap visible to the client, which is one more reason to
+close it.

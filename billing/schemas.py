@@ -31,6 +31,9 @@ class BillingAccountOutSchema(Schema):
     per_minute_rate: Decimal = Decimal('0')
     markup_percent: Decimal = Decimal('0')
     tfn_purchase_fee: Decimal = Decimal('0')
+    recording_fee_per_minute: Decimal = Decimal('0')
+    voip_shield_fee_per_call: Decimal = Decimal('0')
+    rejected_call_fee: Decimal = Decimal('0')
     monthly_portal_fee: Decimal = Decimal('0')
     portal_fee_charged_at: Optional[str] = None
     portal_fee_next_due: Optional[str] = None

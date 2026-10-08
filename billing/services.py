@@ -397,6 +397,12 @@ class BillingService:
             'per_minute_rate': account.per_minute_rate,
             'markup_percent': account.markup_percent,
             'tfn_purchase_fee': account.tfn_purchase_fee,
+            # The three service fees from the pricing page. They were charged
+            # (CH-076) but never carried out of the account, so Billing had
+            # prices the client was paying and could not see.
+            'recording_fee_per_minute': account.recording_fee_per_minute,
+            'voip_shield_fee_per_call': account.voip_shield_fee_per_call,
+            'rejected_call_fee': account.rejected_call_fee,
             'monthly_portal_fee': account.monthly_portal_fee,
             'portal_fee_charged_at': (
                 account.portal_fee_charged_at.isoformat()
