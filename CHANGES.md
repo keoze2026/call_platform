@@ -5032,7 +5032,7 @@ close it.
 
 ## CH-085 — The rejected-call fee is actually charged
 
-**2026-10-08 · Billing · commit pending**
+**2026-10-08 · Billing · commit `c80b2e69`**
 
 Open since CH-076, visible on Billing since CH-084: Rejected Call $0.0150 was
 priced, displayed, and never taken, because a refused call never reaches the
