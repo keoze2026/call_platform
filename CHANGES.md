@@ -5104,7 +5104,7 @@ pages built for the owner that nobody had ever opened as a partner.
 
 ## CH-088 — Partners stop seeing the workspace's economics
 
-**2026-10-08 · Access · commit pending**
+**2026-10-08 · Access · commit `4bbebc0c`**
 
 Side by side, the admin dashboard and the ADC11 buyer login agreed everywhere
 they should - 100 calls against the buyer's 58, each chart consistent with its
