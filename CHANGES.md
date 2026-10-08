@@ -5008,7 +5008,7 @@ need committing.
 
 ## CH-084 — The service fees appear under Billing
 
-**2026-10-08 · Billing · commit pending**
+**2026-10-08 · Billing · commit `d7402e0b`**
 
 The boss sent the pricing page's three tiles — Minute Call Recording $0.0025,
 VoIP Shield $0.0100, Rejected Call $0.0150 — and said they were missing under
