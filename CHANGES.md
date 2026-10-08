@@ -5123,3 +5123,31 @@ wallet hides on the same signal, since the balance rides the same payload.
 
 Eighth finding from the partner-access test. The snapshot endpoint reuses
 `get_dashboard`, so the dashboard and the standalone endpoint tell one story.
+
+
+## CH-089 — The mask covers every surface, not the one in the screenshot
+
+**2026-10-08 · Access · commit pending**
+
+CH-088 masked the dashboard card the complaint was about, and the buyer's
+Reports page still showed everything: Payout and Profit in the performance
+card, **Cost $19.66 — the workspace's own platform bill** — in the summary row,
+per-call payouts in the log, and the export would have handed over the same as
+a file.
+
+One rule now lives in `analytics/services.py`: `MASKED_KEYS` names the money
+each partner role is never told, and `mask_partner_money` nulls those keys on
+any dict or list the services return. Applied at every return: the dashboard,
+all four summary tabs, the time series, the call log, and the CSV export —
+which drops the columns from the header and every row, because a partner's
+download is just the screen as a file. A buyer keeps revenue (their own price)
+and loses payout, profit and cost; a publisher keeps payout and loses revenue,
+profit and cost.
+
+Response schemas declare the money Optional so Ninja passes the nulls, and the
+Reports tables hide the columns for partner roles rather than rendering a null
+as $0.00.
+
+The counts that differ between admin and partner are **not** part of this:
+admin's 108 against the buyer's 62 is the scoping working - the other 46 calls
+never reached that buyer.

@@ -82,6 +82,50 @@ def _f(filters, name, default=None):
     return getattr(filters, name, default) if filters is not None else default
 
 
+
+# ── Partner money masking ────────────────────────────────────────────────────
+# What each partner role is never told, wherever it appears: the dashboard,
+# the summary tabs, the call log, the export. Payout is what the publisher is
+# paid, profit the margin between the two, cost the workspace's own bill - a
+# buyer who can see payout and profit can price the whole chain, and CH-088
+# masked exactly one card while every Reports surface kept leaking the rest.
+# None rather than zero: zero is a claim about money, absence is the truth.
+
+MASKED_KEYS = {
+    'buyer': (
+        'payout', 'profit', 'total_payout', 'total_profit',
+        'dynamic_payout', 'dynamic_profit',
+        'cost', 'total_cost', 'platform_cost', 'charged_cost',
+        'balance', 'publisher_payout',
+    ),
+    'publisher': (
+        'revenue', 'profit', 'total_revenue', 'total_profit',
+        'dynamic_revenue', 'dynamic_profit',
+        'cost', 'total_cost', 'platform_cost', 'charged_cost',
+        'balance',
+    ),
+}
+
+
+def mask_partner_money(user, data):
+    """Null the money a partner role is not told, in place.
+
+    Takes a dict or a list of dicts and returns it, so it wraps a return
+    value. Non-partner roles pass through untouched.
+    """
+    hidden = MASKED_KEYS.get(getattr(user, 'role', ''))
+    if not hidden:
+        return data
+    rows = data if isinstance(data, list) else [data]
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in hidden:
+            if key in row:
+                row[key] = None
+    return data
+
+
 class AnalyticsService:
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -385,7 +429,7 @@ class AnalyticsService:
                 })
                 
         result.sort(key=lambda x: x['period'])
-        return result
+        return mask_partner_money(user, result)
 
     # ── campaign performance ─────────────────────────────────────────────────
 
@@ -565,7 +609,7 @@ class AnalyticsService:
                 })
                 
         result.sort(key=lambda x: x['total_calls'], reverse=True)
-        return result
+        return mask_partner_money(user, result)
 
     # ── buyer performance ────────────────────────────────────────────────────
 
@@ -828,7 +872,7 @@ class AnalyticsService:
                 'live_calls':      0,
                 'total_duration_sec': r['total_duration_sec'],
             })
-        return result
+        return mask_partner_money(user, result)
 
     @staticmethod
     def get_buyer_performance(user: User, filters) -> list:
@@ -938,7 +982,7 @@ class AnalyticsService:
                     'duplicates': 0,
 })
         result.sort(key=lambda x: x['total_calls'], reverse=True)
-        return result
+        return mask_partner_money(user, result)
 
     # ── publisher performance ────────────────────────────────────────────────
 
@@ -1052,7 +1096,7 @@ class AnalyticsService:
                     'duplicates': 0,
 })
         result.sort(key=lambda x: x['total_calls'], reverse=True)
-        return result
+        return mask_partner_money(user, result)
 
     # ── call log ─────────────────────────────────────────────────────────────
 
@@ -1105,7 +1149,7 @@ class AnalyticsService:
         live_formatted = [AnalyticsService._format_live_log(r) for r in live_items]
 
         combined = sorted(hist_formatted + live_formatted, key=lambda x: x['created_at'], reverse=True)
-        items = combined[offset : fetch_limit]
+        items = mask_partner_money(user, combined[offset : fetch_limit])
 
         return {
             'total':  total,
@@ -1227,7 +1271,20 @@ class AnalyticsService:
         # Qualified and Duplicate were absent, so the two columns most often
         # queried against this export could not be checked from it at all.
         # Call ID lets a row be matched back to the call detail view.
-        yield writer.writerow([
+        # The same mask as every screen: the export is just the screen as a
+        # file, and a buyer's download was carrying Payout, Profit and Cost.
+        hidden = MASKED_KEYS.get(getattr(user, 'role', ''), ())
+        drop = set()
+        if 'payout' in hidden:
+            drop.add('Payout')
+        if 'revenue' in hidden:
+            drop.add('Revenue')
+        if 'profit' in hidden:
+            drop.add('Profit')
+        if 'cost' in hidden:
+            drop.update(('Cost', 'Billed Minutes'))
+
+        header = [
             'Date', 'Call ID', 'Caller', 'State', 'Carrier', 'Called Number',
             'Campaign', 'Buyer',
             'Destination Name', 'Destination Number',
@@ -1236,7 +1293,9 @@ class AnalyticsService:
             'Duration (s)', 'TTC (s)',
             'Qualified', 'Converted', 'Duplicate',
             'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
-        ])
+        ]
+        keep = [i for i, name in enumerate(header) if name not in drop]
+        yield writer.writerow([header[i] for i in keep])
 
         # Same rule as the invoice: each call rounds up to a whole minute, at
         # this client's own rate and markup.
@@ -1265,7 +1324,7 @@ class AnalyticsService:
             if answered_at and call_start:
                 ttc = max(0, int((answered_at - call_start).total_seconds()))
 
-            yield writer.writerow([
+            row = [
                 timezone.localtime(r.created_at, tz).strftime('%Y-%m-%d %H:%M:%S'),
                 str(r.id),
                 clean_caller, r.caller_state, r.carrier or '', r.called_number,
@@ -1284,7 +1343,8 @@ class AnalyticsService:
                 (r.platform_cost if r.platform_cost
                  else AnalyticsService._cost_from_minutes(billed_minutes, rate, markup)),
                 public_recording_url(r.recording_url),
-            ])
+            ]
+            yield writer.writerow([row[i] for i in keep])
 
 
     @staticmethod

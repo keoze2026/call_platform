@@ -87,9 +87,9 @@ class CallRecordSchema(Schema):
     is_converted:     bool
     is_duplicate:     bool
     is_spam:          bool
-    revenue:          Decimal
-    payout:           Decimal
-    profit:           Decimal
+    revenue:          Optional[Decimal] = None
+    payout:           Optional[Decimal] = None
+    profit:           Optional[Decimal] = None
     winning_bid:      Optional[Decimal]
     recording_url:    str
     started_at:       Optional[datetime]
@@ -129,9 +129,9 @@ class TimeSeriesPointSchema(Schema):
     period:      str
     calls:       int
     converted:   int
-    revenue:     Decimal
-    payout:      Decimal
-    profit:      Decimal
+    revenue:     Optional[Decimal] = None
+    payout:      Optional[Decimal] = None
+    profit:      Optional[Decimal] = None
     avg_duration: float
 
 
@@ -143,9 +143,9 @@ class CampaignPerformanceSchema(Schema):
     total_calls:      int
     converted_calls:  int
     conversion_rate:  float
-    total_revenue:    Decimal
-    total_payout:     Decimal
-    total_profit:     Decimal
+    total_revenue:    Optional[Decimal] = None
+    total_payout:     Optional[Decimal] = None
+    total_profit:     Optional[Decimal] = None
     avg_duration:     float
     spam_blocked:     int
 
@@ -158,7 +158,7 @@ class BuyerPerformanceSchema(Schema):
     total_calls:   int
     won_calls:     int
     avg_bid:       Decimal
-    total_payout:  Decimal
+    total_payout:  Optional[Decimal] = None
     avg_duration:  float
     conversion_rate: float
 
@@ -171,7 +171,7 @@ class PublisherPerformanceSchema(Schema):
     total_calls:     int
     converted_calls: int
     conversion_rate: float
-    total_revenue:   Decimal
+    total_revenue:   Optional[Decimal] = None
     spam_rate:       float
 
 
