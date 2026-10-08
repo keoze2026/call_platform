@@ -320,8 +320,32 @@ class RoutingEngine:
             return False
 
     @staticmethod
-    def get_round_robin_destination(rule: RoutingRule) -> RuleDestination:
-        destinations = list(rule.destinations.all().order_by('priority'))
+    def _apply_duplicate_filter(destinations, call_data):
+        """The same duplicate rules the priority path enforces, for the
+        pickers that choose from a pool instead of walking it in order.
+        Without this, Round Robin and Weighted handed a repeat caller back
+        to a destination the campaign said they must not reach."""
+        dup_only = call_data.get('dup_only_destination')
+        excl_d = call_data.get('dup_exclude_destinations', ())
+        excl_b = call_data.get('dup_exclude_buyers', ())
+        if not dup_only and not excl_d and not excl_b:
+            return destinations
+        kept = []
+        for d in destinations:
+            if dup_only and d.destination != dup_only:
+                continue
+            if d.destination in excl_d:
+                continue
+            if d.buyer_id and str(d.buyer_id) in excl_b:
+                continue
+            kept.append(d)
+        return kept
+
+    @staticmethod
+    def get_round_robin_destination(rule: RoutingRule, call_data: dict = None) -> RuleDestination:
+        destinations = RoutingEngine._apply_duplicate_filter(
+            list(rule.destinations.all().order_by('priority')), call_data or {},
+        )
         if not destinations:
             return None
         cache_key = f"round_robin_{rule.id}"
@@ -331,8 +355,10 @@ class RoutingEngine:
         return destination
 
     @staticmethod
-    def get_weighted_destination(rule: RoutingRule) -> RuleDestination:
-        destinations = list(rule.destinations.all())
+    def get_weighted_destination(rule: RoutingRule, call_data: dict = None) -> RuleDestination:
+        destinations = RoutingEngine._apply_duplicate_filter(
+            list(rule.destinations.all()), call_data or {},
+        )
         if not destinations:
             return None
         total_weight = sum(d.weight for d in destinations)
@@ -395,7 +421,18 @@ class RoutingEngine:
         for destination in destinations:
             reason = None
 
-            if destination.buyer:
+            # Duplicate handling, set up by route_call for a repeat caller.
+            # Original: only the destination that took their first call.
+            # Different: never one they have already reached.
+            dup_only = call_data.get('dup_only_destination')
+            if dup_only and destination.destination != dup_only:
+                reason = 'duplicate routes to its original destination'
+            elif destination.destination in call_data.get('dup_exclude_destinations', ()):
+                reason = 'already took this caller (duplicates: different)'
+            elif destination.buyer_id and str(destination.buyer_id) in call_data.get('dup_exclude_buyers', ()):
+                reason = f'buyer already took this caller (duplicates: different)'
+
+            if reason is None and destination.buyer:
                 buyer = destination.buyer
                 if buyer.status != 'active':
                     reason = f'buyer {buyer.name} is {buyer.status}'
@@ -437,10 +474,10 @@ class RoutingEngine:
             matched = RoutingEngine.evaluate_geo_based(rule, caller_state, caller_area_code)
 
         elif rule.rule_type == RoutingRule.RuleType.ROUND_ROBIN:
-            return RoutingEngine.get_round_robin_destination(rule)
+            return RoutingEngine.get_round_robin_destination(rule, call_data)
 
         elif rule.rule_type == RoutingRule.RuleType.WEIGHTED:
-            return RoutingEngine.get_weighted_destination(rule)
+            return RoutingEngine.get_weighted_destination(rule, call_data)
 
         elif rule.rule_type == RoutingRule.RuleType.PRIORITY:
             return RoutingEngine.get_valid_destination(rule, call_data)
@@ -602,22 +639,79 @@ class RoutingEngine:
             for rule in rules:
                 trace.count_considered(rule.destinations.count())
 
-        for rule in rules:
-            destination = RoutingEngine.evaluate_rule(rule, call_data)
-            if destination:
-                if campaign.duplicate_call_block:
-                    RoutingEngine.mark_as_called(
-                        caller_number,
-                        str(campaign.id),
-                        campaign.duplicate_call_block_hours
-                    )
-                return {
-                    'destination': destination.destination,
-                    'destination_type': destination.destination_type,
-                    'rule': rule,
-                    'buyer': destination.buyer,
-                    'error': None
-                }
+        # ── Duplicate handling: Original / Different ────────────────────────
+        # Four controls sat in the interface since the beginning - Normal /
+        # Original / Different, the Destination/Buyer scope, and Strict - wired
+        # to nothing: component state, hardcoded defaults, never saved, never
+        # read here. The boss selected Different and duplicates kept forwarding
+        # because the selection never left his browser tab.
+        dup_mode = getattr(campaign, 'duplicate_handling', 'normal') or 'normal'
+        dup_prior = []
+        if dup_mode in ('original', 'different') and caller_number:
+            from datetime import timedelta
+            hours = campaign.duplicate_call_block_hours or 24
+            cutoff = timezone.now() - timedelta(hours=hours)
+            # The calls that REACHED somewhere: a refused call reached nobody
+            # and excludes nothing.
+            dup_prior = list(
+                CallLog.objects.filter(
+                    campaign_id=campaign.id,
+                    caller_number=caller_number,
+                    created_at__gte=cutoff,
+                    status__in=['completed', 'in_progress'],
+                ).exclude(destination_number='')
+                .order_by('-created_at')
+                .values_list('destination_number', 'buyer_id')
+            )
+        if dup_prior:
+            if dup_mode == 'original':
+                call_data['dup_only_destination'] = dup_prior[0][0]
+                if trace: trace.step('duplicate', True, f'repeat caller; held to their original destination {dup_prior[0][0]}')
+            elif getattr(campaign, 'duplicate_direction', 'destination') == 'buyer':
+                call_data['dup_exclude_buyers'] = {str(b) for _, b in dup_prior if b}
+                if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_buyers"])} buyer(s) excluded')
+            else:
+                call_data['dup_exclude_destinations'] = {d for d, _ in dup_prior if d}
+                if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_destinations"])} destination(s) excluded')
+
+        def _run_rules():
+            for rule in rules:
+                destination = RoutingEngine.evaluate_rule(rule, call_data)
+                if destination:
+                    return rule, destination
+            return None, None
+
+        matched_rule, destination = _run_rules()
+
+        if not destination and dup_prior:
+            if dup_mode == 'different' and getattr(campaign, 'duplicate_strict', False):
+                # Strict means exactly what the switch says: repeat calls
+                # connect to new destinations only, and with nowhere new the
+                # call drops - on our side, counted as a duplicate, never
+                # forwarded back to a destination that already took them.
+                if trace: trace.step('duplicate', False, 'strict: no destination this caller has not already reached')
+                return {'destination': None, 'rule': None, 'error': 'Duplicate call blocked'}
+            # Original whose destination is gone, or Different without strict
+            # and nothing new left: route normally rather than lose the call.
+            for key in ('dup_only_destination', 'dup_exclude_destinations', 'dup_exclude_buyers'):
+                call_data.pop(key, None)
+            if trace: trace.step('duplicate', True, 'duplicate preference could not be met; routed normally (strict is off)')
+            matched_rule, destination = _run_rules()
+
+        if destination:
+            if campaign.duplicate_call_block:
+                RoutingEngine.mark_as_called(
+                    caller_number,
+                    str(campaign.id),
+                    campaign.duplicate_call_block_hours
+                )
+            return {
+                'destination': destination.destination,
+                'destination_type': destination.destination_type,
+                'rule': matched_rule,
+                'buyer': destination.buyer,
+                'error': None
+            }
 
         if trace: trace.step('rule_match', False, 'no rule produced a destination')
         return {'destination': None, 'rule': None, 'error': 'No matching rule found'}

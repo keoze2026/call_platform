@@ -5199,3 +5199,40 @@ and the table shows the backend's figure or a dash for a call never answered.
 destination that answers instantly, so real TTCs of 0-2 seconds are the truth
 for this traffic. The column will only read bigger numbers when a buyer's
 destination actually rings before answering.
+
+
+## CH-092 — Duplicate routing: four switches that were never attached
+
+**2026-10-09 · Routing · commit pending**
+
+The boss: duplicates still forward despite selecting "no to send" —
+Different + Strict, drop on our portal. He was right, and the reason was the
+deepest version of the recurring disease: **Duplicate Handling
+(Normal/Original/Different), Direction Scope (Destination/Buyer) and Strict
+Mode existed only as component state with hardcoded defaults.** Selected,
+never saved, reset on every page load, read by nothing. Only "Block duplicate
+calls" was ever wired. The engine knew one word about duplicates:
+`duplicate_call_block`.
+
+Now the whole chain exists:
+
+  **Model** `duplicate_handling`, `duplicate_direction`, `duplicate_strict`
+  on the campaign (migration 0009), created, updated and served through the
+  campaign API.
+
+  **Engine** `route_call` looks up the caller's prior connected calls within
+  the campaign's window. *Original* holds them to the destination that took
+  their first call. *Different* excludes every destination (or buyer, per the
+  scope) they have already reached — enforced in the priority walker **and**
+  in Round Robin and Weighted, which pick from a pool and would otherwise
+  hand the caller straight back. *Strict* means the switch's own sentence:
+  new destinations only, and with nowhere new the call drops as `Duplicate
+  call blocked` — counted by the Dupe column (CH-090), named in Fail Reason,
+  never forwarded. Without strict, a preference that cannot be met routes
+  normally rather than losing the call. Every step lands in the routing trace.
+
+  **Interface** the controls seed from the campaign and save on change, same
+  pattern as the Block toggle beside them.
+
+A refused call excludes nothing — the caller never reached anybody. And a
+repeat of a refused call is still not a duplicate (CH-090's boundary holds).

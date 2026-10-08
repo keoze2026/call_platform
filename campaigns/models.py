@@ -33,6 +33,32 @@ class Campaign(models.Model):
     duplicate_call_block = models.BooleanField(default=False)
     duplicate_call_block_hours = models.IntegerField(default=24)
 
+    # How a repeat caller is routed when they are not blocked outright. These
+    # four controls sat in the interface since the beginning wired to
+    # component state - selected, never saved, never read by routing.
+    #   normal     route as any other call
+    #   original   back to the destination that took their first call
+    #   different  only to destinations (or buyers) they have not reached;
+    #              with strict on, nowhere left means the call is dropped
+    class DuplicateHandling(models.TextChoices):
+        NORMAL = 'normal', 'Normal'
+        ORIGINAL = 'original', 'Original'
+        DIFFERENT = 'different', 'Different'
+
+    class DuplicateDirection(models.TextChoices):
+        DESTINATION = 'destination', 'Destination'
+        BUYER = 'buyer', 'Buyer'
+
+    duplicate_handling = models.CharField(
+        max_length=12, choices=DuplicateHandling.choices,
+        default=DuplicateHandling.NORMAL,
+    )
+    duplicate_direction = models.CharField(
+        max_length=12, choices=DuplicateDirection.choices,
+        default=DuplicateDirection.DESTINATION,
+    )
+    duplicate_strict = models.BooleanField(default=False)
+
     class PayoutModel(models.TextChoices):
         PER_CALL = 'per_call', 'Per Call'
         PER_QUALIFIED = 'per_qualified', 'Per Qualified'

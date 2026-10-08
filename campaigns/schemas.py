@@ -44,6 +44,9 @@ class CreateCampaignSchema(Schema):
     min_call_duration: int = 0
     duplicate_call_block: bool = False
     duplicate_call_block_hours: int = 24
+    duplicate_handling: str = 'normal'
+    duplicate_direction: str = 'destination'
+    duplicate_strict: bool = False
     bid_floor: Decimal = Decimal('0')
     rtb_timeout_seconds: int = 5
     cap: Optional[CampaignCapSchema] = None
@@ -102,6 +105,9 @@ class UpdateCampaignSchema(Schema):
     min_call_duration: Optional[int] = None
     duplicate_call_block: Optional[bool] = None
     duplicate_call_block_hours: Optional[int] = None
+    duplicate_handling: Optional[str] = None
+    duplicate_direction: Optional[str] = None
+    duplicate_strict: Optional[bool] = None
     bid_floor: Optional[Decimal] = None
     rtb_timeout_seconds: Optional[int] = None
     greeting_enabled: Optional[bool] = None
@@ -170,6 +176,9 @@ class CampaignOutSchema(Schema):
     min_call_duration: int
     duplicate_call_block: bool
     duplicate_call_block_hours: int
+    duplicate_handling: str = 'normal'
+    duplicate_direction: str = 'destination'
+    duplicate_strict: bool = False
     bid_floor: str
     rtb_timeout_seconds: int
     organization_id: str
