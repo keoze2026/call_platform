@@ -276,9 +276,9 @@ class AnalyticsService:
             converted=Count('id', filter=Q(is_converted=True)),
             spam=Count('id', filter=Q(is_spam=True)),
             connected=Count('id', filter=Q(status__in=['completed', 'in_progress'])),
-            repeat_answered=Count('id', filter=Q(
-                status__in=['completed', 'in_progress'], is_duplicate=True,
-            )),
+            # Every duplicate that arrived, answered or dropped. Counting only
+            # the answered ones made Dupe read 0 the moment blocking worked.
+            repeat_answered=Count('id', filter=Q(is_duplicate=True)),
             total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
             total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
             total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -511,7 +511,7 @@ class AnalyticsService:
                 # Columns the summary table was deriving client-side. Definitions
                 # agreed with the frontend: connected and not-connected are
                 # complements, so the two always sum to total_calls.
-                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
+                repeat_answered=Count('id', filter=Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -813,7 +813,7 @@ class AnalyticsService:
                 ])), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 
-                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
+                repeat_answered=Count('id', filter=Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -890,7 +890,7 @@ class AnalyticsService:
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
                 
-                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
+                repeat_answered=Count('id', filter=Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
@@ -1003,7 +1003,7 @@ class AnalyticsService:
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
                 
-                repeat_answered=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & Q(is_duplicate=True)),
+                repeat_answered=Count('id', filter=Q(is_duplicate=True)),
                 connected_calls=Count('id', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),

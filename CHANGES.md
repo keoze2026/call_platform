@@ -5151,3 +5151,27 @@ as $0.00.
 The counts that differ between admin and partner are **not** part of this:
 admin's 108 against the buyer's 62 is the scoping working - the other 46 calls
 never reached that buyer.
+
+
+## CH-090 — Dupe counts the duplicates that came in, not the ones that got through
+
+**2026-10-08 · Reporting · commit pending**
+
+The boss's rule: duplicates should always appear in the report; when the user
+has duplicate blocking on they are dropped, not forwarded, and the report must
+still say how many came in.
+
+The dropping half already worked - `route_call` refuses them with `Duplicate
+call blocked` and they land in the call log as failed rows. The counting half
+did not: all five Dupe definitions counted **a duplicate that was answered**
+(`is_duplicate` and status completed or in progress), so the moment blocking
+worked the Dupe column read 0 while duplicates hit all day. The better the
+blocking, the more wrong the report.
+
+Dupe is now `Count(is_duplicate=True)` - every duplicate that arrived -
+across the dashboard, the four summary tabs, and the client-side fallback.
+
+One boundary deliberately left: a repeat call from a caller whose first call
+was itself refused is not flagged as a duplicate. The flag exists so the same
+caller is not paid for twice; a caller who never got through has nothing to be
+a duplicate of. That is the engine's definition and the engine was not touched.
