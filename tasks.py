@@ -656,3 +656,52 @@ def retire_expired_numbers():
     from phone_numbers.lifecycle import retire_expired
     n = retire_expired()
     return f'{n} expired numbers retired'
+
+
+@app.task(name='tasks.charge_rejected_call')
+def charge_rejected_call(call_log_id):
+    """Take the rejected-call fee for a refused call.
+
+    Priced on the pricing page and shown under Billing since CH-084, but a
+    refused call never reached the billing step, so it was never charged.
+    Queued from the refusal, so the call path only gains the enqueue.
+
+    Idempotent the same way call charging is - one CHARGE per call_sid - so a
+    carrier retrying the refusal cannot take the fee twice.
+    """
+    from billing.services import BillingService
+    from routing.models import CallLog
+
+    log = logging.getLogger(__name__)
+    try:
+        call = CallLog.objects.select_related('organization', 'campaign').get(id=call_log_id)
+    except CallLog.DoesNotExist:
+        return 'call not found'
+
+    # Only a refusal. A call that routed is charged by call_ended.
+    if call.status != CallLog.Status.FAILED or not call.block_reason:
+        return 'not a refusal'
+
+    amount = BillingService.rejected_call_cost(call.organization)
+    if amount <= 0:
+        return 'fee is zero'
+
+    tx = BillingService.charge_call(
+        organization=call.organization,
+        campaign=call.campaign,
+        buyer=None,
+        publisher=call.publisher,
+        amount=amount,
+        call_sid=call.twilio_call_sid,
+        description='Rejected call fee',
+    )
+    if tx is None:
+        log.warning('rejected_fee_not_charged: call=%s balance too low', call_log_id)
+        return 'balance too low'
+
+    # Both tables, or the Cost column stays empty in the export while the
+    # money moved - the mirror holds its own copy (CH-077, CH-079).
+    CallLog.objects.filter(pk=call.pk).update(platform_cost=amount)
+    from analytics.models import CallRecord
+    CallRecord.objects.filter(pk=call.pk).update(platform_cost=amount)
+    return f'charged {amount}'

@@ -254,7 +254,8 @@ class BillingService:
 
     @staticmethod
     @transaction.atomic
-    def charge_call(organization, campaign, buyer, publisher, amount: Decimal, call_sid: str = '') -> Transaction:
+    def charge_call(organization, campaign, buyer, publisher, amount: Decimal, call_sid: str = '',
+                    description: str = 'Call charge') -> Transaction:
         # Carriers retry end-of-call webhooks. Without this guard a retry would
         # charge the same call twice.
         if call_sid:
@@ -288,7 +289,7 @@ class BillingService:
             amount=amount,
             balance_before=balance_before,
             balance_after=account.balance,
-            description=f"Call charge",
+            description=description,
             call_sid=call_sid,
             campaign_id=campaign.id if campaign else None,
             campaign_name=campaign.name if campaign else '',

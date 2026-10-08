@@ -129,6 +129,13 @@ def route_incoming_call(request):
         call_log.save(update_fields=[
             'status', 'block_reason', 'ended_at', 'routing_trace', 'updated_at',
         ])
+        # The rejected-call fee, off the call path. The refusal is already
+        # decided and returned either way; the worker takes the fee.
+        try:
+            from tasks import charge_rejected_call
+            charge_rejected_call.delay(str(call_log.id))
+        except Exception:
+            logger.warning('rejected_fee_not_queued: call_log=%s', call_log.id)
         return JsonResponse({"action": "hangup", "reason": reason})
 
     # The engine picks a rule and the call never recorded which one, so the call

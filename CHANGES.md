@@ -5028,3 +5028,27 @@ Still true from CH-076: `rejected_call_fee` is priced and displayed but **not
 yet charged** — a refused call never reaches the billing step. Showing it on
 Billing makes that gap visible to the client, which is one more reason to
 close it.
+
+
+## CH-085 — The rejected-call fee is actually charged
+
+**2026-10-08 · Billing · commit pending**
+
+Open since CH-076, visible on Billing since CH-084: Rejected Call $0.0150 was
+priced, displayed, and never taken, because a refused call never reaches the
+billing step - charging lived at the end of a connected call.
+
+`call_ended` still charges connected calls exactly as before. A refusal now
+queues `tasks.charge_rejected_call`, so the call path gains one enqueue on the
+refusal branch and nothing anywhere else. The worker:
+
+- charges only a call that is `failed` with a `block_reason` - a routed call
+  is call_ended's business
+- goes through `charge_call`, so it is idempotent per call_sid and a carrier
+  retrying the refusal cannot take the fee twice
+- writes `platform_cost` to **both** CallLog and the CallRecord mirror, or the
+  export's Cost column would stay empty while the money moved (CH-077's lesson)
+- books the transaction as "Rejected call fee", so the client's statement says
+  what it was, not "Call charge"
+
+A zero fee on the account disables it, per client, same as the other two.
