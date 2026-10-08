@@ -69,7 +69,16 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
         from buyers.destination import Destination
         start = _f(filters, 'date_from') or _f(filters, 'start_date')
         end = _f(filters, 'date_to') or _f(filters, 'end_date')
-        dests = Destination.objects.filter(
+        # Same slice as /api/destinations/: a buyer gets their own, a
+        # publisher none. The dashboard card was built from this block, so
+        # scoping the destinations API alone left the card still showing a
+        # buyer every other buyer's traffic.
+        from accounts.permissions import scope_queryset
+        dests = scope_queryset(
+            request.auth,
+            Destination.objects.all(),
+            buyer_field='buyer_id', publisher_field=None,
+        ).filter(
             buyer__organization=request.auth.organization,
             # Enabled only. format_destination runs several COUNT queries
             # against the call log per row, and this was formatting all 165
