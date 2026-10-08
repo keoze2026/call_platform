@@ -5052,3 +5052,24 @@ refusal branch and nothing anywhere else. The worker:
   what it was, not "Call charge"
 
 A zero fee on the account disables it, per client, same as the other two.
+
+
+## CH-086 — The Numbers page counters were never sent
+
+**2026-10-08 · Numbers · commit pending**
+
+The boss sent a reference Tracking Numbers page and asked what ours is missing.
+Not columns — ours has every one of theirs — but the data in four of them:
+Hourly, Daily, Monthly and Global sat blank or zero since the page was built,
+because the list response never carried them and the table rightly refused to
+derive them (they were once `hash(id) % 4`; CH-013 removed that).
+
+One grouped query over CallLog now answers live, hourly, today, this month and
+all-time for every number at once — no per-row queries. Matching is on the
+**last ten digits**: the dialplan hands over `18886052854` while PhoneNumber
+stores `+18886052854`, and exact matching split the same phone into two keys,
+which is also why Live read 0 on a page with calls up. Region falls back to
+the country code for a toll-free, which has no state.
+
+Nothing fills Hourly or Global on an old deployment's cached page — the values
+come from the response, not the client.

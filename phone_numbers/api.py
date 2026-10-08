@@ -51,22 +51,55 @@ def import_number(request: HttpRequest, data: PurchaseNumberSchema):
         return 400, {"detail": str(e)}
 
 
+def _last10(number: str) -> str:
+    """Dialled numbers arrive without the +, PhoneNumber stores E.164. The
+    last ten digits are the number; anything stricter splits the same phone
+    into two keys and every counter under-reads."""
+    return ''.join(c for c in (number or '') if c.isdigit())[-10:]
+
+
 @router.get("", response={200: dict})
 def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from datetime import timedelta
+    from django.utils import timezone as djtz
+
     from config.pagination import paginate_list
     from routing.models import CallLog
-    from django.db.models import Count
-    
-    numbers = PhoneNumberService.list_numbers(request.auth)
-    
-    # Pre-calculate live calls for the organization to prevent N+1 queries
-    live_calls_qs = CallLog.objects.filter(
-        organization=request.auth.organization,
-        status__in=['in_progress', 'ringing', 'initiated']
-    ).values('called_number').annotate(count=Count('id'))
-    live_calls_map = {item['called_number']: item['count'] for item in live_calls_qs}
+    from django.db.models import Count, Q
 
-    data = [PhoneNumberService.format_number(n, live_calls_count=live_calls_map.get(n.number, 0)) for n in numbers]
+    numbers = PhoneNumberService.list_numbers(request.auth)
+
+    # Hourly, Daily, Monthly and Global sat blank on the page since the start:
+    # the response never carried them and the table refused to invent them.
+    # One grouped query answers all four windows for every number at once.
+    now = djtz.now()
+    today = djtz.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+    month = today.replace(day=1)
+    counters = {}
+    rows = CallLog.objects.filter(organization=request.auth.organization).values(
+        'called_number',
+    ).annotate(
+        live=Count('id', filter=Q(status__in=['in_progress', 'ringing', 'initiated'])),
+        hourly=Count('id', filter=Q(created_at__gte=now - timedelta(hours=1))),
+        daily=Count('id', filter=Q(created_at__gte=today)),
+        monthly=Count('id', filter=Q(created_at__gte=month)),
+        total=Count('id'),
+    )
+    for r in rows:
+        key = _last10(r['called_number'])
+        c = counters.setdefault(key, {'live': 0, 'hourly': 0, 'daily': 0, 'monthly': 0, 'total': 0})
+        for k in c:
+            c[k] += r[k]
+
+    data = []
+    for n in numbers:
+        c = counters.get(_last10(n.number), {})
+        d = PhoneNumberService.format_number(n, live_calls_count=c.get('live', 0))
+        d['calls_hourly'] = c.get('hourly', 0)
+        d['calls_today'] = c.get('daily', 0)
+        d['calls_monthly'] = c.get('monthly', 0)
+        d['calls_global'] = c.get('total', 0)
+        data.append(d)
     return 200, paginate_list(data, page, page_size)
 
 
