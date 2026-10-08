@@ -5175,3 +5175,27 @@ One boundary deliberately left: a repeat call from a caller whose first call
 was itself refused is not flagged as a duplicate. The flag exists so the same
 caller is not paid for twice; a caller who never got through has nothing to be
 a duplicate of. That is the engine's definition and the engine was not touched.
+
+
+## CH-091 — TTC was a hash of the call id
+
+**2026-10-09 · Reporting · commit pending**
+
+The boss sent the export with TTC 00:00:00 on every row and said fix the data.
+The data was not the problem.
+
+The call-log API never carried a TTC at all - the real figure existed only
+inside the backend CSV export. The frontend filled the gap with
+`hash(id) % 6` per status: completed calls "took 1-6 seconds", missed ones
+"20-39", invented per row, never moving - the same disease as the Live counter
+that was `hash(id) % 4`. Its own export had nothing real to write, so the
+boss's sheet was zeros.
+
+`_format_record` and `_format_live_log` now carry `ttc` (answered minus
+started, seconds), `CallRecordSchema` declares it so Ninja does not drop it,
+and the table shows the backend's figure or a dash for a call never answered.
+
+**On the values themselves:** every call today routes to C11TEST, a test
+destination that answers instantly, so real TTCs of 0-2 seconds are the truth
+for this traffic. The column will only read bigger numbers when a buyer's
+destination actually rings before answering.

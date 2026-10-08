@@ -87,6 +87,8 @@ class CallRecordSchema(Schema):
     is_converted:     bool
     is_duplicate:     bool
     is_spam:          bool
+    # Seconds to connect; None when never answered. Ninja drops undeclared keys.
+    ttc: Optional[int] = None
     revenue:          Optional[Decimal] = None
     payout:           Optional[Decimal] = None
     profit:           Optional[Decimal] = None

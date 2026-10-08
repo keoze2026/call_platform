@@ -1196,6 +1196,10 @@ class AnalyticsService:
             'ended_at':         None,
             'created_at':       r.created_at,
             'ipqs_line_type':   r.ipqs_line_type,
+            'ttc': (
+                max(0, int((r.answered_at - r.created_at).total_seconds()))
+                if r.answered_at else None
+            ),
         }
 
     @staticmethod
@@ -1243,6 +1247,14 @@ class AnalyticsService:
             'ended_at':         r.ended_at,
             'created_at':       r.created_at,
             'ipqs_line_type':   r.ipqs_line_type,
+            # Seconds the caller waited before pickup, measured exactly as the
+            # backend export measures it. The table was inventing this from a
+            # hash of the id - the same disease as the old Live column. None
+            # for a call never answered; a dash is honest there.
+            'ttc': (
+                max(0, int((r.answered_at - (r.started_at or r.created_at)).total_seconds()))
+                if r.answered_at and (r.started_at or r.created_at) else None
+            ),
         }
 
     # ── CSV export ───────────────────────────────────────────────────────────
