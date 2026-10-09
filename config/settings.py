@@ -55,6 +55,11 @@ INSTALLED_APPS = [
     'channels',
     'django.contrib.auth',
     'django.contrib.contenttypes',
+    # The management console. Everything we were doing by shell - restoring
+    # numbers, setting carriers, blacklist entries, billing rates, rules -
+    # done in a browser instead. Reachable only at ADMIN_URL_PATH, which is
+    # unset by default, so a deployment without it has no admin URL at all.
+    'django.contrib.admin',
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
@@ -240,6 +245,10 @@ USE_I18N = True
 USE_TZ = True
 
 # Static files
+# Secret path segment for the management console, e.g. 'console-7f3k'.
+# Empty = the admin is not routed anywhere.
+ADMIN_URL_PATH = config('ADMIN_URL_PATH', default='').strip().strip('/')
+
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STORAGES = {

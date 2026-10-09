@@ -5284,3 +5284,24 @@ and `retire_expired` only ever sees numbers whose clock a real call started.
 The ten KMQ numbers were restored - released by the old rule, never used, so
 `used_at is null` identifies exactly them and the hand-retired `3778` (which
 was used) stays retired.
+
+
+## CH-095 — The management console, on at last
+
+**2026-10-09 · Platform · commit pending**
+
+A week of operations ran through pasted shell commands - restoring numbers,
+setting carrier terms, blacklist entries, billing rates, notification rules -
+while a built admin for every one of those models sat switched off. On, locked
+down:
+
+- routed **only** at `ADMIN_URL_PATH`, a secret path segment from `.env`;
+  unset means the console has no URL at all, which stays the default
+- Django's own gate on top: only accounts with `is_staff` log in, and only
+  MKWJN's admin account gets the flag
+- served on the API domain over HTTPS, static files through WhiteNoise
+  (already in the stack), actions recorded in Django's admin log
+
+Numbers, carriers, campaigns, buyers, publishers, blacklist, billing accounts,
+notification rules - browser now, terminal only when something is genuinely
+new.
