@@ -5288,7 +5288,7 @@ was used) stays retired.
 
 ## CH-095 — The management console, on at last
 
-**2026-10-09 · Platform · commit pending**
+**2026-10-09 · Platform · commit `ed1c5cbf`**
 
 A week of operations ran through pasted shell commands - restoring numbers,
 setting carrier terms, blacklist entries, billing rates, notification rules -
