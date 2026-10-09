@@ -5309,7 +5309,7 @@ new.
 
 ## CH-096 — The django admin comes back out, same day
 
-**2026-10-09 · Platform · commit pending**
+**2026-10-09 · Platform · commit `ec38ae38`**
 
 The owner's verdict on CH-095 after using it: it does not help the owner in
 any way. Correct, and worth writing down why so it is not switched on again:
