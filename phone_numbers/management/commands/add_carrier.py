@@ -73,19 +73,11 @@ class Command(BaseCommand):
             },
         )
         verb = 'added' if created else 'updated'
-        # Terms set after numbers were already taken on have to reach those
-        # numbers too, or a carrier switched to 24 hours leaves everything
-        # imported before it running for ever.
+        # Terms never stamp an expiry onto unused numbers: the lifetime
+        # clock starts at a number's first call (the use check the boss asked
+        # for). The earlier back-stamp here is what deleted the KMQ batch
+        # unused overnight.
         stamped = 0
-        if carrier.lifetime_hours:
-            from phone_numbers.lifecycle import stamp_lifetime
-            for pn in carrier.phone_numbers.filter(
-                expires_at__isnull=True, status=PhoneNumber.Status.ACTIVE,
-            ):
-                stamp_lifetime(pn)
-                if pn.expires_at:
-                    pn.save(update_fields=['expires_at', 'updated_at'])
-                    stamped += 1
 
         terms = []
         if carrier.single_use:

@@ -5264,3 +5264,23 @@ both now corrected:
 A duplicate shown as missed is **not** charged the rejected-call fee - the
 fee task charges failed refusals only, and the boss's framing of these as
 missed calls puts them outside it.
+
+
+## CH-094 — The use check: numbers stop dying unused
+
+**2026-10-09 · Numbers · commit pending**
+
+The boss: "TFNs getting deleted without any use check — bug." Correct. CH-083
+stamped the 24-hour deadline when a number was imported or its carrier's terms
+were set, so the whole KMQ batch deleted itself at 06:27 the next morning
+having never carried a single call. His spec was always "once TFNs **used**",
+and the timer ignored the word that mattered.
+
+The rule now: **nothing touches an unused number.** A number's first call sets
+`used_at`; single use retires it right there; a lifetime starts counting from
+that first call. Import stamps nothing, setting carrier terms stamps nothing,
+and `retire_expired` only ever sees numbers whose clock a real call started.
+
+The ten KMQ numbers were restored - released by the old rule, never used, so
+`used_at is null` identifies exactly them and the hand-retired `3778` (which
+was used) stays retired.

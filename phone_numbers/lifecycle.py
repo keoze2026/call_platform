@@ -26,18 +26,20 @@ EVENT = 'number.deleted'
 
 
 def stamp_lifetime(number: PhoneNumber) -> None:
-    """Set when this number stops being usable, from its carrier's terms.
+    """The clock starts at first USE, never at import.
 
-    Called when a number is taken on or moved to a different carrier. Does
-    nothing for a carrier with no limit, and never shortens a deadline that is
-    already set - that would quietly move a date somebody is relying on.
+    The first version stamped the deadline when the number was taken on, and
+    the whole KMQ batch deleted itself the next morning having never carried a
+    call - the boss called it, rightly, a bug. A number that has not been used
+    is not touched; once it carries its first call, the carrier's
+    lifetime_hours start counting from that moment.
     """
     carrier = number.carrier
     if not carrier or not carrier.lifetime_hours:
         return
-    if number.expires_at:
+    if number.expires_at or not number.used_at:
         return
-    number.expires_at = timezone.now() + timezone.timedelta(hours=carrier.lifetime_hours)
+    number.expires_at = number.used_at + timezone.timedelta(hours=carrier.lifetime_hours)
 
 
 def _notify(number: PhoneNumber, why: str) -> None:
@@ -79,10 +81,11 @@ def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
 
 
 def retire_if_single_use(called_number: str, call_id: str = '') -> bool:
-    """Retire the number a call came in on, if its carrier hands them out once.
+    """Apply the carrier's terms to the number a call just used.
 
-    Takes the dialled number rather than an id because that is what the call
-    carries. Runs after the call has ended, off the call path.
+    Single use retires it on the spot. A lifetime starts its clock now - from
+    the first call, never from import, which is the use check the first
+    version lacked. Runs after the call has ended, off the call path.
     """
     digits = ''.join(c for c in (called_number or '') if c.isdigit())
     if not digits:
@@ -94,10 +97,22 @@ def retire_if_single_use(called_number: str, call_id: str = '') -> bool:
         .filter(number__endswith=digits[-10:], status=PhoneNumber.Status.ACTIVE)
         .first()
     )
-    if not number or not number.carrier_id or not number.carrier.single_use:
+    if not number or not number.carrier_id:
         return False
 
-    return retire(number, 'used', call_id)
+    if not number.used_at:
+        number.used_at = timezone.now()
+        number.used_by_call_id = call_id or ''
+        number.save(update_fields=['used_at', 'used_by_call_id', 'updated_at'])
+
+    if number.carrier.single_use:
+        return retire(number, 'used', call_id)
+
+    if number.carrier.lifetime_hours and not number.expires_at:
+        stamp_lifetime(number)
+        if number.expires_at:
+            number.save(update_fields=['expires_at', 'updated_at'])
+    return False
 
 
 def retire_expired() -> int:

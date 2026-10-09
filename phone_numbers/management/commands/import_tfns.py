@@ -15,7 +15,6 @@ from django.core.management.base import BaseCommand
 from django.utils import timezone
 
 from accounts.models import Organization
-from phone_numbers.lifecycle import stamp_lifetime
 from phone_numbers.models import Carrier, PhoneNumber
 
 
@@ -115,9 +114,8 @@ class Command(BaseCommand):
                 sms_enabled=False,
                 status=PhoneNumber.Status.ACTIVE,
             )
-            stamp_lifetime(pn)
-            if pn.expires_at:
-                pn.save(update_fields=['expires_at', 'updated_at'])
+            # No expiry stamped here: the carrier's clock starts at the
+            # number's first call, never at import (the use check).
             added += 1
 
         verb = 'would be' if o['dry_run'] else ''
