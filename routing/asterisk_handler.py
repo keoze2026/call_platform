@@ -318,13 +318,44 @@ def call_ended(request):
     data.get('url', '')
 )
 
-    if not call_log_id:
-        return JsonResponse({"error": "Missing call_log_id"}, status=400)
-
-    try:
-        call_log = CallLog.objects.select_related('campaign', 'buyer').get(id=call_log_id)
-    except CallLog.DoesNotExist:
-        return JsonResponse({"error": "Call not found"}, status=404)
+    call_log = None
+    if call_log_id:
+        try:
+            call_log = CallLog.objects.select_related('campaign', 'buyer').get(id=call_log_id)
+        except CallLog.DoesNotExist:
+            return JsonResponse({"error": "Call not found"}, status=404)
+    else:
+        # The hangup arrived without its id. A transfer at the buyer replaces
+        # the inbound channel and the new one carries no variables, so the h
+        # extension fires blind - which is how a real ten-minute call got
+        # written off as no_answer while its hangup sat in the debug log as
+        # "Missing call_log_id". The caller number survives where the variable
+        # does not: match the one open call from this caller and finish it.
+        caller = (data.get('caller') or '').strip()
+        if caller:
+            digits = ''.join(ch for ch in caller if ch.isdigit())[-10:]
+            if digits:
+                from datetime import timedelta
+                call_log = (
+                    CallLog.objects.select_related('campaign', 'buyer')
+                    .filter(
+                        caller_number__endswith=digits,
+                        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
+                        created_at__gte=timezone.now() - timedelta(hours=6),
+                    )
+                    .order_by('-created_at')
+                    .first()
+                )
+                if call_log:
+                    logger.warning(
+                        'call_ended arrived without an id; matched open call %s by caller %s',
+                        call_log.id, digits,
+                    )
+        if call_log is None:
+            # Nothing open for this caller - a refused call's h firing blind,
+            # which already has a closed row. Answer 200 so the shell stops
+            # logging an error for the expected case.
+            return JsonResponse({"received": True, "matched": False})
 
     call_log.duration = duration
     call_log.status = CallLog.Status.COMPLETED if answered else CallLog.Status.NO_ANSWER

@@ -6,6 +6,7 @@ from buyers.api import router as buyers_router
 from publishers.api import router as publishers_router
 from phone_numbers.api import router as phone_numbers_router
 from phone_numbers.api import carriers_router
+from accounts.owner_api import owner_router
 from routing.api import router as routing_router
 from ivr.api import router as ivr_router
 from rtb.api import router as rtb_router
@@ -74,6 +75,7 @@ api.add_router("/accounts/", partner_settings_router)
 api.add_router("/campaigns/", campaigns_router)
 api.add_router("/buyers/", buyers_router)
 api.add_router("/publishers/", publishers_router)
+api.add_router("/owner/", owner_router)
 api.add_router("/carriers/", carriers_router)
 api.add_router("/numbers/", phone_numbers_router)
 api.add_router("/routing/", routing_router)
