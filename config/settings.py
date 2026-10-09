@@ -55,17 +55,11 @@ INSTALLED_APPS = [
     'channels',
     'django.contrib.auth',
     'django.contrib.contenttypes',
-    # The management console. Everything we were doing by shell - restoring
-    # numbers, setting carriers, blacklist entries, billing rates, rules -
-    # done in a browser instead. Reachable only at ADMIN_URL_PATH, which is
-    # unset by default, so a deployment without it has no admin URL at all.
-    #
-    # Every admin class in this project extends unfold's ModelAdmin - the
-    # console was originally built themed - so unfold must be installed and
-    # listed BEFORE django.contrib.admin, or every page dies looking for
-    # unfold/layouts/base.html.
-    'unfold',
-    'django.contrib.admin',
+    # No django admin. It was switched on briefly (CH-095) and removed the
+    # same day on the owner's decision: it answers in database rows while the
+    # owner asks operational questions, so it helped nobody. The admin.py
+    # files and the UNFOLD config stay inert; the owner tools belong in the
+    # portal itself.
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',

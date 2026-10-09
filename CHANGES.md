@@ -5305,3 +5305,22 @@ down:
 Numbers, carriers, campaigns, buyers, publishers, blacklist, billing accounts,
 notification rules - browser now, terminal only when something is genuinely
 new.
+
+
+## CH-096 — The django admin comes back out, same day
+
+**2026-10-09 · Platform · commit pending**
+
+The owner's verdict on CH-095 after using it: it does not help the owner in
+any way. Correct, and worth writing down why so it is not switched on again:
+it answers in database rows - CallRecord, RuleDestination - while the owner
+asks operational questions: who owes money, which numbers are dying, why did
+a call drop. A themed table browser is a developer's escape hatch, not an
+owner's tool, and the goal it was meant to serve was fewer terminal sessions,
+which it did not deliver.
+
+Removed from INSTALLED_APPS and the URL conf. The admin.py files and UNFOLD
+config stay inert in the repo. The superadmin@avortyx.io account stays - it
+is the system owner login and `is_superuser` is what the coming owner tools
+in the portal will gate on. What those tools must do is the owner's task
+list, not a technology choice.
