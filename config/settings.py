@@ -489,6 +489,11 @@ CAPITALIST_SECRET = config('CAPITALIST_SECRET', default='')
 
 ASTERISK_SHARED_SECRET = config('ASTERISK_SHARED_SECRET', default='')
 
+# The console's own base path. Every sidebar link below used to hardcode
+# /admin/, so moving the console to the secret path made each click a 404 -
+# logged in, menu rendered, every destination missing.
+ADMIN_BASE = '/' + (ADMIN_URL_PATH or 'admin')
+
 UNFOLD = {
     "SITE_TITLE": "Call Platform Admin",
     "SITE_HEADER": "Call Platform",
@@ -523,141 +528,141 @@ UNFOLD = {
                 "title": "Dashboard",
                 "icon": "dashboard",
                 "items": [
-                    {"title": "Dashboard", "icon": "dashboard", "link": "/admin/"},
+                    {"title": "Dashboard", "icon": "dashboard", "link": f"{ADMIN_BASE}/"},
                 ],
             },
             {
                 "title": "Users & Orgs",
                 "icon": "group",
                 "items": [
-                    {"title": "Organizations", "icon": "corporate_fare", "link": "/admin/accounts/organization/"},
-                    {"title": "Users", "icon": "person", "link": "/admin/accounts/user/"},
+                    {"title": "Organizations", "icon": "corporate_fare", "link": f"{ADMIN_BASE}/accounts/organization/"},
+                    {"title": "Users", "icon": "person", "link": f"{ADMIN_BASE}/accounts/user/"},
                 ],
             },
             {
                 "title": "Campaigns",
                 "icon": "campaign",
                 "items": [
-                    {"title": "Campaigns", "icon": "rocket_launch", "link": "/admin/campaigns/campaign/"},
+                    {"title": "Campaigns", "icon": "rocket_launch", "link": f"{ADMIN_BASE}/campaigns/campaign/"},
                 ],
             },
             {
                 "title": "Call Routing",
                 "icon": "call_split",
                 "items": [
-                    {"title": "Call Logs", "icon": "list_alt", "link": "/admin/routing/calllog/"},
-                    {"title": "Routing Rules", "icon": "rule", "link": "/admin/routing/routingrule/"},
-                    {"title": "Destinations", "icon": "call_made", "link": "/admin/routing/ruledestination/"},
+                    {"title": "Call Logs", "icon": "list_alt", "link": f"{ADMIN_BASE}/routing/calllog/"},
+                    {"title": "Routing Rules", "icon": "rule", "link": f"{ADMIN_BASE}/routing/routingrule/"},
+                    {"title": "Destinations", "icon": "call_made", "link": f"{ADMIN_BASE}/routing/ruledestination/"},
                 ],
             },
             {
                 "title": "Buyers",
                 "icon": "people",
                 "items": [
-                    {"title": "Buyers", "icon": "person_pin", "link": "/admin/buyers/buyer/"},
-                    {"title": "Buyer Caps", "icon": "data_usage", "link": "/admin/buyers/buyercap/"},
-                    {"title": "Campaign Assignments", "icon": "assignment", "link": "/admin/buyers/buyercampaign/"},
-                    {"title": "Schedules", "icon": "schedule", "link": "/admin/buyers/buyerschedule/"},
+                    {"title": "Buyers", "icon": "person_pin", "link": f"{ADMIN_BASE}/buyers/buyer/"},
+                    {"title": "Buyer Caps", "icon": "data_usage", "link": f"{ADMIN_BASE}/buyers/buyercap/"},
+                    {"title": "Campaign Assignments", "icon": "assignment", "link": f"{ADMIN_BASE}/buyers/buyercampaign/"},
+                    {"title": "Schedules", "icon": "schedule", "link": f"{ADMIN_BASE}/buyers/buyerschedule/"},
                 ],
             },
             {
                 "title": "Publishers",
                 "icon": "share",
                 "items": [
-                    {"title": "Publishers", "icon": "cell_tower", "link": "/admin/publishers/publisher/"},
-                    {"title": "Publisher Caps", "icon": "data_usage", "link": "/admin/publishers/publishercap/"},
-                    {"title": "Campaign Assignments", "icon": "assignment", "link": "/admin/publishers/publishercampaign/"},
+                    {"title": "Publishers", "icon": "cell_tower", "link": f"{ADMIN_BASE}/publishers/publisher/"},
+                    {"title": "Publisher Caps", "icon": "data_usage", "link": f"{ADMIN_BASE}/publishers/publishercap/"},
+                    {"title": "Campaign Assignments", "icon": "assignment", "link": f"{ADMIN_BASE}/publishers/publishercampaign/"},
                 ],
             },
             {
                 "title": "Phone Numbers",
                 "icon": "dialpad",
                 "items": [
-                    {"title": "Phone Numbers", "icon": "phone", "link": "/admin/phone_numbers/phonenumber/"},
+                    {"title": "Phone Numbers", "icon": "phone", "link": f"{ADMIN_BASE}/phone_numbers/phonenumber/"},
                 ],
             },
             {
                 "title": "Billing",
                 "icon": "payments",
                 "items": [
-                    {"title": "Billing Accounts", "icon": "account_balance", "link": "/admin/billing/billingaccount/"},
-                    {"title": "Transactions", "icon": "receipt_long", "link": "/admin/billing/transaction/"},
-                    {"title": "Invoices", "icon": "description", "link": "/admin/billing/invoice/"},
+                    {"title": "Billing Accounts", "icon": "account_balance", "link": f"{ADMIN_BASE}/billing/billingaccount/"},
+                    {"title": "Transactions", "icon": "receipt_long", "link": f"{ADMIN_BASE}/billing/transaction/"},
+                    {"title": "Invoices", "icon": "description", "link": f"{ADMIN_BASE}/billing/invoice/"},
                 ],
             },
             {
                 "title": "Spam Protection",
                 "icon": "security",
                 "items": [
-                    {"title": "Blacklist", "icon": "block", "link": "/admin/spam_protection/blacklist/"},
-                    {"title": "Whitelist", "icon": "verified", "link": "/admin/spam_protection/whitelist/"},
-                    {"title": "Spam Reports", "icon": "report", "link": "/admin/spam_protection/spamreport/"},
+                    {"title": "Blacklist", "icon": "block", "link": f"{ADMIN_BASE}/spam_protection/blacklist/"},
+                    {"title": "Whitelist", "icon": "verified", "link": f"{ADMIN_BASE}/spam_protection/whitelist/"},
+                    {"title": "Spam Reports", "icon": "report", "link": f"{ADMIN_BASE}/spam_protection/spamreport/"},
                 ],
             },
             {
                 "title": "RTB",
                 "icon": "bid_landscape",
                 "items": [
-                    {"title": "Auctions", "icon": "bid_landscape", "link": "/admin/rtb/rtbauction/"},
-                    {"title": "Bids", "icon": "payments", "link": "/admin/rtb/rtbbid/"},
+                    {"title": "Auctions", "icon": "bid_landscape", "link": f"{ADMIN_BASE}/rtb/rtbauction/"},
+                    {"title": "Bids", "icon": "payments", "link": f"{ADMIN_BASE}/rtb/rtbbid/"},
                 ],
             },
             {
                 "title": "IVR",
                 "icon": "phone_in_talk",
                 "items": [
-                    {"title": "IVR Flows", "icon": "account_tree", "link": "/admin/ivr/ivrflow/"},
-                    {"title": "IVR Nodes", "icon": "device_hub", "link": "/admin/ivr/ivrnode/"},
-                    {"title": "Transitions", "icon": "alt_route", "link": "/admin/ivr/ivrnodeTransition/"},
+                    {"title": "IVR Flows", "icon": "account_tree", "link": f"{ADMIN_BASE}/ivr/ivrflow/"},
+                    {"title": "IVR Nodes", "icon": "device_hub", "link": f"{ADMIN_BASE}/ivr/ivrnode/"},
+                    {"title": "Transitions", "icon": "alt_route", "link": f"{ADMIN_BASE}/ivr/ivrnodeTransition/"},
                 ],
             },
             {
                 "title": "DNI",
                 "icon": "track_changes",
                 "items": [
-                    {"title": "DNI Pools", "icon": "workspaces", "link": "/admin/dni/dnipool/"},
-                    {"title": "DNI Numbers", "icon": "pin", "link": "/admin/dni/dninumber/"},
-                    {"title": "DNI Sessions", "icon": "sensors", "link": "/admin/dni/dnisession/"},
+                    {"title": "DNI Pools", "icon": "workspaces", "link": f"{ADMIN_BASE}/dni/dnipool/"},
+                    {"title": "DNI Numbers", "icon": "pin", "link": f"{ADMIN_BASE}/dni/dninumber/"},
+                    {"title": "DNI Sessions", "icon": "sensors", "link": f"{ADMIN_BASE}/dni/dnisession/"},
                 ],
             },
             {
                 "title": "Webhooks",
                 "icon": "webhook",
                 "items": [
-                    {"title": "Webhooks", "icon": "cable", "link": "/admin/webhooks/webhook/"},
-                    {"title": "Deliveries", "icon": "send", "link": "/admin/webhooks/webhookdelivery/"},
-                    {"title": "Conversion Pixels", "icon": "track_changes", "link": "/admin/webhooks/conversionpixel/"},
-                    {"title": "Conversion Events", "icon": "bolt", "link": "/admin/webhooks/conversionevent/"},
+                    {"title": "Webhooks", "icon": "cable", "link": f"{ADMIN_BASE}/webhooks/webhook/"},
+                    {"title": "Deliveries", "icon": "send", "link": f"{ADMIN_BASE}/webhooks/webhookdelivery/"},
+                    {"title": "Conversion Pixels", "icon": "track_changes", "link": f"{ADMIN_BASE}/webhooks/conversionpixel/"},
+                    {"title": "Conversion Events", "icon": "bolt", "link": f"{ADMIN_BASE}/webhooks/conversionevent/"},
                 ],
             },
             {
                 "title": "Notifications",
                 "icon": "notifications",
                 "items": [
-                    {"title": "Rules", "icon": "rule", "link": "/admin/notifications/notificationrule/"},
-                    {"title": "Logs", "icon": "list_alt", "link": "/admin/notifications/notificationlog/"},
+                    {"title": "Rules", "icon": "rule", "link": f"{ADMIN_BASE}/notifications/notificationrule/"},
+                    {"title": "Logs", "icon": "list_alt", "link": f"{ADMIN_BASE}/notifications/notificationlog/"},
                 ],
             },
             {
                 "title": "Analytics",
                 "icon": "analytics",
                 "items": [
-                    {"title": "Call Records", "icon": "bar_chart", "link": "/admin/analytics/callrecord/"},
+                    {"title": "Call Records", "icon": "bar_chart", "link": f"{ADMIN_BASE}/analytics/callrecord/"},
                 ],
             },
             {
                 "title": "Call Queue",
                 "icon": "queue",
                 "items": [
-                    {"title": "Queue", "icon": "line_weight", "link": "/admin/call_queue/callqueue/"},
+                    {"title": "Queue", "icon": "line_weight", "link": f"{ADMIN_BASE}/call_queue/callqueue/"},
                 ],
             },
             {
                 "title": "White Label",
                 "icon": "style",
                 "items": [
-                    {"title": "White Labels", "icon": "palette", "link": "/admin/white_label/whitelabel/"},
-                    {"title": "Domains", "icon": "language", "link": "/admin/white_label/whitelabeldomain/"},
+                    {"title": "White Labels", "icon": "palette", "link": f"{ADMIN_BASE}/white_label/whitelabel/"},
+                    {"title": "Domains", "icon": "language", "link": f"{ADMIN_BASE}/white_label/whitelabeldomain/"},
                 ],
             },
         ],
