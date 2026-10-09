@@ -5268,7 +5268,7 @@ missed calls puts them outside it.
 
 ## CH-094 — The use check: numbers stop dying unused
 
-**2026-10-09 · Numbers · commit pending**
+**2026-10-09 · Numbers · commit `21981783`**
 
 The boss: "TFNs getting deleted without any use check — bug." Correct. CH-083
 stamped the 24-hour deadline when a number was imported or its carrier's terms
