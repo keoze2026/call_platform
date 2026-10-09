@@ -5324,3 +5324,37 @@ config stay inert in the repo. The superadmin@avortyx.io account stays - it
 is the system owner login and `is_superuser` is what the coming owner tools
 in the portal will gate on. What those tools must do is the owner's task
 list, not a technology choice.
+
+
+## CH-097 — The hangup that loses its name, found and made unloseable
+
+**2026-10-09 · Routing · commits `51aec18b` + this one**
+
+The boss: caller 18643846877 shows No Answer on our portal but ran a good ten
+minutes on another. True on both counts, and the oldest open line in this file
+- "the dialplan does not reliably reach call_ended" (CH-012) - finally has its
+mechanism:
+
+  A transfer at the buyer replaces the inbound channel. The replacement
+  carries **no channel variables**, so the `h` extension fires with
+  `CALL_LOG_ID` empty, the hangup posts as `{"error": "Missing call_log_id"}`
+  - the debug log holds hundreds, mostly harmless refused-call noise that
+  hid the real ones - and the call sits open until the channel sync closes
+  it as `asterisk_gone`, no_answer, duration 0. Unbilled, unrecorded in the
+  report, while the recording sat on disk: 9,713,324 bytes, 607 seconds,
+  file closed at the exact minute the row died.
+
+**The permanent fix, every call from now on:** the dialplan passes
+`${CALLERID(num)}` alongside the id, `call_ended.sh` forwards it, and a
+hangup missing its id is matched to the one open call from that caller
+within six hours and finished properly - status, duration, billing,
+recording. A blind hangup with nothing open answers 200/matched:false,
+which also ends the error flood. Not a patch for one call: the class is
+closed.
+
+**The one record** was repaired through the real call_ended path - completed,
+607s, billed, recording attached - with timestamps set from the file.
+
+**Historic victims:** any `asterisk_gone` row whose `<id>.wav` exists on disk
+was a real call written off the same way. Sweep below; each hit repairs with
+the same endpoint call used above.
