@@ -5240,7 +5240,7 @@ repeat of a refused call is still not a duplicate (CH-090's boundary holds).
 
 ## CH-093 — Duplicates aligned to the boss's written spec
 
-**2026-10-09 · Routing · commit pending**
+**2026-10-09 · Routing · commit `ee109210`**
 
 The boss wrote the behaviour down and CH-092 differed from it in two places,
 both now corrected:
