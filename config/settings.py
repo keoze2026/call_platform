@@ -59,6 +59,12 @@ INSTALLED_APPS = [
     # numbers, setting carriers, blacklist entries, billing rates, rules -
     # done in a browser instead. Reachable only at ADMIN_URL_PATH, which is
     # unset by default, so a deployment without it has no admin URL at all.
+    #
+    # Every admin class in this project extends unfold's ModelAdmin - the
+    # console was originally built themed - so unfold must be installed and
+    # listed BEFORE django.contrib.admin, or every page dies looking for
+    # unfold/layouts/base.html.
+    'unfold',
     'django.contrib.admin',
     'django.contrib.sessions',
     'django.contrib.messages',
