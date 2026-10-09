@@ -122,7 +122,14 @@ def route_incoming_call(request):
 
     if not decision or decision.get('error') or not decision.get('destination'):
         reason = decision.get('error', 'no_destination') if decision else 'no_decision'
-        call_log.status = CallLog.Status.FAILED
+        # A duplicate on "Different" is not a failure and not a block - the
+        # boss's spec says it appears as a missed call: it came in, nobody
+        # forwarded it, the caller stays welcome. Everything else that is
+        # refused stays a failed row with its reason.
+        if reason == 'Duplicate call':
+            call_log.status = CallLog.Status.NO_ANSWER
+        else:
+            call_log.status = CallLog.Status.FAILED
         call_log.block_reason = reason[:100]
         call_log.ended_at = timezone.now()
         call_log.routing_trace = trace.as_dict(selected=None)

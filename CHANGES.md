@@ -5236,3 +5236,31 @@ Now the whole chain exists:
 
 A refused call excludes nothing — the caller never reached anybody. And a
 repeat of a refused call is still not a duplicate (CH-090's boundary holds).
+
+
+## CH-093 — Duplicates aligned to the boss's written spec
+
+**2026-10-09 · Routing · commit pending**
+
+The boss wrote the behaviour down and CH-092 differed from it in two places,
+both now corrected:
+
+  **Different never forwards a repeat.** CH-092 only dropped when Strict was
+  on; without it, a repeat with nowhere new fell back to normal routing. The
+  spec says a duplicate must not be forwarded to a TFN that already took this
+  caller, full stop - so on Different that is now the behaviour with or
+  without the Strict switch.
+
+  **The drop reads as a missed call, not a block.** It was a failed row named
+  `Duplicate call blocked`. Per the spec it lands as **No Answer** with reason
+  `Duplicate call`: it shows in Incoming, counts in the Dupe column (CH-090),
+  and the caller is not blocked - their next call arrives and gets the same
+  treatment, never a blacklist entry.
+
+  **Normal and Original always forward**, even the hundredth call from one
+  number - Original merely prefers the destination that took the first call
+  and falls through to normal when it is gone.
+
+A duplicate shown as missed is **not** charged the rejected-call fee - the
+fee task charges failed refusals only, and the boss's framing of these as
+missed calls puts them outside it.

@@ -684,18 +684,20 @@ class RoutingEngine:
         matched_rule, destination = _run_rules()
 
         if not destination and dup_prior:
-            if dup_mode == 'different' and getattr(campaign, 'duplicate_strict', False):
-                # Strict means exactly what the switch says: repeat calls
-                # connect to new destinations only, and with nowhere new the
-                # call drops - on our side, counted as a duplicate, never
-                # forwarded back to a destination that already took them.
-                if trace: trace.step('duplicate', False, 'strict: no destination this caller has not already reached')
-                return {'destination': None, 'rule': None, 'error': 'Duplicate call blocked'}
-            # Original whose destination is gone, or Different without strict
-            # and nothing new left: route normally rather than lose the call.
+            if dup_mode == 'different':
+                # The boss's spec, verbatim: on Different a duplicate call
+                # appears in the portal as a missed call and is NOT forwarded
+                # to a TFN that already took this caller - whether or not
+                # Strict is on. The caller is not blocked: this call lands in
+                # Incoming and in the duplicate report, and their next call
+                # gets the same treatment, not a blacklist entry.
+                if trace: trace.step('duplicate', False, 'no destination this caller has not already reached; shown as missed, not forwarded')
+                return {'destination': None, 'rule': None, 'error': 'Duplicate call'}
+            # Original whose destination is gone: forward like a regular call
+            # rather than lose it - Normal/Original always forward.
             for key in ('dup_only_destination', 'dup_exclude_destinations', 'dup_exclude_buyers'):
                 call_data.pop(key, None)
-            if trace: trace.step('duplicate', True, 'duplicate preference could not be met; routed normally (strict is off)')
+            if trace: trace.step('duplicate', True, 'original destination unavailable; routed normally')
             matched_rule, destination = _run_rules()
 
         if destination:
