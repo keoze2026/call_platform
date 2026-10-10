@@ -155,12 +155,11 @@ def route_incoming_call(request):
     dest_number = decision.get('destination')
     if buyer:
         call_log.buyer = buyer
-        # Resolve dynamic live destination from UI
+        # Resolve the live destination from the UI. Rotated across every live
+        # TFN the buyer has (boss: a buyer can have multiple), cap-aware -
+        # .first() here is what made a second live TFN silently dead.
         try:
-            from buyers.destination import Destination
-            live_dest = Destination.objects.filter(
-                buyer=buyer, enabled=True
-            ).only('tfn').order_by('-created_at').first()
+            live_dest = RoutingEngine.pick_live_destination(buyer)
             if live_dest and live_dest.tfn:
                 dest_number = live_dest.tfn
         except Exception:

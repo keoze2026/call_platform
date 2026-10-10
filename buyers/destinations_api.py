@@ -420,32 +420,17 @@ def _enabled_clash(organization, tfn, enabled, exclude_id=None):
 
 
 def _buyer_already_live(organization, buyer, enabled, exclude_id=None):
-    """Does this buyer already have a live destination?
+    """RETIRED - the boss's decision: a buyer can have multiple live TFNs.
 
-    Routing resolves a buyer's destination with a single `.first()`, so a second
-    enabled one never receives a call - it sits in the interface looking active
-    and silently does nothing. Returns the message to show, or None.
+    This guard existed because the hangup-side resolution took the buyer's
+    single live destination with `.first()`, so a second enabled one silently
+    never received a call. That resolution is now `pick_live_destination` in
+    the engine - rotation across every live TFN, skipping ones at their
+    concurrency cap - so the reason for the limit is gone and the limit went
+    with it. Only `_enabled_clash` remains: one number still cannot be live
+    for two buyers at once, or both would be credited with every call.
     """
-    from buyers.destination import Destination
-
-    if not enabled or buyer is None:
-        return None
-
-    qs = Destination.objects.filter(
-        organization=organization, buyer=buyer, enabled=True,
-    )
-    if exclude_id:
-        qs = qs.exclude(id=exclude_id)
-
-    other = qs.first()
-    if other is None:
-        return None
-
-    return (
-        f"{buyer.name} already routes to {other.tfn}. A buyer can only have one "
-        f"live destination - a second one would never receive a call. Switch "
-        f"{other.tfn} off first if you want calls to go somewhere else."
-    )
+    return None
 
 
 @router.post("/", response={201: dict, 400: dict})
@@ -472,10 +457,6 @@ def create_destination(request, payload: DestinationSchema):
     clash = _enabled_clash(
         request.auth.organization, payload.get_tfn(), payload.enabled,
     )
-    if clash:
-        return 400, {"detail": clash}
-
-    clash = _buyer_already_live(request.auth.organization, buyer, payload.enabled)
     if clash:
         return 400, {"detail": clash}
 
@@ -542,12 +523,6 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
         if clash:
             return 400, {"detail": clash}
 
-        clash = _buyer_already_live(
-            request.auth.organization, d.buyer, d.enabled, exclude_id=d.id,
-        )
-        if clash:
-            return 400, {"detail": clash}
-
         d.save()
         try:
             from routing.models import RuleDestination
@@ -571,3 +546,52 @@ def delete_destination(request, destination_id: str):
         return 200, {"detail": "Destination deleted"}
     except Destination.DoesNotExist:
         return 404, {"detail": "Destination not found"}
+
+
+class BulkEnableSchema(Schema):
+    ids: List[str]
+    enabled: bool
+
+
+@router.post("/bulk-enable", response={200: dict})
+def bulk_enable(request, payload: BulkEnableSchema):
+    """Play or Pause many TFNs in one request.
+
+    The Destinations page selects a hundred and clicks Play; a hundred
+    separate PATCHes meant a hundred round trips and a flood of half-failures
+    nobody could read. One call, and the answer says per id what happened and
+    why - the same number-clash rule a single PATCH applies, nothing softer.
+    """
+    require(request.auth, Capability.EDIT)
+    from buyers.destination import Destination
+
+    updated, failed = [], []
+    for raw_id in payload.ids[:500]:
+        try:
+            d = Destination.objects.select_related('buyer').get(
+                id=raw_id, organization=request.auth.organization,
+            )
+        except (Destination.DoesNotExist, ValidationError, ValueError):
+            failed.append({"id": raw_id, "reason": "not found"})
+            continue
+
+        if payload.enabled:
+            clash = _enabled_clash(
+                request.auth.organization, d.tfn, True, exclude_id=d.id,
+            )
+            if clash:
+                failed.append({"id": raw_id, "tfn": d.tfn, "reason": clash})
+                continue
+
+        if d.enabled != payload.enabled:
+            d.enabled = payload.enabled
+            d.save(update_fields=['enabled'])
+        updated.append(raw_id)
+
+    return 200, {
+        "enabled": payload.enabled,
+        "updated": updated,
+        "failed": failed,
+        "updated_count": len(updated),
+        "failed_count": len(failed),
+    }

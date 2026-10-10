@@ -5358,3 +5358,38 @@ closed.
 **Historic victims:** any `asterisk_gone` row whose `<id>.wav` exists on disk
 was a real call written off the same way. Sweep below; each hit repairs with
 the same endpoint call used above.
+
+
+## CH-098 — A buyer can have many live TFNs, and they all get calls
+
+**2026-10-10 · Routing · Destinations · commit pending**
+
+The boss's decision, via the frontend's find: select 100 TFNs, Play, only ~40
+go live - every buyer's second TFN refused with "a buyer can only have one
+live destination".
+
+That limit was honest when it was written: the hangup-side resolution picked
+the buyer's live destination with **`.first()`**, so a second live TFN sat in
+the interface looking active and never received a call. The API refused what
+routing would have wasted. Removing the refusal without replacing the
+resolution would have made the boss's decision silently useless - the extra
+TFNs would be live and dead at once.
+
+So both move together:
+
+  **The limit is gone** - create, update and the new bulk endpoint all allow
+  any number of live TFNs per buyer. `_enabled_clash` stays untouched: one
+  number still cannot be live for two buyers, or both get credited with
+  every call.
+
+  **`pick_live_destination`** replaces the `.first()`: round-robin across the
+  buyer's live TFNs, skipping any at its own concurrency cap, rotating even
+  when all are capped so load still spreads. One cache counter per buyer.
+
+  **`POST /api/destinations/bulk-enable`** `{ids, enabled}` - one request for
+  the hundred-TFN Play, answering per id what happened and why, same clash
+  rule as a single PATCH.
+
+Legacy rows with no buyer link are repaired at deploy by exact name-prefix
+match against the buyer list - printed before applied, unmatched rows left
+null rather than guessed.

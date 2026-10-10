@@ -224,6 +224,59 @@ class RoutingEngine:
         return True
 
     @staticmethod
+    def pick_live_destination(buyer):
+        """The buyer's live TFN for THIS call - rotated, cap-aware.
+
+        The hangup-side resolution used to take .first() of the buyer's live
+        destinations, which is why a buyer could only ever have one: a second
+        live TFN sat in the interface looking active and never received a
+        call, and the API enforced the limit to make that honest. The boss's
+        decision is the opposite - multiple live TFNs per buyer - so this is
+        the distribution that makes it true: walk the buyer's live
+        destinations round-robin, skip any at its own concurrency cap, and
+        when every one is capped rotate anyway so the load still spreads.
+
+        Returns a Destination row or None when the buyer has none live.
+        """
+        from datetime import timedelta
+
+        from buyers.destination import Destination
+
+        rows = list(
+            Destination.objects.filter(buyer=buyer, enabled=True)
+            .only('id', 'tfn', 'concurrency_cap')
+            .order_by('created_at')
+        )
+        if not rows:
+            return None
+        if len(rows) == 1:
+            return rows[0]
+
+        key = f'buyer_live_rr_{buyer.id}'
+        start = cache.get(key, 0)
+        n = len(rows)
+        for step in range(n):
+            d = rows[(start + step) % n]
+            if d.concurrency_cap and d.concurrency_cap > 0:
+                active = CallLog.objects.filter(
+                    buyer=buyer,
+                    destination_number=d.tfn,
+                    status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
+                    ended_at__isnull=True,
+                    created_at__gte=timezone.now() - timedelta(hours=4),
+                ).count()
+                if active >= d.concurrency_cap:
+                    continue
+            cache.set(key, (start + step + 1) % n, timeout=86400)
+            return d
+
+        # Every TFN at its cap: plain rotation, same as a single saturated
+        # destination would behave - the concurrency guard upstream decides
+        # whether the call proceeds at all.
+        cache.set(key, (start + 1) % n, timeout=86400)
+        return rows[start % n]
+
+    @staticmethod
     def check_buyer_concurrency(buyer, destination_number: str = None) -> bool:
         from datetime import timedelta
         
