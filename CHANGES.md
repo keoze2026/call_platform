@@ -5417,7 +5417,7 @@ with field meanings and curl examples.
 
 ## CH-100 — The mistakes become a checklist
 
-**2026-10-10 · Process · commit pending**
+**2026-10-10 · Process · commit `fb0e8b0b`**
 
 CH-087 and CH-089 both record "organization-scoped but not role-scoped" as
 the recurring leak, and the Stats API still shipped a TFN endpoint with that
