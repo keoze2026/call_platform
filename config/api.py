@@ -82,6 +82,8 @@ api.add_router("/routing/", routing_router)
 api.add_router("/ivr/", ivr_router)
 api.add_router("/rtb/", rtb_router)
 api.add_router("/analytics/", analytics_router)
+from analytics.stats_api import stats_router
+api.add_router("/stats/", stats_router)
 api.add_router("/dni/", dni_router)
 api.add_router("/white-label/", white_label_router)
 api.add_router("/webhooks/", webhooks_router)

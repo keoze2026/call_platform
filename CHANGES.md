@@ -5393,3 +5393,23 @@ So both move together:
 Legacy rows with no buyer link are repaired at deploy by exact name-prefix
 match against the buyer list - printed before applied, unmatched rows left
 null rather than guessed.
+
+
+## CH-099 — The Stats API, for the call-stats bot
+
+**2026-10-10 · API · commit pending**
+
+A bot needs campaigns, buyers, missed calls, single-TFN and concurrency
+statistics, with documentation. Rather than loosening the portal endpoints'
+auth to admit a key, the integrations get their own read-only surface:
+`/api/stats/*`, authenticated by API key only (the key machinery - create,
+validate, revoke, Settings page - already existed end to end and was unused).
+
+Five endpoints, every figure produced by the same service functions the
+portal runs on, so the bot and the screen cannot disagree - one AHT, one
+Dupe, one connected. Money fields come through the same partner masking, and
+`null` is documented as "not yours", never zero. Missed is defined apart from
+refused, so a blocked caller is not read as a missed opportunity.
+
+`docs/STATS_API.md` is the integration doc: auth, parameters, each endpoint
+with field meanings and curl examples.
