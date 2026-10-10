@@ -5362,7 +5362,7 @@ the same endpoint call used above.
 
 ## CH-098 — A buyer can have many live TFNs, and they all get calls
 
-**2026-10-10 · Routing · Destinations · commit pending**
+**2026-10-10 · Routing · Destinations · commit `8e620ee8`**
 
 The boss's decision, via the frontend's find: select 100 TFNs, Play, only ~40
 go live - every buyer's second TFN refused with "a buyer can only have one
