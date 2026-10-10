@@ -9,3 +9,6 @@ staticfiles/
 *.log
 venv/
 .venv/
+recordings.txt
+tfns.txt
+FETCH_HEAD
