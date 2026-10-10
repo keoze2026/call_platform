@@ -5429,3 +5429,21 @@ not prevent them.
 pre-push checklist - endpoint rules, field rules, behaviour rules, and the
 definition of done. From here, "did CHANGES guide you" has a mechanical
 answer: the checklist was run, or the push does not happen.
+
+
+## CH-101 — "Converted 0" in the Telegram daily status
+
+**2026-10-10 · Reporting · commit pending**
+
+The boss's Friday status read Calls 464, Connected 223, **Converted 0** - and
+the team rightly called it a wrong report. The status command counted
+Converted as calls holding **ConversionEvent** rows, the pixel/postback
+mechanism of the retired routing path; nothing on the carrier path has ever
+written one, so the line read 0 since the day it was added, every single day,
+beside otherwise-correct numbers.
+
+Converted now reads `CallRecord.is_converted` over the same day window - the
+one flag the portal, the export, the Stats API and the summary tabs already
+share. Checklist note (BEFORE_YOU_SHIP): this was the "never invented, one
+definition everywhere" line failing in a surface nobody had put under it yet
+- the report predates the checklist; it does not predate the rule.

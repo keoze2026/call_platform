@@ -126,16 +126,26 @@ class Command(BaseCommand):
         total = calls.count()
         agg = calls.aggregate(
             connected=Count('id', filter=Q(status__in=['completed', 'in_progress'])),
-            # `conversions` is the reverse relation to the conversion events a
-            # pixel or postback records. CallLog has no is_converted field -
-            # that is on the analytics mirror - and reading the events is the
-            # same answer from the source rather than from a copy.
-            converted=Count('id', filter=Q(conversions__isnull=False), distinct=True),
+            # (ConversionEvent counting lived here and read 0 for ever: pixels
+            # and postbacks belong to the retired routing path and nothing on
+            # the carrier path writes them. Converted is read below from the
+            # analytics mirror - the one definition every report uses.)
             capped=Count('id', filter=Q(block_reason__icontains='cap')),
             client_revenue=Coalesce(Sum('revenue'), Decimal('0')),
             publisher_payout=Coalesce(Sum('publisher_payout'), Decimal('0')),
         )
         connected = agg['connected'] or 0
+
+        # Converted, from the same flag the portal, the export and the Stats
+        # API read. "Converted 0" next to 223 connected went to the boss's
+        # Telegram because this report counted pixel events instead.
+        from analytics.models import CallRecord
+        converted = CallRecord.objects.filter(
+            organization_id__in=org_ids,
+            created_at__date=day,
+            is_converted=True,
+        ).count()
+        agg['converted'] = converted
 
         lines.append(f"Calls          {total}")
         if total:
