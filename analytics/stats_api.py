@@ -126,15 +126,26 @@ def tfn(request: HttpRequest, number: str, date_from: str = None,
     digits = ''.join(c for c in number if c.isdigit())[-10:]
     if not digits:
         return 404, {"detail": "Not a phone number"}
+    from accounts.permissions import scope_queryset
+    from analytics.services import mask_partner_money
+    # Same slice as the Destinations page: a buyer-created key sees the
+    # buyer's own TFNs, a publisher's none - a key is its creator, no wider.
+    qs = scope_queryset(
+        request.auth,
+        Destination.objects.select_related('buyer'),
+        buyer_field='buyer_id', publisher_field=None,
+    )
     d = (
-        Destination.objects.select_related('buyer')
-        .filter(organization=request.auth.organization, tfn__endswith=digits)
+        qs.filter(organization=request.auth.organization, tfn__endswith=digits)
         .first()
     )
     if d is None:
         return 404, {"detail": f"No destination ends in {digits}"}
-    return 200, format_destination(d, start_date=date_from, end_date=date_to,
-                                   tz_name=timezone_name)
+    return 200, mask_partner_money(
+        request.auth,
+        format_destination(d, start_date=date_from, end_date=date_to,
+                           tz_name=timezone_name),
+    )
 
 
 @stats_router.get("/concurrency", response={200: dict})
