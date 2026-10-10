@@ -5433,7 +5433,7 @@ answer: the checklist was run, or the push does not happen.
 
 ## CH-101 — "Converted 0" in the Telegram daily status
 
-**2026-10-10 · Reporting · commit pending**
+**2026-10-10 · Reporting · commit `36745f34`**
 
 The boss's Friday status read Calls 464, Connected 223, **Converted 0** - and
 the team rightly called it a wrong report. The status command counted
