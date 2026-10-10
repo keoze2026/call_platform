@@ -5451,7 +5451,7 @@ definition everywhere" line failing in a surface nobody had put under it yet
 
 ## CH-102 — The metric sweep: every surface, one definition
 
-**2026-10-10 · Reporting · commit pending**
+**2026-10-10 · Reporting · commit `efe7dbf2`**
 
 "Why does this keep happening every week" has a mechanical answer: the same
 number was computed independently in many places, written at different times,
