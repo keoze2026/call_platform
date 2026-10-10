@@ -226,7 +226,7 @@ class BuyerService:
     def get_stats(buyer_id: str, user: User) -> dict:
         """Get buyer statistics"""
         from analytics.models import CallRecord
-        from django.db.models import Sum, Count, Q
+        from django.db.models import Sum, Count, Q, F
         from django.db.models.functions import Coalesce
         from decimal import Decimal
         from datetime import timedelta
@@ -251,7 +251,13 @@ class BuyerService:
             lifetime_spend=Coalesce(Sum('payout'), Decimal('0.00')),
             total_calls=Count('id'),
             connected_calls=Count('id', filter=Q(status='completed')),
-            converted_calls=Count('id', filter=Q(revenue__gt=0))
+            # revenue>0 was a proxy, and a wrong one: revenue is written per
+            # pricing, not per conversion, and re-pricing moves it. Converted
+            # is call_ended's rule, the same everywhere.
+            converted_calls=Count('id', filter=Q(
+                status='completed',
+                duration__gte=F('campaign__min_call_duration'),
+            ))
         )
 
         total = stats['total_calls'] or 1

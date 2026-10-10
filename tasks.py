@@ -33,28 +33,23 @@ def send_daily_summary():
             if not user:
                 continue
 
-            # Get dashboard stats
-            from routing.models import CallLog
-            from django.db.models import Count, Sum
+            # The same service the portal's dashboard runs on - hand-rolled
+            # sums here summed stored revenue while the portal re-prices from
+            # the campaign's current prices, so the email could disagree with
+            # the screen it summarises (the metric-sweep rule: one definition).
             from decimal import Decimal
+            from analytics.stats_api import _Filters
 
-            today = timezone.now().date()
-            yesterday = today - timedelta(days=1)
-
-            stats = CallLog.objects.filter(
-                organization=org,
-                created_at__date=yesterday
-            ).aggregate(
-                total_calls=Count('id'),
-                total_revenue=Sum('revenue'),
-                total_payout=Sum('buyer_payout'),
-            )
+            yesterday = timezone.now().date() - timedelta(days=1)
+            f = _Filters(date_from=str(yesterday), date_to=str(yesterday))
+            dash = AnalyticsService.get_dashboard(user, f)
 
             NotificationService.dispatch('daily.summary', org, {
                 'date': str(yesterday),
-                'total_calls': stats['total_calls'] or 0,
-                'total_revenue': str(stats['total_revenue'] or Decimal('0')),
-                'total_payout': str(stats['total_payout'] or Decimal('0')),
+                'total_calls': dash['total_calls'],
+                'converted_calls': dash['converted_calls'],
+                'total_revenue': str(dash['total_revenue'] or Decimal('0')),
+                'total_payout': str(dash['total_payout'] or Decimal('0')),
             })
         except Exception as e:
             print(f"Daily summary error for {org}: {e}")

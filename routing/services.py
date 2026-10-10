@@ -27,7 +27,16 @@ class RoutingService:
             elif s_lower in ['not connected', 'not_connected']:
                 qs = qs.filter(status__in=['no_answer', 'failed', 'busy'])
             elif s_lower == 'converted':
-                qs = qs.filter(status__in=['converted', 'CONVERTED'])
+                # There has never been a status called converted - the model's
+                # six are completed/no_answer/busy/failed/voicemail/in_progress
+                # - so this filter returned zero rows since the day it was
+                # written. Converted means what call_ended means: answered and
+                # at least the campaign's minimum duration.
+                from django.db.models import F
+                qs = qs.filter(
+                    status='completed',
+                    duration__gte=F('campaign__min_call_duration'),
+                )
             else:
                 qs = qs.filter(status__iexact=status)
 

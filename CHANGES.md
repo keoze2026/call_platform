@@ -5447,3 +5447,44 @@ one flag the portal, the export, the Stats API and the summary tabs already
 share. Checklist note (BEFORE_YOU_SHIP): this was the "never invented, one
 definition everywhere" line failing in a surface nobody had put under it yet
 - the report predates the checklist; it does not predate the rule.
+
+
+## CH-102 — The metric sweep: every surface, one definition
+
+**2026-10-10 · Reporting · commit pending**
+
+"Why does this keep happening every week" has a mechanical answer: the same
+number was computed independently in many places, written at different times,
+and each untested surface eventually printed its private wrong answer. This
+sweep walked **every** place that computes or sends a call metric and leaves
+one definition per metric. The full map, so the next person doesn't re-walk
+it:
+
+**Already on the shared services (portal-grade):** the portal dashboard,
+Reports and all four summary tabs, the call log, the CSV export, the snapshot,
+live summary, the Stats API (CH-099), the Telegram daily status (CH-101 for
+Converted; its other lines read CallLog directly with the same definitions).
+
+**Fixed in this sweep:**
+- `routing/services.py` - filtering calls by "converted" matched a status
+  that has never existed (`converted`), returning zero rows since the day it
+  was written. Now the call_ended rule: completed and at least the campaign's
+  minimum duration.
+- `buyers/services.py` - buyer stats counted converted as `revenue > 0`, a
+  proxy that re-pricing moves. Same rule as above now.
+- `tasks.send_daily_summary` - the daily email hand-summed stored revenue
+  while the portal re-prices from current campaign prices, so the email could
+  disagree with the screen it summarises. It now calls the same
+  `get_dashboard` the portal calls, and gained the converted count.
+
+**Audited, left alone on purpose:**
+- `notifications/detectors.py` low-AHT - compares completed-call averages
+  against its own 7-day baseline, like for like; a different question, not a
+  different definition.
+- `deploy/watchdog.sh` - counts raw arrivals only; no definitions to drift.
+- `scripts/verify_*` - developer tools, read-only, not surfaces.
+
+Remaining known offender: the engine's `is_duplicate` window statuses and the
+pre-check are already single-sourced (CH-090/093). No other computer of these
+metrics exists in the repo as of this entry - verified by grep over every
+aggregate on call tables, not by memory.
