@@ -5397,7 +5397,7 @@ null rather than guessed.
 
 ## CH-099 — The Stats API, for the call-stats bot
 
-**2026-10-10 · API · commit pending**
+**2026-10-10 · API · commit `db8e7912`**
 
 A bot needs campaigns, buyers, missed calls, single-TFN and concurrency
 statistics, with documentation. Rather than loosening the portal endpoints'
