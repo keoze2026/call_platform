@@ -5413,3 +5413,19 @@ refused, so a blocked caller is not read as a missed opportunity.
 
 `docs/STATS_API.md` is the integration doc: auth, parameters, each endpoint
 with field meanings and curl examples.
+
+
+## CH-100 — The mistakes become a checklist
+
+**2026-10-10 · Process · commit pending**
+
+CH-087 and CH-089 both record "organization-scoped but not role-scoped" as
+the recurring leak, and the Stats API still shipped a TFN endpoint with that
+exact hole the same week - caught in review minutes later, but it should
+never have compiled against our own history. Recording mistakes as prose did
+not prevent them.
+
+`docs/BEFORE_YOU_SHIP.md` turns every shipped mistake in this file into a
+pre-push checklist - endpoint rules, field rules, behaviour rules, and the
+definition of done. From here, "did CHANGES guide you" has a mechanical
+answer: the checklist was run, or the push does not happen.
