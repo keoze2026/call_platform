@@ -5561,7 +5561,7 @@ data leaving, and now it does:
 
 ## CH-105 — Workspace roles: 55 real permissions, stored and enforced (phase 1)
 
-**2026-10-12 · Access · commit pending**
+**2026-10-12 · Access · commit `a728b477`**
 
 The owner's test: untick Reporting on Manager, save - Manager still shows
 7/55 and the manager still sees Reports. Correct on every count: the Roles
