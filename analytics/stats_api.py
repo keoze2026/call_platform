@@ -46,6 +46,27 @@ def _filters(date_from=None, date_to=None, tz=None):
     return _Filters(date_from=date_from, date_to=date_to, timezone=tz)
 
 
+@stats_router.get("/", response={200: dict})
+def index(request: HttpRequest):
+    """The base URL answers with the map instead of a 404.
+
+    The first thing every integrator does is open the base in a browser; a
+    Not Found there reads as "the API is down" when it is only "there is no
+    page here". Auth still required - the map costs a key, same as the data.
+    """
+    return 200, {
+        "service": "Avortyx Stats API",
+        "documentation": "docs/STATS_API.md in the backend repository",
+        "endpoints": [
+            "GET /api/stats/campaigns?date_from&date_to&timezone_name",
+            "GET /api/stats/buyers?date_from&date_to&timezone_name",
+            "GET /api/stats/missed?date_from&date_to&timezone_name",
+            "GET /api/stats/tfn/{number}",
+            "GET /api/stats/concurrency",
+        ],
+    }
+
+
 @stats_router.get("/campaigns", response={200: list})
 def campaigns(request: HttpRequest, date_from: str = None, date_to: str = None,
               timezone_name: str = None):
