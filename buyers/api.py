@@ -299,6 +299,10 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
 # removed: the frontend reads visibility from /me and saves it through the
 # partner settings endpoint - one store, accounts/partner_permissions.)
 
+class RemoveMemberSchema(Schema):
+    email: str
+
+
 @router.post("/{buyer_id}/members/remove", response={200: dict, 403: dict, 404: dict})
 def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberSchema):
     """Take one person's access to this buyer away.
