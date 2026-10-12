@@ -109,17 +109,26 @@ class CampaignService:
         if getattr(user, 'is_superuser', False):
             return qs.order_by('-created_at')
         role = getattr(user, 'role', '')
+        from django.db.models import Q
         if role == 'publisher':
             if not getattr(user, 'publisher_id', None):
                 return qs.none()
+            # Assignment rows OR a tracking number assigned to them - in
+            # practice the number is how publishers are attached (publisher
+            # Test has no assignment row and one number on 23 JUNE; the first
+            # version returned [] for exactly that real case).
             return qs.filter(
-                publisher_assignments__publisher_id=user.publisher_id
+                Q(publisher_assignments__publisher_id=user.publisher_id)
+                | Q(phone_numbers__publisher_id=user.publisher_id)
             ).distinct().order_by('-created_at')
         if role == 'buyer':
             if not getattr(user, 'buyer_id', None):
                 return qs.none()
+            # Attachment rows OR a routing destination carrying their buyer -
+            # the destination is how buyers are really wired to campaigns.
             return qs.filter(
-                campaign_assignments__buyer_id=user.buyer_id
+                Q(campaign_assignments__buyer_id=user.buyer_id)
+                | Q(routing_rules__destinations__buyer_id=user.buyer_id)
             ).distinct().order_by('-created_at')
         return qs.order_by('-created_at')
 
