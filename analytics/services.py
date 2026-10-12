@@ -115,6 +115,50 @@ MASKED_KEYS = {
 }
 
 
+# Which row fields each report-column checkbox governs. The admin unchecks
+# TCL on a publisher and every surface that partner opens goes quiet on it -
+# the checkbox was saved and enforced nowhere, so "unchecked but still
+# showing" was the correct bug report.
+REPORT_COLUMN_FIELDS = {
+    'incoming':      ('total_calls', 'calls_today'),
+    'connected':     ('connected_calls',),
+    'not_connected': ('not_connected_calls',),
+    'qualified':     ('qualified_calls', 'is_qualified'),
+    'converted':     ('converted_calls', 'conversion_rate', 'is_converted'),
+    'duplicate':     ('duplicate_calls', 'dupe', 'duplicates', 'is_duplicate'),
+    'duration':      ('duration_seconds', 'avg_call_duration'),
+    'tcl':           ('total_duration_sec',),
+    'acl':           ('avg_duration',),
+    'payout':        ('total_payout', 'payout', 'dynamic_payout'),
+    'revenue':       ('total_revenue', 'revenue', 'dynamic_revenue'),
+    'cost':          ('total_cost', 'cost', 'platform_cost', 'charged_cost', 'billable_minutes'),
+}
+
+
+def hidden_report_columns(user):
+    """The column keys this partner login has switched off. Staff: none."""
+    if getattr(user, 'role', '') not in ('buyer', 'publisher'):
+        return set()
+    from accounts.partner_permissions import visible_report_columns, REPORT_COLUMN_KEYS
+    return REPORT_COLUMN_KEYS - set(visible_report_columns(user))
+
+
+def mask_partner_columns(user, data):
+    """Null the fields of every column the partner has switched off."""
+    hidden = hidden_report_columns(user)
+    if not hidden:
+        return data
+    rows = data if isinstance(data, list) else [data]
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in hidden:
+            for field in REPORT_COLUMN_FIELDS.get(key, ()):
+                if field in row:
+                    row[field] = None
+    return data
+
+
 def mask_partner_money(user, data):
     """Null the money a partner role is not told, in place.
 
@@ -437,7 +481,7 @@ class AnalyticsService:
                 })
                 
         result.sort(key=lambda x: x['period'])
-        return mask_partner_money(user, result)
+        return mask_partner_columns(user, mask_partner_money(user, result))
 
     # ── campaign performance ─────────────────────────────────────────────────
 
@@ -617,7 +661,7 @@ class AnalyticsService:
                 })
                 
         result.sort(key=lambda x: x['total_calls'], reverse=True)
-        return mask_partner_money(user, result)
+        return mask_partner_columns(user, mask_partner_money(user, result))
 
     # ── buyer performance ────────────────────────────────────────────────────
 
@@ -880,7 +924,7 @@ class AnalyticsService:
                 'live_calls':      0,
                 'total_duration_sec': r['total_duration_sec'],
             })
-        return mask_partner_money(user, result)
+        return mask_partner_columns(user, mask_partner_money(user, result))
 
     @staticmethod
     def get_buyer_performance(user: User, filters) -> list:
@@ -990,7 +1034,7 @@ class AnalyticsService:
                     'duplicates': 0,
 })
         result.sort(key=lambda x: x['total_calls'], reverse=True)
-        return mask_partner_money(user, result)
+        return mask_partner_columns(user, mask_partner_money(user, result))
 
     # ── publisher performance ────────────────────────────────────────────────
 
@@ -1104,7 +1148,7 @@ class AnalyticsService:
                     'duplicates': 0,
 })
         result.sort(key=lambda x: x['total_calls'], reverse=True)
-        return mask_partner_money(user, result)
+        return mask_partner_columns(user, mask_partner_money(user, result))
 
     # ── call log ─────────────────────────────────────────────────────────────
 
@@ -1157,7 +1201,7 @@ class AnalyticsService:
         live_formatted = [AnalyticsService._format_live_log(r) for r in live_items]
 
         combined = sorted(hist_formatted + live_formatted, key=lambda x: x['created_at'], reverse=True)
-        items = mask_partner_money(user, combined[offset : fetch_limit])
+        items = mask_partner_columns(user, mask_partner_money(user, combined[offset : fetch_limit]))
 
         return {
             'total':  total,
@@ -1295,6 +1339,16 @@ class AnalyticsService:
         # file, and a buyer's download was carrying Payout, Profit and Cost.
         hidden = MASKED_KEYS.get(getattr(user, 'role', ''), ())
         drop = set()
+        # The partner's own column choices drop from the file as well - the
+        # export is the screen as a file, same rule as the money mask.
+        col_headers = {
+            'qualified': ('Qualified',), 'converted': ('Converted',),
+            'duplicate': ('Duplicate',), 'duration': ('Duration (s)',),
+            'payout': ('Payout',), 'revenue': ('Revenue',),
+            'cost': ('Cost', 'Billed Minutes'),
+        }
+        for key in hidden_report_columns(user):
+            drop.update(col_headers.get(key, ()))
         if 'payout' in hidden:
             drop.add('Payout')
         if 'revenue' in hidden:

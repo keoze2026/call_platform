@@ -5524,3 +5524,36 @@ Checklist run (BEFORE_YOU_SHIP): auth on every route, role scoping on list
 and per-entry actions, schema declarations for every new field, no guard
 removed, queries grouped. Publishers' matching panel is specced optional and
 deliberately not in this change.
+
+
+## CH-104 — Partner visibility: the campaign leak, enforced columns, one permission store
+
+**2026-10-12 · Access · commit pending**
+
+The owner, verbatim: "Under publisher access all campaigns name are also
+coming which is not even assigned to that publisher." Correct - the campaign
+list filtered by organization alone, so every partner login received every
+campaign in the workspace; the screen hid them, DevTools did not. The
+frontend's own filter stays as a second net, but only the server can stop the
+data leaving, and now it does:
+
+  **Campaigns** - the list a partner receives is the campaigns assigned to
+  them (publisher via its assignments, buyer via its attachments); a partner
+  with no linked record gets none; staff and the owner are unchanged. The
+  detail answers **404** for a campaign that is not theirs - not 403, which
+  confirms a real id and is itself a leak. **Publisher and buyer records** -
+  a partner opens only its own; another's id is 404 the same way.
+
+  **Report columns enforced** - the admin's checkboxes (now including
+  not_connected, tcl, acl and cost - TCL was refused as an unknown key) null
+  the matching fields at every partner surface through the same mask pipeline
+  as the money, and drop the matching columns from the CSV export. "Unchecked
+  but still showing" was a correct bug report: the choice was saved and
+  enforced nowhere.
+
+  **One permission store** - buyer permissions existed twice: the JSON the
+  capability system reads, and two booleans the /access endpoints wrote. The
+  JSON is the source everywhere now; /access and /me read and write it, the
+  export and blacklist gates check capabilities (EXPORT, BLOCK_NUMBERS), and
+  the booleans remain as synced mirrors only. The dead Redis reporting-config
+  endpoints are removed.

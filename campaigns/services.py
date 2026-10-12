@@ -70,7 +70,16 @@ class CampaignService:
 
     @staticmethod
     def get_campaign(campaign_id: str, user: User) -> Campaign:
-        """Get a single campaign by ID — must belong to user org"""
+        """One campaign - must belong to the org AND be visible to this login.
+
+        A partner opening another partner's campaign by its id gets the same
+        answer as a campaign that does not exist. 404, not 403: a refusal
+        confirms the id is real, which is itself a leak.
+        """
+        role = getattr(user, 'role', '')
+        if role in ('buyer', 'publisher') and not getattr(user, 'is_superuser', False):
+            if not CampaignService.scope_campaign_qs(user).filter(id=campaign_id).exists():
+                raise ValueError("Campaign not found")
         try:
             return Campaign.objects.select_related(
                 'cap', 'created_by'
@@ -85,10 +94,39 @@ class CampaignService:
 
     @staticmethod
     def list_campaigns(user: User):
-        """List all campaigns for the user organization"""
-        return Campaign.objects.filter(
+        """The campaigns this login may know exist.
+
+        Filtered by organization alone, every partner login received every
+        campaign in the workspace - other companies' deals readable straight
+        from DevTools, whatever the screen hid (the owner's catch). A partner
+        sees the campaigns assigned to them; a partner with no linked record
+        sees none, the same rule as scope_queryset. Staff and the owner are
+        unchanged.
+        """
+        qs = Campaign.objects.filter(
             organization=user.organization
-        ).exclude(status='archived').order_by('-created_at')
+        ).exclude(status='archived')
+        if getattr(user, 'is_superuser', False):
+            return qs.order_by('-created_at')
+        role = getattr(user, 'role', '')
+        if role == 'publisher':
+            if not getattr(user, 'publisher_id', None):
+                return qs.none()
+            return qs.filter(
+                publisher_assignments__publisher_id=user.publisher_id
+            ).distinct().order_by('-created_at')
+        if role == 'buyer':
+            if not getattr(user, 'buyer_id', None):
+                return qs.none()
+            return qs.filter(
+                campaign_assignments__buyer_id=user.buyer_id
+            ).distinct().order_by('-created_at')
+        return qs.order_by('-created_at')
+
+    @staticmethod
+    def scope_campaign_qs(user: User):
+        """The same slice, for the detail endpoint: not theirs = not found."""
+        return CampaignService.list_campaigns(user)
 
     @staticmethod
     def update(campaign_id: str, data: UpdateCampaignSchema, user: User) -> Campaign:

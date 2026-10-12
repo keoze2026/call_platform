@@ -58,7 +58,15 @@ class PublisherService:
 
     @staticmethod
     def get_publisher(publisher_id: str, user: User) -> Publisher:
-        """Get a single publisher by ID"""
+        """One publisher - org-scoped, and a partner login opens only its own record.
+
+        Another partner's record answers 404, same as one that does not exist
+        - a 403 would confirm the id is real, which is itself a leak.
+        """
+        role = getattr(user, 'role', '')
+        if role in ('buyer', 'publisher') and not getattr(user, 'is_superuser', False):
+            if str(getattr(user, 'publisher_id', '') or '') != str(publisher_id):
+                raise ValueError("Publisher not found")
         try:
             return Publisher.objects.select_related(
                 'cap', 'created_by'

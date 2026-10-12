@@ -30,6 +30,11 @@ def _buyer_member_gate(user):
     return True, getattr(user, 'buyer', None)
 
 
+def _member_may_block(user) -> bool:
+    from accounts.permissions import has, Capability
+    return has(user, Capability.BLOCK_NUMBERS)
+
+
 
 # BLACKLIST
 
@@ -84,7 +89,7 @@ def create_blacklist(request, payload: BlacklistCreateSchema):
         # The admin's switch IS the member's capability here - the generic
         # CREATE check ran first and refused every member regardless of the
         # switch, which the acceptance run caught: 403 with the switch on.
-        if not (member_buyer and member_buyer.can_block_numbers):
+        if not (member_buyer and _member_may_block(request.auth)):
             from ninja.errors import HttpError
             raise HttpError(403, "Your account is not allowed to block numbers")
         # A member blocks for their own buyer alone, whatever the payload
@@ -125,7 +130,7 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
     is_member, member_buyer = _buyer_member_gate(request.auth)
     if is_member:
         from ninja.errors import HttpError
-        if not (member_buyer and member_buyer.can_block_numbers):
+        if not (member_buyer and _member_may_block(request.auth)):
             raise HttpError(403, "Your account is not allowed to block numbers")
         if entry.buyer_id != member_buyer.id:
             raise HttpError(403, "Not your buyer's entry")
@@ -146,7 +151,7 @@ def delete_blacklist_entry(request, entry_id: uuid.UUID):
     is_member, member_buyer = _buyer_member_gate(request.auth)
     if is_member:
         from ninja.errors import HttpError
-        if not (member_buyer and member_buyer.can_block_numbers):
+        if not (member_buyer and _member_may_block(request.auth)):
             raise HttpError(403, "Your account is not allowed to block numbers")
         if entry.buyer_id != member_buyer.id:
             raise HttpError(403, "Not your buyer's entry")
@@ -165,7 +170,7 @@ def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
     is_member, member_buyer = _buyer_member_gate(request.auth)
     if is_member:
         from ninja.errors import HttpError
-        if not (member_buyer and member_buyer.can_block_numbers):
+        if not (member_buyer and _member_may_block(request.auth)):
             raise HttpError(403, "Your account is not allowed to block numbers")
         if entry.buyer_id != member_buyer.id:
             raise HttpError(403, "Not your buyer's entry")

@@ -226,11 +226,13 @@ def get_buyer_access(request, buyer_id: str):
         b = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
     except Buyer.DoesNotExist:
         return 404, {"detail": "Buyer not found"}
+    from accounts.partner_permissions import clean_permissions
+    perms = clean_permissions(b.permissions)
     return 200, {
         "timezone": b.timezone or "UTC",
         "permissions": {
-            "block_numbers": b.can_block_numbers,
-            "download_reports": b.can_download_reports,
+            "block_numbers": perms.get('block_numbers', False),
+            "download_reports": perms.get('download_reports', False),
         },
     }
 
@@ -270,60 +272,32 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
             return 400, {"detail": "Unknown time zone"}
         b.timezone = str(payload['timezone'])
         fields.append('timezone')
-    perms = payload.get('permissions') or {}
-    if 'block_numbers' in perms and perms['block_numbers'] is not None:
-        b.can_block_numbers = bool(perms['block_numbers'])
-        fields.append('can_block_numbers')
-    if 'download_reports' in perms and perms['download_reports'] is not None:
-        b.can_download_reports = bool(perms['download_reports'])
-        fields.append('can_download_reports')
-    if fields:
-        b.save(update_fields=fields)
+    # One store: the permissions JSON the capability system reads. The
+    # booleans stay as mirrors so nothing old breaks - never the source
+    # (Evans's one-source-of-truth point).
+    from accounts.partner_permissions import clean_permissions
+    perms_in = payload.get('permissions') or {}
+    stored = clean_permissions(b.permissions)
+    for key in ('block_numbers', 'download_reports'):
+        if key in perms_in and perms_in[key] is not None:
+            stored[key] = bool(perms_in[key])
+    b.permissions = stored
+    b.can_block_numbers = stored.get('block_numbers', False)
+    b.can_download_reports = stored.get('download_reports', False)
+    fields += ['permissions', 'can_block_numbers', 'can_download_reports']
+    b.save(update_fields=list(set(fields)))
     return 200, {
         "timezone": b.timezone or "UTC",
         "permissions": {
-            "block_numbers": b.can_block_numbers,
-            "download_reports": b.can_download_reports,
+            "block_numbers": stored.get('block_numbers', False),
+            "download_reports": stored.get('download_reports', False),
         },
     }
 
 
-@router.get("/{buyer_id}/reporting-config", response={200: dict, 404: dict})
-def get_reporting_config(request: HttpRequest, buyer_id: str):
-    from buyers.models import Buyer
-    from django.core.cache import cache
-    try:
-        buyer = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
-        key = f'buyer_reporting_config_{buyer_id}'
-        config = cache.get(key) or {'visible_columns': ['incoming', 'connected', 'qualified', 'converted', 'not_connected', 'acl', 'tcl', 'cost']}
-        return 200, config
-    except Buyer.DoesNotExist:
-        return 404, {"detail": "Buyer not found"}
-
-
-@router.put("/{buyer_id}/reporting-config", response={200: dict, 404: dict})
-def update_reporting_config(request: HttpRequest, buyer_id: str):
-    require(request.auth, Capability.EDIT)
-    import json as _json
-    from buyers.models import Buyer
-    from django.core.cache import cache
-    VALID_COLUMNS = {'incoming', 'connected', 'qualified', 'converted', 'not_connected', 'acl', 'tcl', 'cost'}
-    try:
-        buyer = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
-        body = _json.loads(request.body)
-        columns = body.get('visible_columns', [])
-        columns = [c for c in columns if c in VALID_COLUMNS]
-        config = {'visible_columns': columns}
-        key = f'buyer_reporting_config_{buyer_id}'
-        cache.set(key, config, timeout=None)
-        return 200, config
-    except Buyer.DoesNotExist:
-        return 404, {"detail": "Buyer not found"}
-
-
-class RemoveMemberSchema(Schema):
-    email: str
-
+# (reporting-config, the Redis-cached reporting visibility, lived here and is
+# removed: the frontend reads visibility from /me and saves it through the
+# partner settings endpoint - one store, accounts/partner_permissions.)
 
 @router.post("/{buyer_id}/members/remove", response={200: dict, 403: dict, 404: dict})
 def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberSchema):

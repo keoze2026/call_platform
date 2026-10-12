@@ -207,12 +207,14 @@ class ProfileService:
     @staticmethod
     def _partner_access(user: User) -> dict:
         if getattr(user, 'role', '') == 'buyer' and getattr(user, 'buyer_id', None) and user.buyer:
+            from accounts.partner_permissions import clean_permissions
             b = user.buyer
+            perms = clean_permissions(b.permissions)
             return {
                 'partner_timezone': b.timezone or 'UTC',
                 'partner_permissions': {
-                    'block_numbers': b.can_block_numbers,
-                    'download_reports': b.can_download_reports,
+                    'block_numbers': perms.get('block_numbers', False),
+                    'download_reports': perms.get('download_reports', False),
                 },
             }
         return {'partner_timezone': None, 'partner_permissions': None}

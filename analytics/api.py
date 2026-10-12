@@ -156,9 +156,9 @@ def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(..
     # take the file home is the workspace admin's call. Hidden buttons are not
     # permissions - the refusal here is (buyer access spec, test #3).
     _u = request.auth
-    if getattr(_u, 'role', '') == 'buyer':
-        _b = getattr(_u, 'buyer', None)
-        if not (_b and _b.can_download_reports):
+    if getattr(_u, 'role', '') in ('buyer', 'publisher'):
+        from accounts.permissions import has, Capability
+        if not has(_u, Capability.EXPORT):
             from django.http import JsonResponse
             return JsonResponse(
                 {"detail": "Your account is not allowed to download reports"},

@@ -82,6 +82,10 @@ REPORT_COLUMNS = [
     {'key': 'converted',  'label': 'Converted',  'description': 'Calls that converted into a paid event.', 'default': True},
     {'key': 'duplicate',  'label': 'Duplicate',  'description': 'Repeat callers inside the duplicate window.', 'default': True},
     {'key': 'duration',   'label': 'Duration',   'description': 'Time connected, excluding ring time.', 'default': True},
+    {'key': 'not_connected', 'label': 'Not Connected', 'description': 'Calls that did not reach a destination.', 'default': True},
+    {'key': 'tcl',        'label': 'TCL',        'description': 'Total connected call time in the window.', 'default': True},
+    {'key': 'acl',        'label': 'ACL',        'description': 'Average call length over connected calls.', 'default': True},
+    {'key': 'cost',       'label': 'Cost',       'description': 'Platform usage charges for the calls.',   'default': False},
     {'key': 'payout',     'label': 'Payout',     'description': 'What this partner is paid.',         'default': True},
     {'key': 'revenue',    'label': 'Revenue',    'description': 'What the call was sold for.',        'default': False},
 ]
