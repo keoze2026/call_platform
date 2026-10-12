@@ -5492,7 +5492,7 @@ aggregate on call tables, not by memory.
 
 ## CH-103 — Buyer access: time zone and permissions, enforced server-side
 
-**2026-10-12 · Access · Routing · commit pending**
+**2026-10-12 · Access · Routing · commit `39a50f24`**
 
 The frontend's spec, boss priority: control what a buyer's own logins may do,
 like publishers. Built whole, not as hidden buttons:
