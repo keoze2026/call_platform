@@ -5602,3 +5602,36 @@ create - and one early crash can disguise itself as ten unrelated failures.
 Phase 2 (next): the same mechanical guard across the remaining 19 areas.
 Admin and the owner always pass; the existing broad-capability guards stay
 as the floor, so nothing loosened anywhere.
+
+## CH-106 — Workspace roles: the remaining 19 areas enforced (phase 2)
+
+**2026-10-12 · Access · commit `fa514292`**
+
+Every router the catalogue names is now behind `require_perm`: 124 guards
+across phone_numbers (tracking-numbers), dni (number-pools), routing + ivr +
+call_queue (call-flows), destinations, buyers, publishers (traffic-sources),
+spam_protection (blocked-numbers), billing, integrations, rtb (rtb-bid-log).
+Verb map GET→view, POST/PATCH/PUT→edit, DELETE→delete, falling back to the
+nearest action the area actually has: billing has no delete so deletes need
+edit; rtb-bid-log is view-only so every verb needs view.
+
+Deliberately NOT guarded, per the auth=None inventory recorded at CH-dialplan
+and CH-087 era entries: dni assign_number/get_snippet (the on-page DNI
+snippet), ivr webhook + gather (Asterisk calls these), billing
+stripe/coingate/capitalist webhooks, rtb submit_bid (external bidders).
+Guards import `require_perm` alone inside each function - importing a
+second name alongside it is what caused the CH-105 export UnboundLocalError.
+Partners never touch this store: `has_perm` passes them through and Partner
+Access keeps governing them.
+
+**Lesson (caught before it shipped):** the guard injector matched single-line
+decorators only, so multi-line `@router.get(` routes were skipped silently -
+the per-route coverage audit found exactly one, `list_destinations`, and it
+was hand-guarded. After any mechanical code injection, audit route-by-route
+with a *different* pattern than the injector used; counting "N guards added"
+proves nothing about what was missed.
+
+`scripts/phase2_smoke.py` (run in the web container) proves each area over
+real HTTP as a manager: 200 with the tick, 403 without, admin never 403,
+partner pass-through intact. Acceptance tests 6 and 8 from the spec still
+need Evans's UI on top of this.
