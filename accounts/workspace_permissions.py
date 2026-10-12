@@ -102,17 +102,38 @@ def ensure_builtin_roles(organization):
     from the defaults the first time anyone looks. Admin's row exists for the
     display but is locked by the PATCH endpoint, so a workspace can never
     lock itself out."""
+    from django.db import IntegrityError
     from accounts.models import CustomRole
     for slug in BUILTIN_SLUGS:
-        CustomRole.objects.get_or_create(
-            organization=organization, slug=slug,
-            defaults={
-                'name': BUILTIN_NAMES[slug],
-                'description': BUILTIN_DESCRIPTIONS[slug],
-                'capabilities': BUILTIN_DEFAULTS[slug],
-                'is_builtin': True,
-            },
-        )
+        if CustomRole.objects.filter(organization=organization, slug=slug).exists():
+            continue
+        # The table is unique on (organization, name), and this workspace
+        # already held a custom role literally named "Admin" from an earlier
+        # build - creating alongside it collided and the crash took the whole
+        # seeding (and every acceptance test after it) down. A same-named
+        # legacy row is adopted as the built-in instead of fought with.
+        legacy = CustomRole.objects.filter(
+            organization=organization, slug__isnull=True,
+            name__iexact=BUILTIN_NAMES[slug],
+        ).first()
+        if legacy is not None:
+            legacy.slug = slug
+            legacy.is_builtin = True
+            if not legacy.capabilities:
+                legacy.capabilities = BUILTIN_DEFAULTS[slug]
+            legacy.save()
+            continue
+        try:
+            CustomRole.objects.create(
+                organization=organization, slug=slug,
+                name=BUILTIN_NAMES[slug],
+                description=BUILTIN_DESCRIPTIONS[slug],
+                capabilities=BUILTIN_DEFAULTS[slug],
+                is_builtin=True,
+            )
+        except IntegrityError:
+            # Raced or renamed oddly - never let seeding kill the caller.
+            continue
 
 
 # ── resolution ───────────────────────────────────────────────────────────────
