@@ -224,7 +224,12 @@ def _send(email: str, name: str, kind: str, partner, setup_link: str,
         logger.exception('partner invite template failed for %s, sending plain text', email)
 
     from accounts.emails import send_account_email
-    sent, error = send_account_email(email, subject, text_body, html_body)
+    # HTML only, on the owner's instruction: the plain-text twin showed first
+    # in temp inboxes and read as a broken email. The text body remains the
+    # fallback for the case where the template itself failed to render.
+    sent, error = send_account_email(
+        email, subject, text_body, html_body, html_only=bool(html_body),
+    )
     if not sent:
         logger.error('partner invite email failed for %s: %s', email, error)
     return sent

@@ -28,15 +28,26 @@ def _frontend_url() -> str:
     return settings.FRONTEND_URL.rstrip('/')
 
 
-def send_account_email(to_email: str, subject: str, body: str, html_body: str = None):
+def send_account_email(to_email: str, subject: str, body: str, html_body: str = None, html_only: bool = False):
     """Send one account email. Returns (sent: bool, error: str | None).
 
-    `body` is the plain-text version and is always sent. `html_body` is added
-    as an alternative when given, so a client that refuses HTML still gets a
-    working link rather than an empty message.
+    `body` is the plain-text version and is normally sent alongside the HTML,
+    so a client that refuses HTML still gets a working link. `html_only=True`
+    drops the plain part entirely - the owner's call for the invite, where a
+    temp inbox showed the bare text tab first and read as a broken email.
     """
     try:
-        if html_body:
+        if html_body and html_only:
+            from django.core.mail import EmailMessage
+            msg = EmailMessage(
+                subject=subject,
+                body=html_body,
+                from_email=_from_email(),
+                to=[to_email],
+            )
+            msg.content_subtype = 'html'
+            delivered = msg.send(fail_silently=False)
+        elif html_body:
             from django.core.mail import EmailMultiAlternatives
             msg = EmailMultiAlternatives(
                 subject=subject,
