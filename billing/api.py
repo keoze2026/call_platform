@@ -24,12 +24,16 @@ router = Router(tags=["Billing"], auth=BillingAuth())
 
 @router.get("/account", response={200: BillingAccountOutSchema})
 def get_account(request: HttpRequest):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'view')
     account = BillingService.get(request.auth)
     return 200, BillingService.format_account(account)
 
 
 @router.patch("/account", response={200: BillingAccountOutSchema, 400: dict})
 def update_account(request: HttpRequest, data: UpdateBillingSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # changing the rates, credit limit and auto-recharge on the account is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -44,6 +48,8 @@ def update_account(request: HttpRequest, data: UpdateBillingSchema):
 
 @router.post("/deposit", response={200: dict, 400: dict})
 def create_payment_intent(request: HttpRequest, data: DepositSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # starting a payment is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -60,6 +66,8 @@ def create_payment_intent(request: HttpRequest, data: DepositSchema):
 
 @router.post("/deposit/confirm", response={200: dict, 400: dict})
 def confirm_deposit(request: HttpRequest, data: DepositSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # confirming a deposit is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -82,6 +90,8 @@ def confirm_deposit(request: HttpRequest, data: DepositSchema):
 
 @router.get("/transactions", response={200: dict})
 def list_transactions(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'view')
     from config.pagination import paginate_list
     transactions = BillingService.list_transactions(request.auth)
     data = [
@@ -107,6 +117,8 @@ def list_transactions(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/invoices", response={200: dict})
 def list_invoices(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'view')
     from config.pagination import paginate_list
     invoices = BillingService.list_invoices(request.auth)
     data = [
@@ -131,6 +143,8 @@ def list_invoices(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.post("/payment-methods", response={200: dict, 400: dict})
 def save_payment_method(request: HttpRequest, payment_method_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # storing a card is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -145,6 +159,8 @@ def save_payment_method(request: HttpRequest, payment_method_id: str):
 
 @router.get("/payment-methods", response={200: list})
 def list_payment_methods(request: HttpRequest):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'view')
     try:
         methods = BillingService.list_payment_methods(request.auth)
         return 200, methods
@@ -154,6 +170,8 @@ def list_payment_methods(request: HttpRequest):
 
 @router.delete("/payment-methods/{payment_method_id}", response={200: dict, 400: dict})
 def delete_payment_method(request: HttpRequest, payment_method_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # removing a card is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -216,6 +234,8 @@ def stripe_webhook(request: HttpRequest):
 @router.post("/deposit/coingate", response={200: dict, 400: dict})
 def coingate_deposit(request, amount: float, currency: str = 'USD'):
     """Create a CoinGate crypto checkout for the user to deposit funds."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # starting a crypto payment is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -325,6 +345,8 @@ def coingate_webhook(request):
 @router.post("/deposit/capitalist", response={200: dict, 400: dict})
 def capitalist_deposit(request, amount: float, currency: str = 'USD'):
     """Create a Capitalist.net checkout for the user to deposit funds."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'edit')
     # starting a crypto payment is an admin action. BILLING is held by admin and
     # reseller only; without this check every role in the workspace,
     # including a buyer or publisher login, could do it.
@@ -450,6 +472,8 @@ def capitalist_webhook(request):
 
 @router.get("/expenses", response={200: dict})
 def get_expenses(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'billing', 'view')
     from config.pagination import paginate_list
     from django.db.models import Sum
     transactions = BillingService.list_transactions(request.auth)

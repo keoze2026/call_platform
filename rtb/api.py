@@ -24,6 +24,8 @@ def list_auctions(
     limit       : int       = 100,
 ):
     """List all RTB auctions for the organisation."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'rtb-bid-log', 'view')
     qs = RTBAuction.objects.filter(
         organization_id=request.auth.organization_id
     ).prefetch_related('bids')
@@ -39,6 +41,8 @@ def list_auctions(
 @router.get('/auctions/{auction_id}', response=RTBAuctionOutSchema)
 def get_auction(request, auction_id: uuid.UUID):
     """Get a single auction with all bids."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'rtb-bid-log', 'view')
     auction = get_object_or_404(
         RTBAuction,
         id=auction_id,
@@ -91,6 +95,8 @@ def submit_bid(request, payload: BidResponseSchema):
 @router.get('/auctions/{auction_id}/bids', response=List[dict])
 def list_bids(request, auction_id: uuid.UUID):
     """List all bids for a specific auction."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'rtb-bid-log', 'view')
     auction = get_object_or_404(
         RTBAuction,
         id=auction_id,

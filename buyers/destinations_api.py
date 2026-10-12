@@ -299,6 +299,10 @@ def list_destinations(
     # already take this parameter; these did not.
     timezone: Optional[str] = None,
 ):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'view')
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'view')
     from config.pagination import paginate_list
     from buyers.destination import Destination
     qs = Destination.objects.filter(organization=request.auth.organization).select_related('buyer')
@@ -330,6 +334,8 @@ def list_destinations(
 
 @router.get("/stats/", response={200: dict})
 def get_destination_stats(request, timezone: Optional[str] = None):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'view')
     """Headline numbers for the Destinations page.
 
     active_live and total_live were the same query, so Active Live always
@@ -435,6 +441,8 @@ def _buyer_already_live(organization, buyer, enabled, exclude_id=None):
 
 @router.post("/", response={201: dict, 400: dict})
 def create_destination(request, payload: DestinationSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'edit')
     require(request.auth, Capability.CREATE)
     from buyers.destination import Destination
     from buyers.models import Buyer
@@ -484,6 +492,8 @@ def create_destination(request, payload: DestinationSchema):
 
 @router.get("/{destination_id}/", response={200: dict, 404: dict})
 def get_destination(request, destination_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'view')
     from buyers.destination import Destination
     try:
         d = Destination.objects.get(id=destination_id, organization=request.auth.organization)
@@ -494,6 +504,8 @@ def get_destination(request, destination_id: str):
 
 @router.patch("/{destination_id}/", response={200: dict, 400: dict, 404: dict})
 def update_destination(request, destination_id: str, payload: DestinationUpdateSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'edit')
     require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
     from buyers.models import Buyer
@@ -539,6 +551,8 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
 
 @router.delete("/{destination_id}/", response={200: dict, 404: dict})
 def delete_destination(request, destination_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'delete')
     require(request.auth, Capability.DELETE)
     from buyers.destination import Destination
     try:
@@ -562,6 +576,8 @@ def bulk_enable(request, payload: BulkEnableSchema):
     nobody could read. One call, and the answer says per id what happened and
     why - the same number-clash rule a single PATCH applies, nothing softer.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'destinations', 'edit')
     require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
 

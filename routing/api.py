@@ -27,6 +27,8 @@ router = Router(tags=["Routing"], auth=JWTAuth())
 
 @router.post("/rules", response={201: RoutingRuleOutSchema, 400: dict})
 def create_rule(request: HttpRequest, data: CreateRoutingRuleSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         rule = RoutingService.create_rule(data, request.auth)
@@ -37,6 +39,8 @@ def create_rule(request: HttpRequest, data: CreateRoutingRuleSchema):
 
 @router.get("/rules", response={200: dict})
 def list_rules(request: HttpRequest, campaign_id: Optional[str] = None, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     from config.pagination import paginate_list
     rules = RoutingService.list_rules(request.auth, campaign_id)
     data = [
@@ -59,6 +63,8 @@ def list_rules(request: HttpRequest, campaign_id: Optional[str] = None, page: in
 
 @router.get("/rules/{rule_id}", response={200: RoutingRuleOutSchema, 404: dict})
 def get_rule(request: HttpRequest, rule_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     try:
         rule = RoutingService.get_rule(rule_id, request.auth)
         return 200, RoutingService.format_rule(rule)
@@ -68,6 +74,8 @@ def get_rule(request: HttpRequest, rule_id: str):
 
 @router.patch("/rules/{rule_id}", response={200: RoutingRuleOutSchema, 400: dict, 404: dict})
 def update_rule(request: HttpRequest, rule_id: str, data: UpdateRoutingRuleSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         rule = RoutingService.update_rule(rule_id, data, request.auth)
@@ -78,6 +86,8 @@ def update_rule(request: HttpRequest, rule_id: str, data: UpdateRoutingRuleSchem
 
 @router.delete("/rules/{rule_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_rule(request: HttpRequest, rule_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         RoutingService.delete_rule(rule_id, request.auth)
@@ -88,6 +98,8 @@ def delete_rule(request: HttpRequest, rule_id: str):
 
 @router.post("/rules/{rule_id}/conditions", response={201: dict, 400: dict, 404: dict})
 def add_condition(request: HttpRequest, rule_id: str, data: CreateConditionSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         condition = RoutingService.add_condition(rule_id, data, request.auth)
@@ -101,6 +113,8 @@ def add_condition(request: HttpRequest, rule_id: str, data: CreateConditionSchem
 
 @router.post("/rules/{rule_id}/destinations", response={201: dict, 400: dict, 404: dict})
 def add_destination(request: HttpRequest, rule_id: str, data: CreateDestinationSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         destination = RoutingService.add_destination(rule_id, data, request.auth)
@@ -111,6 +125,8 @@ def add_destination(request: HttpRequest, rule_id: str, data: CreateDestinationS
 
 @router.get("/rules/{rule_id}/destinations", response={200: List[dict], 404: dict})
 def list_destinations(request: HttpRequest, rule_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     try:
         destinations = RoutingService.list_destinations(rule_id, request.auth)
         return 200, [RoutingService.format_destination(d) for d in destinations]
@@ -120,6 +136,8 @@ def list_destinations(request: HttpRequest, rule_id: str):
 
 @router.patch("/rules/{rule_id}/destinations/{destination_id}", response={200: dict, 400: dict, 404: dict})
 def update_destination(request: HttpRequest, rule_id: str, destination_id: str, data: UpdateDestinationSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.EDIT)
     import json as _json
     try:
@@ -140,6 +158,8 @@ def update_destination(request: HttpRequest, rule_id: str, destination_id: str, 
 
 @router.delete("/rules/{rule_id}/destinations/{destination_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_destination(request: HttpRequest, rule_id: str, destination_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         RoutingService.delete_destination(rule_id, destination_id, request.auth)
@@ -149,6 +169,8 @@ def delete_destination(request: HttpRequest, rule_id: str, destination_id: str):
 
 @router.get("/calls/live", response={200: List[CallLogListSchema]})
 def live_calls(request: HttpRequest):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     calls = scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
         status=CallLog.Status.IN_PROGRESS
@@ -158,6 +180,8 @@ def live_calls(request: HttpRequest):
 
 @router.get("/calls", response={200: dict})
 def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     from config.pagination import paginate_list
     calls = RoutingService.list_calls(request.auth, campaign_id, status)
     data = [RoutingService.format_call(c) for c in calls]
@@ -168,6 +192,8 @@ def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, status: 
 
 @router.get("/calls/{call_id}", response={200: CallLogOutSchema, 404: dict})
 def get_call(request: HttpRequest, call_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     try:
         call = RoutingService.get_call(call_id, request.auth)
         return 200, RoutingService.format_call(call)
@@ -176,6 +202,8 @@ def get_call(request: HttpRequest, call_id: str):
 
 @router.post("/calls/{call_id}/hangup", response={200: dict, 400: dict, 404: dict})
 def hangup_call(request: HttpRequest, call_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     """End a call that is showing as live.
 
     Closes the record: sets a terminal status, stamps ended_at, and derives the
@@ -269,6 +297,8 @@ def hangup_call(request: HttpRequest, call_id: str):
 
 @router.post("/rules/{rule_id}/simulate", response={200: dict, 404: dict})
 def simulate_caller(request, rule_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     import json as _json
     from routing.models import RoutingRule

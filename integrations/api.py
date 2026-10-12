@@ -21,6 +21,8 @@ CATALOG = [
 
 @router.get("/", response={200: dict})
 def list_integrations(request: HttpRequest):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'view')
     from integrations.models import OrganizationIntegration
     connected = set(OrganizationIntegration.objects.filter(organization=request.auth.organization).values_list('integration_id', flat=True))
     connected_at_map = {oi.integration_id: oi.connected_at.isoformat() for oi in OrganizationIntegration.objects.filter(organization=request.auth.organization)}
@@ -29,6 +31,8 @@ def list_integrations(request: HttpRequest):
 
 @router.post("/{integration_id}/connect", response={200: dict, 404: dict})
 def connect_integration(request: HttpRequest, integration_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'edit')
     from integrations.models import OrganizationIntegration, Integration
     catalog_ids = [i["id"] for i in CATALOG]
     if integration_id not in catalog_ids:
@@ -40,6 +44,8 @@ def connect_integration(request: HttpRequest, integration_id: str):
 
 @router.delete("/{integration_id}/disconnect", response={200: dict, 404: dict})
 def disconnect_integration(request: HttpRequest, integration_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'delete')
     from integrations.models import OrganizationIntegration
     try:
         oi = OrganizationIntegration.objects.get(organization=request.auth.organization, integration_id=integration_id)
@@ -51,6 +57,8 @@ def disconnect_integration(request: HttpRequest, integration_id: str):
 
 @router.get("/{integration_id}/config", response={200: dict, 404: dict})
 def get_integration_config(request, integration_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'view')
     from integrations.models import OrganizationIntegration
     catalog_ids = [i["id"] for i in CATALOG]
     if integration_id not in catalog_ids:
@@ -77,6 +85,8 @@ def get_integration_config(request, integration_id: str):
 
 @router.put("/{integration_id}/config", response={200: dict, 404: dict})
 def update_integration_config(request, integration_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'edit')
     import json as _json
     from integrations.models import OrganizationIntegration
     try:
@@ -107,6 +117,8 @@ def update_integration_config(request, integration_id: str):
 
 @router.post("/{integration_id}/test", response={200: dict, 404: dict})
 def test_integration(request, integration_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'edit')
     import time
     from integrations.models import OrganizationIntegration
     try:
@@ -135,6 +147,8 @@ def test_integration(request, integration_id: str):
 
 @router.post("/{integration_id}/rotate-token", response={200: dict, 404: dict})
 def rotate_integration_token(request, integration_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'edit')
     import secrets as _secrets
     from integrations.models import OrganizationIntegration
     try:
@@ -154,6 +168,8 @@ def rotate_integration_token(request, integration_id: str):
 
 @router.get("/{integration_id}/activity", response={200: dict, 404: dict})
 def get_integration_activity(request, integration_id: str, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'integrations', 'view')
     from config.pagination import paginate_list
     from integrations.models import OrganizationIntegration, IntegrationActivity
     try:

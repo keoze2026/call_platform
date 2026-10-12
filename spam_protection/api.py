@@ -44,6 +44,8 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
     """
     List blacklisted numbers for the authenticated user's organisation.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     qs = Blacklist.objects.filter(organization_id=request.auth.organization_id)
 
     is_member, member_buyer = _buyer_member_gate(request.auth)
@@ -83,6 +85,8 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
 @router.post('/blacklist', response={201: BlacklistOutSchema})
 def create_blacklist(request, payload: BlacklistCreateSchema):
     """Add a number to the blacklist."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     is_member, member_buyer = _buyer_member_gate(request.auth)
     scoped_buyer = None
     if is_member:
@@ -112,6 +116,8 @@ def create_blacklist(request, payload: BlacklistCreateSchema):
 
 @router.get('/blacklist/{entry_id}', response=BlacklistOutSchema)
 def get_blacklist_entry(request, entry_id: uuid.UUID):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -120,6 +126,8 @@ def get_blacklist_entry(request, entry_id: uuid.UUID):
 
 @router.patch('/blacklist/{entry_id}', response={200: BlacklistOutSchema, 400: dict})
 def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdateSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     if getattr(request.auth, 'role', '') != 'buyer':
         require(request.auth, Capability.EDIT)
     if payload.phone_number is not None:
@@ -143,6 +151,8 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
 
 @router.delete('/blacklist/{entry_id}', response=MessageSchema)
 def delete_blacklist_entry(request, entry_id: uuid.UUID):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'delete')
     if getattr(request.auth, 'role', '') != 'buyer':
         require(request.auth, Capability.DELETE)
     entry = get_object_or_404(
@@ -162,6 +172,8 @@ def delete_blacklist_entry(request, entry_id: uuid.UUID):
 @router.post('/blacklist/{entry_id}/deactivate', response=BlacklistOutSchema)
 def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
     """Soft-disable a blacklist entry without deleting it."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     if getattr(request.auth, 'role', '') != 'buyer':
         require(request.auth, Capability.CREATE)
     entry = get_object_or_404(
@@ -185,6 +197,8 @@ def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
 
 @router.get('/whitelist', response=List[WhitelistOutSchema])
 def list_whitelist(request, campaign_id: uuid.UUID = None, active_only: bool = True):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     qs = Whitelist.objects.filter(organization_id=request.auth.organization_id)
 
     if campaign_id:
@@ -198,6 +212,8 @@ def list_whitelist(request, campaign_id: uuid.UUID = None, active_only: bool = T
 @router.post('/whitelist', response={201: WhitelistOutSchema})
 def create_whitelist(request, payload: WhitelistCreateSchema):
     """Add a trusted number that bypasses all spam checks."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     entry = Whitelist.objects.create(
         organization_id=request.auth.organization_id,
@@ -211,6 +227,8 @@ def create_whitelist(request, payload: WhitelistCreateSchema):
 
 @router.get('/whitelist/{entry_id}', response=WhitelistOutSchema)
 def get_whitelist_entry(request, entry_id: uuid.UUID):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     entry = get_object_or_404(
         Whitelist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -219,6 +237,8 @@ def get_whitelist_entry(request, entry_id: uuid.UUID):
 
 @router.patch('/whitelist/{entry_id}', response=WhitelistOutSchema)
 def update_whitelist_entry(request, entry_id: uuid.UUID, payload: WhitelistUpdateSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     require(request.auth, Capability.EDIT)
     entry = get_object_or_404(
         Whitelist, id=entry_id, organization_id=request.auth.organization_id
@@ -231,6 +251,8 @@ def update_whitelist_entry(request, entry_id: uuid.UUID, payload: WhitelistUpdat
 
 @router.delete('/whitelist/{entry_id}', response=MessageSchema)
 def delete_whitelist_entry(request, entry_id: uuid.UUID):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'delete')
     require(request.auth, Capability.DELETE)
     entry = get_object_or_404(
         Whitelist, id=entry_id, organization_id=request.auth.organization_id
@@ -246,6 +268,8 @@ def delete_whitelist_entry(request, entry_id: uuid.UUID):
 @router.get('/anonymous-block', response=List[AnonymousBlockOutSchema])
 def list_anonymous_blocks(request):
     """List all campaigns with anonymous call blocking configured."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     return AnonymousCallBlock.objects.filter(
         organization_id=request.auth.organization_id
     ).order_by('-created_at')
@@ -254,6 +278,8 @@ def list_anonymous_blocks(request):
 @router.post('/anonymous-block', response={201: AnonymousBlockOutSchema})
 def create_anonymous_block(request, payload: AnonymousBlockCreateSchema):
     """Enable anonymous call blocking for a campaign."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     block, _ = AnonymousCallBlock.objects.update_or_create(
         organization_id=request.auth.organization_id,
@@ -265,6 +291,8 @@ def create_anonymous_block(request, payload: AnonymousBlockCreateSchema):
 
 @router.patch('/anonymous-block/{campaign_id}', response=AnonymousBlockOutSchema)
 def update_anonymous_block(request, campaign_id: uuid.UUID, payload: AnonymousBlockUpdateSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     require(request.auth, Capability.EDIT)
     block = get_object_or_404(
         AnonymousCallBlock,
@@ -290,6 +318,8 @@ def list_spam_reports(
     Read-only audit log of all calls blocked by spam protection.
     Supports filtering by campaign, phone number, and block reason.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     qs = SpamReport.objects.filter(
         organization_id=request.auth.organization_id
     )
@@ -314,6 +344,8 @@ def check_number(request, phone_number: str, campaign_id: uuid.UUID = None):
     Quick lookup — is this number blacklisted or whitelisted?
     Does not log a spam report.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     from .services import SpamProtectionService
 
     result = SpamProtectionService.check(
@@ -333,6 +365,8 @@ def check_number(request, phone_number: str, campaign_id: uuid.UUID = None):
 
 @router.get("/check", response={200: dict})
 def check_number(request, phone_number: str = ''):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     number = phone_number
     if not number:
         return 200, {"number": number, "is_blocked": False, "is_whitelisted": False, "is_spam": False, "allowed": True, "confidence": None, "reason": None}
@@ -349,6 +383,8 @@ def check_number(request, phone_number: str = ''):
 
 @router.get("/anonymous-block", response={200: dict})
 def get_anonymous_block(request):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'view')
     from django.core.cache import cache
     org_id = str(request.auth.organization.id)
     config = cache.get(f'anon_block_{org_id}')
@@ -359,6 +395,8 @@ def get_anonymous_block(request):
 
 @router.post("/anonymous-block", response={200: dict})
 def create_anonymous_block(request):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     import json
     from django.core.cache import cache
@@ -369,6 +407,8 @@ def create_anonymous_block(request):
 
 @router.patch("/anonymous-block/{campaign_id}", response={200: dict})
 def update_anonymous_block(request, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'blocked-numbers', 'edit')
     require(request.auth, Capability.EDIT)
     import json
     from django.core.cache import cache

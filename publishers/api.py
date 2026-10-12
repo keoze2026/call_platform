@@ -19,6 +19,8 @@ router = Router(tags=["Publishers"], auth=JWTAuth())
 # went is the thing the person who just filled in the form wants to know.
 @router.post("", response={201: dict, 400: dict})
 def create_publisher(request: HttpRequest, data: CreatePublisherSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         created = PublisherService.create(data, request.auth)
@@ -35,6 +37,8 @@ def create_publisher(request: HttpRequest, data: CreatePublisherSchema):
 
 @router.get("", response={200: dict})
 def list_publishers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'view')
     from config.pagination import paginate_list
     publishers = PublisherService.list_publishers(request.auth)
     data = [
@@ -54,6 +58,8 @@ def list_publishers(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/{publisher_id}", response={200: PublisherOutSchema, 404: dict})
 def get_publisher(request: HttpRequest, publisher_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'view')
     try:
         publisher = PublisherService.get_publisher(publisher_id, request.auth)
         return 200, PublisherService.format_publisher(publisher)
@@ -63,6 +69,8 @@ def get_publisher(request: HttpRequest, publisher_id: str):
 
 @router.patch("/{publisher_id}", response={200: PublisherOutSchema, 400: dict, 404: dict})
 def update_publisher(request: HttpRequest, publisher_id: str, data: UpdatePublisherSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         PublisherService.update(publisher_id, data, request.auth)
@@ -74,6 +82,8 @@ def update_publisher(request: HttpRequest, publisher_id: str, data: UpdatePublis
 
 @router.delete("/{publisher_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_publisher(request: HttpRequest, publisher_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         PublisherService.delete(publisher_id, request.auth)
@@ -84,6 +94,8 @@ def delete_publisher(request: HttpRequest, publisher_id: str):
 
 @router.post("/{publisher_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_publisher(request: HttpRequest, publisher_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         PublisherService.pause(publisher_id, request.auth)
@@ -94,6 +106,8 @@ def pause_publisher(request: HttpRequest, publisher_id: str):
 
 @router.post("/{publisher_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_publisher(request: HttpRequest, publisher_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         PublisherService.activate(publisher_id, request.auth)
@@ -104,6 +118,8 @@ def activate_publisher(request: HttpRequest, publisher_id: str):
 
 @router.patch("/{publisher_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, publisher_id: str, data: PublisherCapSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         cap = PublisherService.update_cap(publisher_id, data, request.auth)
@@ -119,6 +135,8 @@ def update_cap(request: HttpRequest, publisher_id: str, data: PublisherCapSchema
 
 @router.post("/{publisher_id}/campaigns", response={200: dict, 400: dict, 404: dict})
 def assign_campaign(request: HttpRequest, publisher_id: str, data: AssignCampaignSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         assignment = PublisherService.assign_campaign(publisher_id, data, request.auth)
@@ -135,6 +153,8 @@ def assign_campaign(request: HttpRequest, publisher_id: str, data: AssignCampaig
 
 @router.delete("/{publisher_id}/campaigns/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_campaign(request: HttpRequest, publisher_id: str, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         PublisherService.remove_campaign(publisher_id, campaign_id, request.auth)
@@ -150,6 +170,8 @@ def invite_publisher(request: HttpRequest, publisher_id: str):
     There was no such endpoint. The interface offered "Invite a publisher" with
     nothing behind it, so the dialog sat on "Inviting..." and never finished.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     import json
 
     from accounts.partner_invites import InviteError, invite_partner
@@ -187,6 +209,8 @@ def invite_publisher(request: HttpRequest, publisher_id: str):
 
 @router.get("/{publisher_id}/stats", response={200: PublisherStatsSchema, 404: dict})
 def get_stats(request: HttpRequest, publisher_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'view')
     try:
         stats = PublisherService.get_stats(publisher_id, request.auth)
         return 200, stats
@@ -195,6 +219,8 @@ def get_stats(request: HttpRequest, publisher_id: str):
 
 @router.get("/{publisher_id}/payouts", response={200: dict, 404: dict})
 def list_publisher_payouts(request: HttpRequest, publisher_id: str, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'view')
     from config.pagination import paginate_list
     from billing.models import Transaction
     try:
@@ -226,6 +252,8 @@ class RemoveMemberSchema(Schema):
 
 @router.post("/{publisher_id}/members/remove", response={200: dict, 403: dict, 404: dict})
 def remove_publisher_member(request: HttpRequest, publisher_id: str, data: RemoveMemberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'edit')
     """Take one person's access to this publisher away.
 
     The trash icon in the Members table had no endpoint behind it, so removing

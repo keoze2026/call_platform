@@ -21,6 +21,8 @@ router = Router(tags=["DNI"], auth=JWTAuth())
 
 @router.post("/pools", response={201: DNIPoolOutSchema, 400: dict})
 def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         pool = DNIService.create_pool(data, request.auth)
@@ -32,6 +34,8 @@ def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
 
 @router.get("/pools", response={200: dict})
 def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'view')
     from config.pagination import paginate_list
     pools = DNIService.list_pools(request.auth)
     data = [DNIService.format_pool(p) for p in pools]
@@ -40,6 +44,8 @@ def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/pools/{pool_id}", response={200: DNIPoolOutSchema, 404: dict})
 def get_pool(request: HttpRequest, pool_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'view')
     try:
         pool = DNIService.get_pool(pool_id, request.auth)
         return 200, DNIService.format_pool(pool)
@@ -49,6 +55,8 @@ def get_pool(request: HttpRequest, pool_id: str):
 
 @router.patch("/pools/{pool_id}", response={200: DNIPoolOutSchema, 400: dict})
 def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         DNIService.update_pool(pool_id, data, request.auth)
@@ -60,6 +68,8 @@ def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
 
 @router.delete("/pools/{pool_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_pool(request: HttpRequest, pool_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         DNIService.delete_pool(pool_id, request.auth)
@@ -72,6 +82,8 @@ def delete_pool(request: HttpRequest, pool_id: str):
 
 @router.post("/pools/{pool_id}/numbers", response={201: dict, 400: dict})
 def add_number(request: HttpRequest, pool_id: str, data: AddNumberToPoolSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         number = DNIService.add_number(pool_id, data, request.auth)
@@ -82,6 +94,8 @@ def add_number(request: HttpRequest, pool_id: str, data: AddNumberToPoolSchema):
 
 @router.delete("/pools/{pool_id}/numbers/{number_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_number(request: HttpRequest, pool_id: str, number_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         DNIService.remove_number(pool_id, number_id, request.auth)
@@ -94,6 +108,8 @@ def remove_number(request: HttpRequest, pool_id: str, number_id: str):
 
 @router.get("/pools/{pool_id}/sessions", response={200: dict})
 def list_sessions(request: HttpRequest, pool_id: str, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'view')
     try:
         sessions = DNIService.list_sessions(pool_id, request.auth)
         from config.pagination import paginate_list

@@ -11,6 +11,8 @@ router = Router(tags=["Call Queue"], auth=JWTAuth())
 
 @router.get("/", response={200: dict})
 def list_queue(request: HttpRequest, campaign_id: str = None, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     entries = CallQueueService.list_queue(
         organization=request.auth.organization,
         campaign_id=campaign_id

@@ -17,6 +17,8 @@ router = Router(tags=["IVR"], auth=JWTAuth())
 
 @router.post("/flows", response={201: IVRFlowOutSchema, 400: dict})
 def create_flow(request: HttpRequest, data: CreateIVRFlowSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         flow = IVRService.create_flow(data, request.auth)
@@ -28,6 +30,8 @@ def create_flow(request: HttpRequest, data: CreateIVRFlowSchema):
 
 @router.get("/flows", response={200: dict})
 def list_flows(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     from config.pagination import paginate_list
     flows = IVRService.list_flows(request.auth)
     data = [
@@ -46,6 +50,8 @@ def list_flows(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/flows/{flow_id}", response={200: IVRFlowOutSchema, 404: dict})
 def get_flow(request: HttpRequest, flow_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'view')
     try:
         flow = IVRService.get_flow(flow_id, request.auth)
         return 200, IVRService.format_flow(flow)
@@ -55,6 +61,8 @@ def get_flow(request: HttpRequest, flow_id: str):
 
 @router.patch("/flows/{flow_id}", response={200: IVRFlowOutSchema, 400: dict, 404: dict})
 def update_flow(request: HttpRequest, flow_id: str, data: UpdateIVRFlowSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         IVRService.update_flow(flow_id, data, request.auth)
@@ -66,6 +74,8 @@ def update_flow(request: HttpRequest, flow_id: str, data: UpdateIVRFlowSchema):
 
 @router.delete("/flows/{flow_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_flow(request: HttpRequest, flow_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         IVRService.delete_flow(flow_id, request.auth)
@@ -76,6 +86,8 @@ def delete_flow(request: HttpRequest, flow_id: str):
 
 @router.post("/flows/{flow_id}/nodes", response={201: dict, 400: dict, 404: dict})
 def add_node(request: HttpRequest, flow_id: str, data: CreateIVRNodeSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         node = IVRService.add_node(flow_id, data, request.auth)
@@ -93,6 +105,8 @@ def add_node(request: HttpRequest, flow_id: str, data: CreateIVRNodeSchema):
 
 @router.post("/flows/{flow_id}/transitions", response={201: dict, 400: dict, 404: dict})
 def add_transition(request: HttpRequest, flow_id: str, data: CreateIVRTransitionSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'call-flows', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         transition = IVRService.add_transition(flow_id, data, request.auth)

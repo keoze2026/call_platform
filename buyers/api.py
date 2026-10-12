@@ -21,6 +21,8 @@ router = Router(tags=["Buyers"], auth=JWTAuth())
 # the person who just filled in the form wants to know.
 @router.post("", response={201: dict, 400: dict})
 def create_buyer(request: HttpRequest, data: CreateBuyerSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         created = BuyerService.create(data, request.auth)
@@ -37,6 +39,8 @@ def create_buyer(request: HttpRequest, data: CreateBuyerSchema):
 
 @router.get("", response={200: dict})
 def list_buyers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'view')
     from config.pagination import paginate_list
     buyers = BuyerService.list_buyers(request.auth)
     data = [
@@ -56,6 +60,8 @@ def list_buyers(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/{buyer_id}", response={200: BuyerOutSchema, 404: dict})
 def get_buyer(request: HttpRequest, buyer_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'view')
     try:
         buyer = BuyerService.get_buyer(buyer_id, request.auth)
         return 200, BuyerService.format_buyer(buyer)
@@ -65,6 +71,8 @@ def get_buyer(request: HttpRequest, buyer_id: str):
 
 @router.patch("/{buyer_id}", response={200: BuyerOutSchema, 400: dict, 404: dict})
 def update_buyer(request: HttpRequest, buyer_id: str, data: UpdateBuyerSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         BuyerService.update(buyer_id, data, request.auth)
@@ -76,6 +84,8 @@ def update_buyer(request: HttpRequest, buyer_id: str, data: UpdateBuyerSchema):
 
 @router.delete("/{buyer_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_buyer(request: HttpRequest, buyer_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         BuyerService.delete(buyer_id, request.auth)
@@ -86,6 +96,8 @@ def delete_buyer(request: HttpRequest, buyer_id: str):
 
 @router.post("/{buyer_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_buyer(request: HttpRequest, buyer_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         BuyerService.pause(buyer_id, request.auth)
@@ -96,6 +108,8 @@ def pause_buyer(request: HttpRequest, buyer_id: str):
 
 @router.post("/{buyer_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_buyer(request: HttpRequest, buyer_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         BuyerService.activate(buyer_id, request.auth)
@@ -106,6 +120,8 @@ def activate_buyer(request: HttpRequest, buyer_id: str):
 
 @router.patch("/{buyer_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, buyer_id: str, data: BuyerCapSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         cap = BuyerService.update_cap(buyer_id, data, request.auth)
@@ -122,6 +138,8 @@ def update_cap(request: HttpRequest, buyer_id: str, data: BuyerCapSchema):
 
 @router.post("/{buyer_id}/campaigns", response={200: dict, 400: dict, 404: dict})
 def assign_campaign(request: HttpRequest, buyer_id: str, data: AssignCampaignSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         assignment = BuyerService.assign_campaign(buyer_id, data, request.auth)
@@ -139,6 +157,8 @@ def assign_campaign(request: HttpRequest, buyer_id: str, data: AssignCampaignSch
 
 @router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         BuyerService.remove_campaign(buyer_id, campaign_id, request.auth)
@@ -149,6 +169,8 @@ def remove_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
 
 @router.get("/{buyer_id}/stats", response={200: BuyerStatsSchema, 404: dict})
 def get_stats(request: HttpRequest, buyer_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'view')
     try:
         stats = BuyerService.get_stats(buyer_id, request.auth)
         return 200, stats
@@ -157,6 +179,8 @@ def get_stats(request: HttpRequest, buyer_id: str):
 
 @router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: dict, 404: dict})
 def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'delete')
     require(request.auth, Capability.DELETE)
     from buyers.models import BuyerCampaign
     try:
@@ -182,6 +206,8 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
     link it sent could never be validated. It also ignored the email address the
     form collects.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     import json
 
     from accounts.partner_invites import InviteError, invite_partner
@@ -220,6 +246,8 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
 @router.get("/{buyer_id}/access", response={200: dict, 404: dict})
 def get_buyer_access(request, buyer_id: str):
     """The buyer's time zone and what its own logins may do. Admin-side."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'view')
     require(request.auth, Capability.EDIT)
     from buyers.models import Buyer
     try:
@@ -255,6 +283,8 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
     {"payload": {...}} and 422 every normal request - the toggles looked
     saved and were not (Evans's catch). A Schema accepts the plain body.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     payload = payload.dict(exclude_none=True)
     require(request.auth, Capability.EDIT)
     from buyers.models import Buyer
@@ -305,6 +335,8 @@ class RemoveMemberSchema(Schema):
 
 @router.post("/{buyer_id}/members/remove", response={200: dict, 403: dict, 404: dict})
 def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'edit')
     """Take one person's access to this buyer away.
 
     The trash icon in the Members table had no endpoint behind it, so removing

@@ -18,6 +18,8 @@ carriers_router = Router(tags=["Carriers"], auth=JWTAuth())
 
 @router.post("/search", response={200: List[AvailableNumberSchema], 400: dict})
 def search_numbers(request: HttpRequest, data: SearchNumberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         numbers = PhoneNumberService.search_available_numbers(data, request.auth)
@@ -28,6 +30,8 @@ def search_numbers(request: HttpRequest, data: SearchNumberSchema):
 
 @router.post("/purchase", response={201: PhoneNumberOutSchema, 400: dict})
 def purchase_number(request: HttpRequest, data: PurchaseNumberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         phone_number = PhoneNumberService.purchase_number(data, request.auth)
@@ -42,6 +46,8 @@ def purchase_number(request: HttpRequest, data: PurchaseNumberSchema):
 
 @router.post("/import", response={201: PhoneNumberOutSchema, 400: dict})
 def import_number(request: HttpRequest, data: PurchaseNumberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         phone_number = PhoneNumberService.import_existing_number(data, request.auth)
@@ -60,6 +66,8 @@ def _last10(number: str) -> str:
 
 @router.get("", response={200: dict})
 def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'view')
     from datetime import timedelta
     from django.utils import timezone as djtz
 
@@ -105,6 +113,8 @@ def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/{number_id}", response={200: PhoneNumberOutSchema, 404: dict})
 def get_number(request: HttpRequest, number_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'view')
     try:
         phone_number = PhoneNumberService.get_number(number_id, request.auth)
         return 200, PhoneNumberService.format_number(phone_number)
@@ -114,6 +124,8 @@ def get_number(request: HttpRequest, number_id: str):
 
 @router.patch("/{number_id}", response={200: PhoneNumberOutSchema, 400: dict, 404: dict})
 def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.EDIT)
     try:
         import json as _json
@@ -134,6 +146,8 @@ def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema
 
 @router.post("/{number_id}/assign", response={200: PhoneNumberOutSchema, 400: dict, 404: dict})
 def assign_number(request: HttpRequest, number_id: str, data: AssignNumberSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     try:
         phone_number = PhoneNumberService.assign_number(number_id, data, request.auth)
@@ -144,6 +158,8 @@ def assign_number(request: HttpRequest, number_id: str, data: AssignNumberSchema
 
 @router.delete("/{number_id}/release", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def release_number(request: HttpRequest, number_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         PhoneNumberService.release_number(number_id, request.auth)
@@ -174,6 +190,8 @@ def _carrier_out(c) -> dict:
 
 @carriers_router.get("", response={200: List[CarrierOutSchema]})
 def list_carriers(request: HttpRequest):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'view')
     from .models import Carrier
     rows = Carrier.objects.filter(organization=request.auth.organization)
     return 200, [_carrier_out(c) for c in rows]
@@ -181,6 +199,8 @@ def list_carriers(request: HttpRequest):
 
 @carriers_router.post("", response={201: CarrierOutSchema, 400: dict})
 def create_carrier(request: HttpRequest, data: CarrierInSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
     from django.db import IntegrityError
     from .models import Carrier
@@ -204,6 +224,8 @@ def create_carrier(request: HttpRequest, data: CarrierInSchema):
 
 @carriers_router.patch("/{carrier_id}", response={200: CarrierOutSchema, 400: dict, 404: dict})
 def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.UPDATE)
     from django.db import IntegrityError
     from .models import Carrier
@@ -232,6 +254,8 @@ def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSch
 
 @carriers_router.delete("/{carrier_id}", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def delete_carrier(request: HttpRequest, carrier_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'delete')
     require(request.auth, Capability.DELETE)
     from .models import Carrier
     try:
