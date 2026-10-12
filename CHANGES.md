@@ -5528,7 +5528,7 @@ deliberately not in this change.
 
 ## CH-104 — Partner visibility: the campaign leak, enforced columns, one permission store
 
-**2026-10-12 · Access · commit pending**
+**2026-10-12 · Access · commit `6e9df2df`**
 
 The owner, verbatim: "Under publisher access all campaigns name are also
 coming which is not even assigned to that publisher." Correct - the campaign
