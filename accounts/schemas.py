@@ -134,6 +134,8 @@ class UserOutSchema(Schema):
     # so the interface can hide what the server will refuse anyway.
     partner_timezone: Optional[str] = None
     partner_permissions: Optional[dict] = None
+    # Employee logins: the dotted workspace permissions of their role.
+    permissions: Optional[list] = None
     created_at: str
 
 

@@ -31,6 +31,8 @@ router = Router(tags=["Analytics"], auth=JWTAuth())
 @router.get("/dashboard", response={200: DashboardSchema})
 def dashboard(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Real-time dashboard — total calls, live calls, revenue, conversion rate."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_dashboard(request.auth, filters)
     return 200, data
@@ -51,6 +53,8 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     consistent even mid-call. The individual endpoints stay for anything that
     wants one section on its own.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     from django.utils import timezone
 
@@ -105,6 +109,8 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
 @router.get("/time-series", response={200: List[TimeSeriesPointSchema]})
 def time_series(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Calls/revenue/profit over time. granularity: hour | day | week | month"""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_time_series(request.auth, filters)
     return 200, data
@@ -113,6 +119,8 @@ def time_series(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...
 @router.get("/campaigns", response={200: list})
 def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per campaign."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_campaign_performance(request.auth, filters)
     return 200, data
@@ -121,6 +129,8 @@ def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = 
 @router.get("/carriers", response={200: list})
 def carrier_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per caller carrier — the CALLER PROFILE tab."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_carrier_performance(request.auth, filters)
     return 200, data
@@ -129,6 +139,8 @@ def carrier_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Q
 @router.get("/buyers", response={200: list})
 def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per buyer — win rate, avg bid, payout."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_buyer_performance(request.auth, filters)
     return 200, data
@@ -137,6 +149,8 @@ def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Que
 @router.get("/publishers", response={200: list})
 def publisher_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Performance breakdown per publisher — calls, conversion, spam rate."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_publisher_performance(request.auth, filters)
     return 200, data
@@ -145,6 +159,8 @@ def publisher_performance(request: HttpRequest, filters: AnalyticsFilterSchema =
 @router.get("/calls", response={200: CallLogListSchema})
 def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """Full paginated call log with all filters."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
     data = AnalyticsService.get_call_log(request.auth, filters)
     return 200, data
@@ -156,6 +172,8 @@ def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(..
     # take the file home is the workspace admin's call. Hidden buttons are not
     # permissions - the refusal here is (buyer access spec, test #3).
     _u = request.auth
+    from accounts.workspace_permissions import require_perm
+    require_perm(_u, 'reporting', 'download')
     if getattr(_u, 'role', '') in ('buyer', 'publisher'):
         from accounts.permissions import has, Capability
         if not has(_u, Capability.EXPORT):
@@ -181,6 +199,8 @@ def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(..
 
 @router.get("/calls/{call_id}/recording", response={200: dict, 404: dict})
 def get_recording(request: HttpRequest, call_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'listen')
     from routing.models import CallLog
     from routing.recordings import public_recording_url
 
@@ -246,6 +266,8 @@ def live_summary(request: HttpRequest):
     These are today's totals, so the panel reads the same whenever it is opened
     and agrees with the dashboard.
     """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'reporting', 'view')
     from decimal import Decimal
 
     from django.db.models import Count, Q, Sum

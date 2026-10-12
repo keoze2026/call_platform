@@ -202,7 +202,18 @@ class ProfileService:
             # do. The interface hides what the server refuses anyway - the
             # refusal is the permission system, this is the courtesy.
             **ProfileService._partner_access(user),
+            # The employee's effective workspace permissions - the menu and
+            # pages render from this, the server's require_perm refuses
+            # regardless. Partners get [] here; Partner Access governs them.
+            'permissions': ProfileService._workspace_permissions(user),
         }
+
+    @staticmethod
+    def _workspace_permissions(user: User) -> list:
+        if getattr(user, 'role', '') in ('buyer', 'publisher'):
+            return []
+        from accounts.workspace_permissions import effective_permissions
+        return effective_permissions(user)
 
     @staticmethod
     def _partner_access(user: User) -> dict:

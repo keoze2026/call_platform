@@ -477,6 +477,17 @@ def list_members(request: HttpRequest, page: int = 1, page_size: int = 50):
     return 200, paginate_list(data, page, page_size)
 
 
+def _valid_workspace_role(org, value: str) -> bool:
+    """A role value must be a built-in slug or a custom role id in THIS
+    workspace. Any string used to be saved unchecked - a typo made a member
+    with a role nothing resolves, silently falling back to view-only."""
+    from accounts.models import CustomRole
+    from accounts.workspace_permissions import BUILTIN_SLUGS
+    if value in BUILTIN_SLUGS or value in ('reseller',):
+        return True
+    return CustomRole.objects.filter(organization=org, id__iexact=value, is_builtin=False).exists()
+
+
 @router.post("/workspace/members/invite", response={201: dict, 400: dict})
 def invite_member(request: HttpRequest):
     require(request.auth, Capability.MEMBERS)
@@ -489,6 +500,8 @@ def invite_member(request: HttpRequest):
         data = json.loads(request.body)
         email = (data.get('email') or '').strip()
         role = data.get('role', 'agent')
+        if not _valid_workspace_role(request.auth.organization, role):
+            return 400, {"detail": f"Unknown role {role!r} for this workspace."}
 
         if not email:
             return 400, {"detail": "Email is required"}
@@ -584,6 +597,8 @@ def update_member_role(request: HttpRequest, user_id: str):
         status = data.get('status')
         user = User.objects.get(id=user_id, organization=request.auth.organization)
         if role:
+            if not _valid_workspace_role(request.auth.organization, role):
+                return 400, {"detail": f"Unknown role {role!r} for this workspace."}
             user.role = role
         if status == 'suspended':
             user.is_active = False
@@ -602,56 +617,39 @@ def update_member_role(request: HttpRequest, user_id: str):
 
 @router.get("/workspace/roles", response={200: list})
 def list_roles(request: HttpRequest):
-    """The roles this workspace can assign, and what each one may do.
+    """The workspace's own roles with their 55-key tick lists.
 
-    Built from ROLE_CAPABILITIES rather than written out by hand. The hand-written
-    version had drifted: it offered a "viewer" role the model does not have, left
-    out "reseller", and listed capabilities that were never the ones enforced. The
-    frontend builds its permission screens from this, so a list that disagrees with
-    the guards shows people access they do not have.
+    Each workspace carries editable copies of the built-ins, seeded from the
+    defaults the first time anyone looks - which is why "7 / 55" was showing:
+    the old list counted seven broad rights that lived in code and could
+    never change. Partners (buyer/publisher) are governed by Partner Access
+    and are not listed here.
     """
     from accounts.models import User, CustomRole
-    from accounts.permissions import ROLE_CAPABILITIES, SCOPED_ROLES
+    from accounts.workspace_permissions import ensure_builtin_roles, clean_keys
 
-    DESCRIPTIONS = {
-        'admin':     "Full access. Can manage members and billing.",
-        'reseller':  "Full access to their own workspace and its sub-accounts.",
-        'manager':   "Runs the operation. No billing, no member management.",
-        'agent':     "Works the queue. Can change what exists, cannot add or remove.",
-        'buyer':     "Outside login. Sees only their own calls.",
-        'publisher': "Outside login. Sees only their own calls.",
-    }
+    org = request.auth.organization
+    ensure_builtin_roles(org)
 
     counts = {
         row['role']: row['n']
-        for row in User.objects
-            .filter(organization=request.auth.organization)
-            .values('role').annotate(n=Count('id'))
+        for row in User.objects.filter(organization=org).values('role').annotate(n=Count('id'))
     }
 
-    builtin = [
-        {
-            "id": role,
-            "slug": role,
-            "name": dict(User.Role.choices).get(role, role.title()),
-            "description": DESCRIPTIONS.get(role, ""),
-            "is_builtin": True,
-            # Sorted so the order is stable between calls and the UI does not reshuffle
-            "capabilities": sorted(caps),
-            "scoped_to_own_records": role in SCOPED_ROLES,
-            "member_count": counts.get(role, 0),
-        }
-        for role, caps in ROLE_CAPABILITIES.items()
-    ]
-
-    custom = [
-        {"id": str(r.id), "slug": str(r.id), "name": r.name, "description": r.description,
-         "capabilities": r.capabilities, "is_builtin": False,
-         "scoped_to_own_records": False, "member_count": 0}
-        for r in CustomRole.objects.filter(organization=request.auth.organization)
-    ]
-    return 200, builtin + custom
-
+    out = []
+    for r in CustomRole.objects.filter(organization=org).order_by('is_builtin', 'name'):
+        key = r.slug or str(r.id)
+        out.append({
+            "id": key,
+            "slug": key,
+            "name": r.name,
+            "description": r.description,
+            "is_builtin": r.is_builtin,
+            "locked": r.slug == 'admin',
+            "capabilities": clean_keys(r.capabilities) if r.slug != 'admin' else __import__('accounts.workspace_permissions', fromlist=['ALL_KEYS']).ALL_KEYS,
+            "member_count": counts.get(key, 0),
+        })
+    return 200, out
 
 # ── Workspace Activity Log ────────────────────────────────────────────────────
 @router.get("/workspace/activity", response={200: dict})
@@ -842,43 +840,62 @@ def create_role(request: HttpRequest):
         return 400, {"detail": str(e)}
 
 
-@router.patch("/workspace/roles/{role_id}", response={200: dict, 404: dict})
+@router.patch("/workspace/roles/{role_id}", response={200: dict, 400: dict, 404: dict})
 def update_role(request: HttpRequest, role_id: str):
+    """Edit a role - built-in slugs (manager, viewer, agent) and custom ids
+    alike. Admin is locked: a workspace must never be able to lock itself
+    out. Unknown capability keys drop silently against the catalogue."""
     require(request.auth, Capability.MEMBERS)
     import json as _json
     from accounts.models import CustomRole
+    from accounts.workspace_permissions import ensure_builtin_roles, clean_keys, BUILTIN_SLUGS
+
+    if role_id == 'admin':
+        return 400, {"detail": "The Admin role is locked and cannot be edited."}
+
+    org = request.auth.organization
+    ensure_builtin_roles(org)
+    role = (CustomRole.objects.filter(organization=org, slug=role_id).first()
+            if role_id in BUILTIN_SLUGS
+            else CustomRole.objects.filter(organization=org, id__iexact=role_id).first())
+    if role is None:
+        return 404, {"detail": "Role not found"}
+
     try:
         body = _json.loads(request.body)
-        role = CustomRole.objects.get(id=role_id, organization=request.auth.organization)
-        if 'name' in body:
-            role.name = body['name']
-        if 'description' in body:
-            role.description = body['description']
-        if 'capabilities' in body:
-            role.capabilities = body['capabilities']
-        role.save()
-        return 200, {
-            'id': str(role.id),
-            'name': role.name,
-            'description': role.description,
-            'capabilities': role.capabilities,
-            'is_builtin': False,
-            'member_count': 0,
-        }
-    except CustomRole.DoesNotExist:
-        return 404, {"detail": "Role not found"}
+    except Exception:
+        return 400, {"detail": "Bad JSON"}
+    if 'name' in body and not role.is_builtin:
+        role.name = str(body['name'])[:100]
+    if 'description' in body:
+        role.description = str(body['description'])[:500]
+    if 'capabilities' in body:
+        role.capabilities = clean_keys(body['capabilities'])
+    role.save()
+    key = role.slug or str(role.id)
+    return 200, {
+        'id': key, 'slug': key, 'name': role.name,
+        'description': role.description,
+        'capabilities': role.capabilities,
+        'is_builtin': role.is_builtin,
+        'member_count': 0,
+    }
 
 
 @router.delete("/workspace/roles/{role_id}", response={204: None, 400: dict, 404: dict})
 def delete_role(request: HttpRequest, role_id: str):
     require(request.auth, Capability.MEMBERS)
-    from accounts.models import CustomRole
-    try:
-        role = CustomRole.objects.get(id=role_id, organization=request.auth.organization)
-        role.delete()
-        return 204, None
-    except CustomRole.DoesNotExist:
+    from accounts.models import CustomRole, User
+    role = CustomRole.objects.filter(id__iexact=role_id, organization=request.auth.organization).first()
+    if role is None:
         return 404, {"detail": "Role not found"}
+    if role.is_builtin:
+        return 400, {"detail": "Built-in roles cannot be deleted."}
+    holders = User.objects.filter(organization=request.auth.organization, role=str(role.id)).count()
+    if holders:
+        return 400, {"detail": f"{holders} member(s) still hold this role. Reassign them first."}
+    role.delete()
+    return 204, None
 
 
 @router.post("/set-password/", auth=None, response={200: dict, 400: dict})

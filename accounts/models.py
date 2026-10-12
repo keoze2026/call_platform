@@ -30,6 +30,7 @@ class User(AbstractUser):
         ADMIN = 'admin', 'Admin'
         PUBLISHER = 'publisher', 'Publisher'
         BUYER = 'buyer', 'Buyer'
+        VIEWER = 'viewer', 'Viewer'
         AGENT = 'agent', 'Agent'
         RESELLER = 'reseller', 'Network/Reseller'
     
@@ -226,6 +227,12 @@ from .contact import ContactMessage
 class CustomRole(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='custom_roles')
+    # Built-in roles (admin/manager/viewer/agent) carry their slug and each
+    # workspace holds its own editable copy; custom roles have slug null and
+    # are addressed by id. capabilities holds the dotted workspace keys
+    # ("reporting.view") - the 55 the Roles screen renders.
+    slug = models.CharField(max_length=32, null=True, blank=True)
+    is_builtin = models.BooleanField(default=False)
     name = models.CharField(max_length=100)
     description = models.CharField(max_length=500, blank=True, default='')
     capabilities = models.JSONField(default=list)

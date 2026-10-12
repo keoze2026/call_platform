@@ -5557,3 +5557,39 @@ data leaving, and now it does:
   export and blacklist gates check capabilities (EXPORT, BLOCK_NUMBERS), and
   the booleans remain as synced mirrors only. The dead Redis reporting-config
   endpoints are removed.
+
+
+## CH-105 — Workspace roles: 55 real permissions, stored and enforced (phase 1)
+
+**2026-10-12 · Access · commit pending**
+
+The owner's test: untick Reporting on Manager, save - Manager still shows
+7/55 and the manager still sees Reports. Correct on every count: the Roles
+screen rendered 55 ticks while the server knew ten broad rights hardcoded in
+`ROLE_CAPABILITIES`; PATCH only accepted custom-role UUIDs so built-ins could
+never change; custom roles saved and did nothing; "7/55" counted the broad
+rights, not ticks.
+
+Phase 1, shipped together:
+- `accounts/workspace_permissions.py` - the 55-key catalogue (verified
+  exactly 55), per-role defaults (admin all/locked, manager 35, viewer 21
+  view-only, agent 41 no-deletes), `effective_permissions`, `require_perm`.
+- Each workspace holds its own editable copies of the built-ins on
+  `CustomRole` (slug + is_builtin, accounts 0012), seeded on first look.
+  `viewer` added to `User.Role`.
+- Roles API: list reads the store with real tick counts; PATCH works for
+  built-in slugs and custom ids, refuses `admin` (a workspace can never lock
+  itself out), drops unknown keys against the catalogue; DELETE refuses
+  built-ins and any role members still hold. Member invite/update validate
+  the role value against this workspace.
+- `/me` carries the employee's effective dotted `permissions` (declared on
+  the schema). Partners get [] - Partner Access governs them, untouched.
+- Enforced on the spec's acceptance areas: every reporting read requires
+  `reporting.view`, export adds `reporting.download` (partners keep their
+  EXPORT rule), the recording endpoint requires `reporting.listen`;
+  campaigns routes take view / edit-campaign / edit-advanced / delete per
+  tick.
+
+Phase 2 (next): the same mechanical guard across the remaining 19 areas.
+Admin and the owner always pass; the existing broad-capability guards stay
+as the floor, so nothing loosened anywhere.

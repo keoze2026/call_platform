@@ -17,6 +17,8 @@ router = Router(tags=["Campaigns"], auth=JWTAuth())
 
 @router.post("", response={201: CampaignOutSchema, 400: dict})
 def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'edit-campaign')
     require(request.auth, Capability.CREATE)
     try:
         campaign = CampaignService.create(data, request.auth)
@@ -27,6 +29,8 @@ def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
 
 @router.get("", response={200: dict})
 def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'view')
     from config.pagination import paginate_list
     from django.utils import timezone
     from datetime import timedelta
@@ -110,6 +114,8 @@ def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/{campaign_id}", response={200: CampaignOutSchema, 404: dict})
 def get_campaign(request: HttpRequest, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'view')
     try:
         campaign = CampaignService.get_campaign(campaign_id, request.auth)
         return 200, CampaignService.format_campaign(campaign)
@@ -119,6 +125,8 @@ def get_campaign(request: HttpRequest, campaign_id: str):
 
 @router.patch("/{campaign_id}", response={200: CampaignOutSchema, 400: dict, 404: dict})
 def update_campaign(request: HttpRequest, campaign_id: str, data: UpdateCampaignSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'edit-campaign')
     require(request.auth, Capability.EDIT)
     try:
         campaign = CampaignService.update(campaign_id, data, request.auth)
@@ -130,6 +138,8 @@ def update_campaign(request: HttpRequest, campaign_id: str, data: UpdateCampaign
 
 @router.delete("/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_campaign(request: HttpRequest, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'delete')
     require(request.auth, Capability.DELETE)
     try:
         CampaignService.delete(campaign_id, request.auth)
@@ -140,6 +150,8 @@ def delete_campaign(request: HttpRequest, campaign_id: str):
 
 @router.post("/{campaign_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_campaign(request: HttpRequest, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'edit-campaign')
     require(request.auth, Capability.CREATE)
     try:
         CampaignService.pause(campaign_id, request.auth)
@@ -150,6 +162,8 @@ def pause_campaign(request: HttpRequest, campaign_id: str):
 
 @router.post("/{campaign_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_campaign(request: HttpRequest, campaign_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'edit-campaign')
     require(request.auth, Capability.CREATE)
     try:
         CampaignService.activate(campaign_id, request.auth)
@@ -160,6 +174,8 @@ def activate_campaign(request: HttpRequest, campaign_id: str):
 
 @router.patch("/{campaign_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, campaign_id: str, data: CampaignCapSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'edit-advanced')
     require(request.auth, Capability.EDIT)
     try:
         cap = CampaignService.update_cap(campaign_id, data, request.auth)
@@ -176,6 +192,8 @@ def update_cap(request: HttpRequest, campaign_id: str, data: CampaignCapSchema):
 
 @router.put("/{campaign_id}/schedules", response={200: dict, 400: dict, 404: dict})
 def update_schedules(request: HttpRequest, campaign_id: str, data: List[CampaignScheduleSchema]):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'edit-advanced')
     require(request.auth, Capability.EDIT)
     try:
         schedules = CampaignService.update_schedules(campaign_id, data, request.auth)
