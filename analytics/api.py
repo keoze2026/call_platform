@@ -175,7 +175,11 @@ def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(..
     from accounts.workspace_permissions import require_perm
     require_perm(_u, 'reporting', 'download')
     if getattr(_u, 'role', '') in ('buyer', 'publisher'):
-        from accounts.permissions import has, Capability
+        # `has` only - importing Capability here made it function-local and
+        # the staff path's pre-existing require(..., Capability.EXPORT) hit
+        # UnboundLocalError: a manager could not export while every partner
+        # test passed. Module-level Capability serves both branches.
+        from accounts.permissions import has
         if not has(_u, Capability.EXPORT):
             from django.http import JsonResponse
             return JsonResponse(
