@@ -251,13 +251,12 @@ class BuyerService:
             lifetime_spend=Coalesce(Sum('payout'), Decimal('0.00')),
             total_calls=Count('id'),
             connected_calls=Count('id', filter=Q(status='completed')),
-            # revenue>0 was a proxy, and a wrong one: revenue is written per
-            # pricing, not per conversion, and re-pricing moves it. Converted
-            # is call_ended's rule, the same everywhere.
-            converted_calls=Count('id', filter=Q(
-                status='completed',
-                duration__gte=F('campaign__min_call_duration'),
-            ))
+            # This queryset is CallRecord - the reporting mirror - which has
+            # no duration field and no campaign FK to join through; the first
+            # version of this fix was written against CallLog's fields and
+            # 500'd the whole Buyers page (Evans's catch). The mirror carries
+            # the one converted flag everything reads: use it.
+            converted_calls=Count('id', filter=Q(is_converted=True))
         )
 
         total = stats['total_calls'] or 1

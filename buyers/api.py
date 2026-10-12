@@ -2,7 +2,7 @@ from accounts.permissions import require, Capability
 from django.conf import settings
 from ninja import Router, Schema
 from django.http import HttpRequest
-from typing import List
+from typing import List, Optional
 from .schemas import (
     CreateBuyerSchema, UpdateBuyerSchema,
     BuyerOutSchema, BuyerListOutSchema,
@@ -235,9 +235,25 @@ def get_buyer_access(request, buyer_id: str):
     }
 
 
+class _AccessPermissionsSchema(Schema):
+    block_numbers: Optional[bool] = None
+    download_reports: Optional[bool] = None
+
+
+class _AccessPatchSchema(Schema):
+    timezone: Optional[str] = None
+    permissions: Optional[_AccessPermissionsSchema] = None
+
+
 @router.patch("/{buyer_id}/access", response={200: dict, 400: dict, 404: dict})
-def update_buyer_access(request, buyer_id: str, payload: dict):
-    """Save time zone / permissions. Only the fields sent are touched."""
+def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
+    """Save time zone / permissions. Only the fields sent are touched.
+
+    A bare `payload: dict` here made Ninja expect the body wrapped as
+    {"payload": {...}} and 422 every normal request - the toggles looked
+    saved and were not (Evans's catch). A Schema accepts the plain body.
+    """
+    payload = payload.dict(exclude_none=True)
     require(request.auth, Capability.EDIT)
     from buyers.models import Buyer
     try:
