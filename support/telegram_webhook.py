@@ -8,6 +8,66 @@ router = Router(tags=["Telegram Webhook"])
 logger = logging.getLogger(__name__)
 
 
+# The /help text, provided verbatim by the bot builder (DFGHE, 12 Oct) and
+# sent with Telegram HTML parse mode.
+HELP_TEXT = (
+    "<b>AVORTYX BOT \u00b7 HELP</b>\n\n"
+    "<b>LINK YOUR ACCOUNT</b>\n"
+    "1. Open the Avortyx portal \u2192 <b>Settings</b>\n"
+    "2. Generate your Telegram link\n"
+    "3. Tap the link, or send:\n"
+    "<code>/start yourcode</code>\n\n"
+    "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+    "<b>SENT TO YOU AUTOMATICALLY</b>\n\n"
+    "<b>Morning report</b>\n"
+    "Calls, connections, billing, margin and balance\n\n"
+    "<b>Down alerts</b>\n"
+    "When calls stop arriving, with an <b>all clear</b> once they're back\n\n"
+    "<b>Platform alerts</b>\n"
+    "Buyers hitting caps, low balance and similar warnings\n\n"
+    "<b>Support chats</b>\n"
+    "Messages from customers on your portal\n\n"
+    "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+    "<b>REPLY TO A SUPPORT CHAT</b>\n"
+    "Send the session ID, a space, then your message:\n\n"
+    "<code>7xxxxxxx Thanks, let me look into that for you</code>\n\n"
+    "Your reply goes straight into the customer's chat."
+)
+
+WELCOME_TEXT = (
+    "\U0001F44B <b>Welcome to Avortyx Bot</b>\n\n"
+    "To get started, link your Avortyx account:\n\n"
+    "1. Log in to the Avortyx portal\n"
+    "2. Go to <b>Settings</b> and generate your Telegram link\n"
+    "3. Tap the link, or send <code>/start yourcode</code>\n\n"
+    "Once linked, everything arrives here automatically. "
+    "There's nothing else to set up. Send /help any time."
+)
+
+LINKED_TEXT = (
+    "\u2705 <b>Linked!</b> Your Avortyx account is connected. "
+    "Reports and alerts arrive here automatically \u2014 send /help to see everything I do."
+)
+
+
+def _reply(chat_id: str, html: str) -> None:
+    """Send one HTML message back to the chat. A failure is logged, never raised
+    - the webhook must answer 200 whatever happens."""
+    from django.conf import settings
+    import requests
+    token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
+    if not (token and chat_id):
+        return
+    try:
+        requests.post(
+            f'https://api.telegram.org/bot{token}/sendMessage',
+            json={'chat_id': chat_id, 'text': html, 'parse_mode': 'HTML'},
+            timeout=6,
+        )
+    except Exception:
+        logger.exception('telegram reply to %s failed', chat_id)
+
+
 def _handle_start(message: dict, text: str) -> bool:
     """Complete a profile link from '/start <code>'.
 
@@ -28,6 +88,7 @@ def _handle_start(message: dict, text: str) -> bool:
 
     if len(parts) < 2:
         logger.info('telegram /start with no code from chat %s', chat_id)
+        _reply(chat_id, WELCOME_TEXT)
         return True
 
     code = parts[1].strip()
@@ -35,6 +96,7 @@ def _handle_start(message: dict, text: str) -> bool:
 
     if link is None:
         logger.warning('telegram /start with unknown code from chat %s', chat_id)
+        _reply(chat_id, WELCOME_TEXT)
         return True
 
     if not link.is_usable:
@@ -58,6 +120,7 @@ def _handle_start(message: dict, text: str) -> bool:
     link.save(update_fields=['used_at'])
 
     logger.info('telegram linked chat %s to %s', chat_id, user.email)
+    _reply(chat_id, LINKED_TEXT)
     return True
 
 
@@ -90,6 +153,10 @@ def telegram_webhook(request: HttpRequest):
         text = (message.get('text') or '').strip()
 
         if not text:
+            return 200, {"ok": True}
+
+        if text.split()[0].lower() in ('/help', '/help@avortyxbot'):
+            _reply(str(message.get('chat', {}).get('id', '') or ''), HELP_TEXT)
             return 200, {"ok": True}
 
         if _handle_start(message, text):
