@@ -11,8 +11,13 @@ import os
 import re
 import sys
 
+# `python scripts/foo.py` puts scripts/ on sys.path, not the project root, so
+# the settings package is invisible without this.
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, ROOT)
+
 if not os.environ.get('DJANGO_SETTINGS_MODULE'):
-    src = open('/app/manage.py').read()
+    src = open(os.path.join(ROOT, 'manage.py')).read()
     os.environ['DJANGO_SETTINGS_MODULE'] = re.search(
         r"DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)", src).group(1)
 

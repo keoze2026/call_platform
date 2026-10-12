@@ -5635,3 +5635,14 @@ proves nothing about what was missed.
 real HTTP as a manager: 200 with the tick, 403 without, admin never 403,
 partner pass-through intact. Acceptance tests 6 and 8 from the spec still
 need Evans's UI on top of this.
+
+**CH-106 addendum:** the smoke run died before it started - `python
+scripts/phase2_smoke.py` puts `scripts/` on sys.path instead of the project
+root, so the settings package could not import, and the `&&` chain correctly
+refused to restart: the worker kept serving pre-phase-2 code. Both scripts
+now pin the project root onto sys.path themselves. Lesson: a script meant for
+`python scripts/x.py` must add its parent's parent to sys.path, or it only
+works from a shell that happens to sit in the root with an interactive
+PYTHONPATH. `scripts/debug_partner_settings.py` added - reproduces the
+partner-settings 500 Evans reported (which predates phase 2: the phase 2
+delta has no accounts/ changes and the worker never restarted onto it).
