@@ -78,16 +78,20 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
 @router.post('/blacklist', response={201: BlacklistOutSchema})
 def create_blacklist(request, payload: BlacklistCreateSchema):
     """Add a number to the blacklist."""
-    require(request.auth, Capability.CREATE)
     is_member, member_buyer = _buyer_member_gate(request.auth)
     scoped_buyer = None
     if is_member:
+        # The admin's switch IS the member's capability here - the generic
+        # CREATE check ran first and refused every member regardless of the
+        # switch, which the acceptance run caught: 403 with the switch on.
         if not (member_buyer and member_buyer.can_block_numbers):
             from ninja.errors import HttpError
             raise HttpError(403, "Your account is not allowed to block numbers")
         # A member blocks for their own buyer alone, whatever the payload
         # says - routing then skips this buyer, never the whole call.
         scoped_buyer = member_buyer
+    else:
+        require(request.auth, Capability.CREATE)
     entry = Blacklist.objects.create(
         organization_id=request.auth.organization_id,
         phone_number=payload.phone_number or payload.number,
@@ -111,7 +115,8 @@ def get_blacklist_entry(request, entry_id: uuid.UUID):
 
 @router.patch('/blacklist/{entry_id}', response={200: BlacklistOutSchema, 400: dict})
 def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdateSchema):
-    require(request.auth, Capability.EDIT)
+    if getattr(request.auth, 'role', '') != 'buyer':
+        require(request.auth, Capability.EDIT)
     if payload.phone_number is not None:
         return 400, {"detail": "phone_number is immutable after creation. Delete and recreate to change the number."}
     entry = get_object_or_404(
@@ -133,7 +138,8 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
 
 @router.delete('/blacklist/{entry_id}', response=MessageSchema)
 def delete_blacklist_entry(request, entry_id: uuid.UUID):
-    require(request.auth, Capability.DELETE)
+    if getattr(request.auth, 'role', '') != 'buyer':
+        require(request.auth, Capability.DELETE)
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
@@ -151,7 +157,8 @@ def delete_blacklist_entry(request, entry_id: uuid.UUID):
 @router.post('/blacklist/{entry_id}/deactivate', response=BlacklistOutSchema)
 def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
     """Soft-disable a blacklist entry without deleting it."""
-    require(request.auth, Capability.CREATE)
+    if getattr(request.auth, 'role', '') != 'buyer':
+        require(request.auth, Capability.CREATE)
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
