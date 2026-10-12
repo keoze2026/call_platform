@@ -5672,3 +5672,23 @@ The meta-mistake this entry exists for: the outage was fixed, the lesson was
 even repeated out loud, but it was never written here - so the next session
 greps CHANGES.md, finds nothing, and walks into it again. A mistake is not
 handled until the file knows it.
+
+## CH-108 — Billing joins the workspace ticks
+
+**2026-10-12 · Access · follows CH-106**
+
+The phase 2 smoke caught it: a manager got 401 on every billing route with
+the billing tick on or off, because the billing router's own `BillingAuth`
+rejected anyone without the old admin-level BILLING capability before the
+workspace tick was ever read. Granting billing to a role could never work.
+
+The router now authenticates like the rest (JWT), and `_workspace_billing`
+decides: partner logins (buyer, publisher) are refused outright - a partner
+must never see the workspace's balance, cards or rates, and this is the one
+place `require_perm`'s partner pass-through would be wrong - then the
+billing.view / billing.edit tick governs employees. The seven per-route
+`require(Capability.BILLING)` calls and their "admin action" comments went
+with the old gate; the explicit partner refusal preserves the only thing
+they actually protected. Payment webhooks stay auth=None, untouched.
+
+The smoke now also proves a buyer gets 403 on /api/billing/account.

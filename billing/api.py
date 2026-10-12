@@ -14,31 +14,41 @@ from .schemas import (
     BillingAccountOutSchema, TransactionOutSchema,
     InvoiceOutSchema, MessageResponseSchema
 )
-from accounts.api import BillingAuth
 from .services import BillingService
 
 from .models import BillingAccount, Transaction, Invoice
 
-router = Router(tags=["Billing"], auth=BillingAuth())
+# JWTAuth rather than BillingAuth: the old gate 401'd anyone without the
+# admin-level BILLING capability before the workspace tick was ever read, so
+# granting billing to a manager role could never work. The tick governs now.
+router = Router(tags=["Billing"], auth=JWTAuth())
+
+
+def _workspace_billing(user, action: str):
+    """Billing belongs to the workspace, never to partner logins.
+
+    `require_perm` lets partners pass (Partner Access governs them), which is
+    right everywhere except here: a buyer or publisher login must not see the
+    workspace's balance, cards or rates at all. Reject them first, then let
+    the workspace tick decide for employees.
+    """
+    from ninja.errors import HttpError
+    from accounts.workspace_permissions import require_perm
+    if getattr(user, 'role', '') in ('buyer', 'publisher'):
+        raise HttpError(403, "Billing is not available to partner logins.")
+    require_perm(user, 'billing', action)
 
 
 @router.get("/account", response={200: BillingAccountOutSchema})
 def get_account(request: HttpRequest):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'view')
+    _workspace_billing(request.auth, 'view')
     account = BillingService.get(request.auth)
     return 200, BillingService.format_account(account)
 
 
 @router.patch("/account", response={200: BillingAccountOutSchema, 400: dict})
 def update_account(request: HttpRequest, data: UpdateBillingSchema):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # changing the rates, credit limit and auto-recharge on the account is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     try:
         account = BillingService.update(data, request.auth)
         return 200, BillingService.format_account(account)
@@ -48,13 +58,7 @@ def update_account(request: HttpRequest, data: UpdateBillingSchema):
 
 @router.post("/deposit", response={200: dict, 400: dict})
 def create_payment_intent(request: HttpRequest, data: DepositSchema):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # starting a payment is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     try:
         result = BillingService.create_stripe_payment_intent(
             data.amount, request.auth
@@ -66,13 +70,7 @@ def create_payment_intent(request: HttpRequest, data: DepositSchema):
 
 @router.post("/deposit/confirm", response={200: dict, 400: dict})
 def confirm_deposit(request: HttpRequest, data: DepositSchema):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # confirming a deposit is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     try:
         tx = BillingService.deposit(
             data.amount,
@@ -90,8 +88,7 @@ def confirm_deposit(request: HttpRequest, data: DepositSchema):
 
 @router.get("/transactions", response={200: dict})
 def list_transactions(request: HttpRequest, page: int = 1, page_size: int = 50):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'view')
+    _workspace_billing(request.auth, 'view')
     from config.pagination import paginate_list
     transactions = BillingService.list_transactions(request.auth)
     data = [
@@ -117,8 +114,7 @@ def list_transactions(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.get("/invoices", response={200: dict})
 def list_invoices(request: HttpRequest, page: int = 1, page_size: int = 50):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'view')
+    _workspace_billing(request.auth, 'view')
     from config.pagination import paginate_list
     invoices = BillingService.list_invoices(request.auth)
     data = [
@@ -143,13 +139,7 @@ def list_invoices(request: HttpRequest, page: int = 1, page_size: int = 50):
 
 @router.post("/payment-methods", response={200: dict, 400: dict})
 def save_payment_method(request: HttpRequest, payment_method_id: str):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # storing a card is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     try:
         result = BillingService.save_payment_method(payment_method_id, request.auth)
         return 200, result
@@ -159,8 +149,7 @@ def save_payment_method(request: HttpRequest, payment_method_id: str):
 
 @router.get("/payment-methods", response={200: list})
 def list_payment_methods(request: HttpRequest):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'view')
+    _workspace_billing(request.auth, 'view')
     try:
         methods = BillingService.list_payment_methods(request.auth)
         return 200, methods
@@ -170,13 +159,7 @@ def list_payment_methods(request: HttpRequest):
 
 @router.delete("/payment-methods/{payment_method_id}", response={200: dict, 400: dict})
 def delete_payment_method(request: HttpRequest, payment_method_id: str):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # removing a card is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     try:
         BillingService.delete_payment_method(payment_method_id, request.auth)
         return 200, {"message": "Payment method removed", "success": True}
@@ -234,13 +217,7 @@ def stripe_webhook(request: HttpRequest):
 @router.post("/deposit/coingate", response={200: dict, 400: dict})
 def coingate_deposit(request, amount: float, currency: str = 'USD'):
     """Create a CoinGate crypto checkout for the user to deposit funds."""
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # starting a crypto payment is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     if amount <= 0:
         return 400, {"detail": "Amount must be greater than 0"}
 
@@ -345,13 +322,7 @@ def coingate_webhook(request):
 @router.post("/deposit/capitalist", response={200: dict, 400: dict})
 def capitalist_deposit(request, amount: float, currency: str = 'USD'):
     """Create a Capitalist.net checkout for the user to deposit funds."""
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'edit')
-    # starting a crypto payment is an admin action. BILLING is held by admin and
-    # reseller only; without this check every role in the workspace,
-    # including a buyer or publisher login, could do it.
-    require(request.auth, Capability.BILLING)
-
+    _workspace_billing(request.auth, 'edit')
     if amount <= 0:
         return 400, {"detail": "Amount must be greater than 0"}
 
@@ -472,8 +443,7 @@ def capitalist_webhook(request):
 
 @router.get("/expenses", response={200: dict})
 def get_expenses(request: HttpRequest, page: int = 1, page_size: int = 50):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'billing', 'view')
+    _workspace_billing(request.auth, 'view')
     from config.pagination import paginate_list
     from django.db.models import Sum
     transactions = BillingService.list_transactions(request.auth)

@@ -103,6 +103,9 @@ try:
         code = hit('/api/destinations/', partner)
         print(f"{'PASS' if code != 403 else 'FAIL'}  partner pass-through (buyer got {code}, not 403)")
         failures += 1 if code == 403 else 0
+        code = hit('/api/billing/account', partner)
+        print(f"{'PASS' if code == 403 else 'FAIL'}  partner shut out of billing (buyer got {code}, want 403)")
+        failures += 0 if code == 403 else 1
 finally:
     manager_role.capabilities = original_caps
     manager_role.save(update_fields=['capabilities'])
