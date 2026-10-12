@@ -5646,3 +5646,29 @@ works from a shell that happens to sit in the root with an interactive
 PYTHONPATH. `scripts/debug_partner_settings.py` added - reproduces the
 partner-settings 500 Evans reported (which predates phase 2: the phase 2
 delta has no accounts/ changes and the worker never restarted onto it).
+
+## CH-107 — The outage that never made the record, now on it
+
+**2026-10-12 · Process · recorded late, which is the point**
+
+On Oct 11, removing the dead reporting-config block from `buyers/api.py` cut
+`RemoveMemberSchema` with it - the class was defined inside that block but
+used by members/remove below. Every request to every endpoint answered 500:
+the portal, the partner logins, the Telegram bot, all of it, because Ninja
+builds the whole API at import and one NameError kills the import. The class
+was restored from git history.
+
+Why every check passed while the API was down: `ast.parse` and `py_compile`
+accept it (NameError is a runtime failure), and the shell tests exercised
+services directly, so the API module was never imported. The only test that
+could have caught it is one real HTTP request - which is now a checklist
+line in `docs/BEFORE_YOU_SHIP.md`, alongside the other lessons this week
+taught: prove the proving script itself runs, pin the project root on
+sys.path in anything under scripts/, ship server commands as committed
+files instead of pasted heredocs, and audit batch edits with a different
+pattern than the one that made them.
+
+The meta-mistake this entry exists for: the outage was fixed, the lesson was
+even repeated out loud, but it was never written here - so the next session
+greps CHANGES.md, finds nothing, and walks into it again. A mistake is not
+handled until the file knows it.

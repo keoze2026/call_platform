@@ -35,4 +35,20 @@ and the Stats API shipped the identical hole the same week.
 
 ## Before saying "done"
 - [ ] Tested on the server, output shown - both numbers, never a proxy
-- [ ] CHANGES.md entry written in the same push as the code
+- [ ] After touching any api.py: one real HTTP request answered, not a
+      service-layer call - shell tests passed while every endpoint 500'd,
+      because they never import the API module (CH-107)
+- [ ] A script that proves things is itself proven: the phase 2 smoke died
+      on sys.path before testing anything, and the restart it gated never
+      ran (CH-106 addendum)
+- [ ] Scripts run as `python scripts/x.py` pin the project root on
+      sys.path - sys.path[0] is scripts/, not the root (CH-106 addendum)
+- [ ] Server commands ship as committed files, never pasted heredocs -
+      `docker compose exec` has no stdin without -T and pasted blocks
+      mangle (CH-107)
+- [ ] After a mechanical batch edit, audit route-by-route with a DIFFERENT
+      pattern than the injector used; "N edits made" says nothing about
+      what was missed (CH-106)
+- [ ] CHANGES.md entry written in the same push as the code - and the
+      mistake goes in the entry, not just the fix (CH-107 exists because
+      a full-API outage went unrecorded)
