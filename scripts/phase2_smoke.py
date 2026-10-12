@@ -24,6 +24,11 @@ if not os.environ.get('DJANGO_SETTINGS_MODULE'):
 import django  # noqa: E402
 django.setup()
 
+# The test client sends Host: testserver, which production ALLOWED_HOSTS
+# rejects with a bare 400 before any view runs.
+from django.conf import settings  # noqa: E402
+settings.ALLOWED_HOSTS = list(settings.ALLOWED_HOSTS) + ['testserver']
+
 from django.test import Client  # noqa: E402
 from rest_framework_simplejwt.tokens import AccessToken  # noqa: E402
 from accounts.models import User, CustomRole  # noqa: E402
@@ -50,7 +55,10 @@ ensure_builtin_roles(org)
 
 smoke, _ = User.objects.get_or_create(
     email='phase2smoke@local.test',
-    defaults={'role': 'manager', 'organization': org, 'is_active': True},
+    # username is unique on the users table and other rows hold '', so the
+    # default '' collides; the email is already unique, reuse it.
+    defaults={'role': 'manager', 'organization': org, 'is_active': True,
+              'username': 'phase2smoke@local.test'},
 )
 if smoke.role != 'manager' or smoke.organization_id != org.id or not smoke.is_active:
     smoke.role, smoke.organization, smoke.is_active = 'manager', org, True

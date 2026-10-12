@@ -22,6 +22,11 @@ if not os.environ.get('DJANGO_SETTINGS_MODULE'):
 import django  # noqa: E402
 django.setup()
 
+# The test client sends Host: testserver, which production ALLOWED_HOSTS
+# rejects with a bare 400 before any view runs.
+from django.conf import settings  # noqa: E402
+settings.ALLOWED_HOSTS = list(settings.ALLOWED_HOSTS) + ['testserver']
+
 from django.test import Client  # noqa: E402
 from rest_framework_simplejwt.tokens import AccessToken  # noqa: E402
 from accounts.models import User  # noqa: E402
