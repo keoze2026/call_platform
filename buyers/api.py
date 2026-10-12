@@ -217,6 +217,61 @@ def invite_buyer(request: HttpRequest, buyer_id: str):
         return 400, {"detail": str(e)}
 
 
+@router.get("/{buyer_id}/access", response={200: dict, 404: dict})
+def get_buyer_access(request, buyer_id: str):
+    """The buyer's time zone and what its own logins may do. Admin-side."""
+    require(request.auth, Capability.EDIT)
+    from buyers.models import Buyer
+    try:
+        b = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
+    except Buyer.DoesNotExist:
+        return 404, {"detail": "Buyer not found"}
+    return 200, {
+        "timezone": b.timezone or "UTC",
+        "permissions": {
+            "block_numbers": b.can_block_numbers,
+            "download_reports": b.can_download_reports,
+        },
+    }
+
+
+@router.patch("/{buyer_id}/access", response={200: dict, 400: dict, 404: dict})
+def update_buyer_access(request, buyer_id: str, payload: dict):
+    """Save time zone / permissions. Only the fields sent are touched."""
+    require(request.auth, Capability.EDIT)
+    from buyers.models import Buyer
+    try:
+        b = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
+    except Buyer.DoesNotExist:
+        return 404, {"detail": "Buyer not found"}
+
+    fields = []
+    if 'timezone' in payload and payload['timezone'] is not None:
+        import zoneinfo
+        try:
+            zoneinfo.ZoneInfo(str(payload['timezone']))
+        except Exception:
+            return 400, {"detail": "Unknown time zone"}
+        b.timezone = str(payload['timezone'])
+        fields.append('timezone')
+    perms = payload.get('permissions') or {}
+    if 'block_numbers' in perms and perms['block_numbers'] is not None:
+        b.can_block_numbers = bool(perms['block_numbers'])
+        fields.append('can_block_numbers')
+    if 'download_reports' in perms and perms['download_reports'] is not None:
+        b.can_download_reports = bool(perms['download_reports'])
+        fields.append('can_download_reports')
+    if fields:
+        b.save(update_fields=fields)
+    return 200, {
+        "timezone": b.timezone or "UTC",
+        "permissions": {
+            "block_numbers": b.can_block_numbers,
+            "download_reports": b.can_download_reports,
+        },
+    }
+
+
 @router.get("/{buyer_id}/reporting-config", response={200: dict, 404: dict})
 def get_reporting_config(request: HttpRequest, buyer_id: str):
     from buyers.models import Buyer

@@ -34,6 +34,9 @@ class BlacklistOutSchema(Schema):
     notes: str
     is_active: bool
     campaign_id: Optional[uuid.UUID]
+    # Which buyer this block belongs to; null = organization-wide. Declared or
+    # Ninja drops it and a member cannot tell their rows from anything.
+    buyer_id: Optional[uuid.UUID] = None
     expires_at: Optional[datetime]
     created_at: datetime
 

@@ -29,6 +29,15 @@ class Blacklist(models.Model):
         help_text='Leave blank to block org-wide.'
     )
 
+    # A buyer-scoped block: this buyer alone stops taking the number, the
+    # call still routes to anyone else. Null = organization-wide, refused
+    # outright at routing, exactly as it always was.
+    buyer = models.ForeignKey(
+        'buyers.Buyer', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='blocked_numbers',
+        help_text='Set = this buyer alone stops taking the number; null = the whole organization refuses it.',
+    )
+
     phone_number = models.CharField(max_length=20, db_index=True)
     reason       = models.CharField(max_length=20, choices=Reason.choices, default=Reason.MANUAL)
     notes        = models.TextField(blank=True, default='')

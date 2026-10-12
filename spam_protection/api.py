@@ -18,6 +18,18 @@ from .schemas import (
 router = Router(tags=['Spam & Fraud Protection'], auth=JWTAuth())
 
 
+def _buyer_member_gate(user):
+    """What a buyer member may do here, per the workspace admin's switch.
+
+    Returns (is_buyer_member, buyer) and raises nothing - the callers decide
+    the refusal wording. Admin and staff pass untouched; a buyer member needs
+    the permission on, and acts only on their own buyer's entries.
+    """
+    if getattr(user, 'role', '') != 'buyer':
+        return False, None
+    return True, getattr(user, 'buyer', None)
+
+
 
 # BLACKLIST
 
@@ -28,6 +40,12 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
     List blacklisted numbers for the authenticated user's organisation.
     """
     qs = Blacklist.objects.filter(organization_id=request.auth.organization_id)
+
+    is_member, member_buyer = _buyer_member_gate(request.auth)
+    if is_member:
+        # Their own buyer's blocks, nothing organization-wide - the org list
+        # is the workspace's business, not a client login's.
+        qs = qs.filter(buyer=member_buyer) if member_buyer else qs.none()
 
     if campaign_id:
         qs = qs.filter(campaign_id=campaign_id)
@@ -61,12 +79,22 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
 def create_blacklist(request, payload: BlacklistCreateSchema):
     """Add a number to the blacklist."""
     require(request.auth, Capability.CREATE)
+    is_member, member_buyer = _buyer_member_gate(request.auth)
+    scoped_buyer = None
+    if is_member:
+        if not (member_buyer and member_buyer.can_block_numbers):
+            from ninja.errors import HttpError
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        # A member blocks for their own buyer alone, whatever the payload
+        # says - routing then skips this buyer, never the whole call.
+        scoped_buyer = member_buyer
     entry = Blacklist.objects.create(
         organization_id=request.auth.organization_id,
         phone_number=payload.phone_number or payload.number,
         reason=payload.reason,
         notes=payload.notes,
-        campaign_id=payload.campaign_id,
+        campaign_id=None if is_member else payload.campaign_id,
+        buyer=scoped_buyer,
         expires_at=payload.expires_at,
         added_by=request.auth,
     )
@@ -89,6 +117,13 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
+    is_member, member_buyer = _buyer_member_gate(request.auth)
+    if is_member:
+        from ninja.errors import HttpError
+        if not (member_buyer and member_buyer.can_block_numbers):
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        if entry.buyer_id != member_buyer.id:
+            raise HttpError(403, "Not your buyer's entry")
     for field, value in payload.dict(exclude_none=True).items():
         if field != 'phone_number':
             setattr(entry, field, value)
@@ -102,6 +137,13 @@ def delete_blacklist_entry(request, entry_id: uuid.UUID):
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
+    is_member, member_buyer = _buyer_member_gate(request.auth)
+    if is_member:
+        from ninja.errors import HttpError
+        if not (member_buyer and member_buyer.can_block_numbers):
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        if entry.buyer_id != member_buyer.id:
+            raise HttpError(403, "Not your buyer's entry")
     entry.delete()
     return {'message': 'Blacklist entry deleted'}
 
@@ -113,6 +155,13 @@ def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
     )
+    is_member, member_buyer = _buyer_member_gate(request.auth)
+    if is_member:
+        from ninja.errors import HttpError
+        if not (member_buyer and member_buyer.can_block_numbers):
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        if entry.buyer_id != member_buyer.id:
+            raise HttpError(403, "Not your buyer's entry")
     entry.is_active = False
     entry.save()
     return entry

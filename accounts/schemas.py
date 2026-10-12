@@ -130,6 +130,10 @@ class UserOutSchema(Schema):
     avatar_url: Optional[str] = None
     telegram_chat_id: Optional[str] = None
     telegram_username: Optional[str] = None
+    # For a partner member only: their buyer's zone and what they may do,
+    # so the interface can hide what the server will refuse anyway.
+    partner_timezone: Optional[str] = None
+    partner_permissions: Optional[dict] = None
     created_at: str
 
 

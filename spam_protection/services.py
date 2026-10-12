@@ -46,7 +46,10 @@ class SpamProtectionService:
         base_qs = Blacklist.objects.filter(
             organization_id=organization_id,
             phone_number=phone_number,
-            is_active=True
+            is_active=True,
+            # Buyer-scoped rows never refuse the call - they only take that
+            # one buyer out of the running, inside the routing engine.
+            buyer__isnull=True,
         ).filter(
             # Either no expiry or expiry in the future
             models_expires_filter(now)

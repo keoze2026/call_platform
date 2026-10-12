@@ -152,6 +152,18 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
 
 @router.get("/calls/export", auth=JWTAuth(), response=None)
 def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
+    # The export is the screen as a file, and whether this buyer's logins may
+    # take the file home is the workspace admin's call. Hidden buttons are not
+    # permissions - the refusal here is (buyer access spec, test #3).
+    _u = request.auth
+    if getattr(_u, 'role', '') == 'buyer':
+        _b = getattr(_u, 'buyer', None)
+        if not (_b and _b.can_download_reports):
+            from django.http import JsonResponse
+            return JsonResponse(
+                {"detail": "Your account is not allowed to download reports"},
+                status=403,
+            )
     """Download full call log as CSV."""
     require_reports_unlock(request, filters)
     from django.http import StreamingHttpResponse

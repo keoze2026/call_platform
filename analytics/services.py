@@ -48,15 +48,23 @@ def _account_currency(organization) -> str:
         return 'USD'
 
 
-def _tz(filters):
+def _tz(filters, user=None):
     """The zone to bucket days and hours in, defaulting to the server's.
 
     A bare date like "2026-09-28" has to mean midnight-to-midnight where the
     user is. Everything ran in UTC before, so an Eastern Time user's "today"
     began at 8pm the evening before and their hourly chart was shifted by four
     or five hours.
+
+    A buyer member who sends no zone gets their buyer's own - "today" starts
+    at midnight where the admin said this buyer counts days (access spec,
+    test #7). An explicit parameter always wins.
     """
     name = _f(filters, 'timezone')
+    if not name and user is not None and getattr(user, 'role', '') == 'buyer':
+        b = getattr(user, 'buyer', None)
+        if b is not None and getattr(b, 'timezone', ''):
+            name = b.timezone
     if not name:
         return timezone.get_current_timezone()
     try:
@@ -142,7 +150,7 @@ class AnalyticsService:
         # object. Production never hit it because the API declares filters as a
         # required Query, but any internal caller - a task, a management command,
         # a shell check - crashed on the first attribute.
-        tz = _tz(filters)
+        tz = _tz(filters, user)
         val_from = _f(filters, 'date_from') or _f(filters, 'start_date') or _f(filters, 'created_at__gte')
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
@@ -233,7 +241,7 @@ class AnalyticsService:
         # every chart used the one the browser asked for. For an Eastern user
         # the two halves were counting days that began four hours apart, and
         # the live calls from an evening landed on the wrong date.
-        tz = _tz(filters)
+        tz = _tz(filters, user)
         val_from = _f(filters, 'date_from') or _f(filters, 'start_date') or _f(filters, 'created_at__gte')
         if val_from:
             dt = parse_datetime(val_from + 'T00:00:00') or datetime.fromisoformat(val_from)
@@ -358,7 +366,7 @@ class AnalyticsService:
             'month': TruncMonth,
         }
         trunc_fn = trunc_map.get(getattr(filters, 'granularity', 'day') or 'day', TruncDay)
-        tz = _tz(filters)
+        tz = _tz(filters, user)
 
         live_rows = dict(
             live_qs.annotate(period=trunc_fn('created_at', tzinfo=tz))
@@ -1271,7 +1279,7 @@ class AnalyticsService:
         # The day is cut, and the Date column written, in the reader's own zone.
         # It was UTC, so an Eastern reader's export disagreed with the portal
         # beside it and the day began at 8pm the previous evening.
-        tz = _tz(filters)
+        tz = _tz(filters, user)
 
         # Destination names, resolved once rather than per row.
         from buyers.destination import Destination

@@ -3,6 +3,7 @@ import random
 from datetime import datetime
 from decimal import Decimal
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 from django.core.cache import cache
 from .models import RoutingRule, RuleCondition, RuleDestination, CallLog
@@ -381,7 +382,8 @@ class RoutingEngine:
         dup_only = call_data.get('dup_only_destination')
         excl_d = call_data.get('dup_exclude_destinations', ())
         excl_b = call_data.get('dup_exclude_buyers', ())
-        if not dup_only and not excl_d and not excl_b:
+        blocked_b = call_data.get('blocked_buyers', ())
+        if not dup_only and not excl_d and not excl_b and not blocked_b:
             return destinations
         kept = []
         for d in destinations:
@@ -390,6 +392,8 @@ class RoutingEngine:
             if d.destination in excl_d:
                 continue
             if d.buyer_id and str(d.buyer_id) in excl_b:
+                continue
+            if d.buyer_id and str(d.buyer_id) in blocked_b:
                 continue
             kept.append(d)
         return kept
@@ -484,6 +488,8 @@ class RoutingEngine:
                 reason = 'already took this caller (duplicates: different)'
             elif destination.buyer_id and str(destination.buyer_id) in call_data.get('dup_exclude_buyers', ()):
                 reason = f'buyer already took this caller (duplicates: different)'
+            elif destination.buyer_id and str(destination.buyer_id) in call_data.get('blocked_buyers', ()):
+                reason = 'this buyer has blocked the caller'
 
             if reason is None and destination.buyer:
                 buyer = destination.buyer
@@ -726,6 +732,27 @@ class RoutingEngine:
             else:
                 call_data['dup_exclude_destinations'] = {d for d, _ in dup_prior if d}
                 if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_destinations"])} destination(s) excluded')
+
+        # Buyers who have personally blocked this caller: taken out of the
+        # running for this call only - the call still routes to anyone else.
+        # Organization-wide blocks refused the call back at the blacklist
+        # step, exactly as they always did.
+        if caller_number:
+            from spam_protection.models import Blacklist as _BL
+            _now = timezone.now()
+            _blocked = set(
+                str(b) for b in _BL.objects.filter(
+                    organization_id=campaign.organization_id,
+                    phone_number=caller_number,
+                    is_active=True,
+                    buyer__isnull=False,
+                ).filter(
+                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=_now)
+                ).values_list('buyer_id', flat=True)
+            )
+            if _blocked:
+                call_data['blocked_buyers'] = _blocked
+                if trace: trace.step('buyer_block', True, f'{len(_blocked)} buyer(s) skip this caller')
 
         def _run_rules():
             for rule in rules:

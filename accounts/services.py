@@ -198,7 +198,24 @@ class ProfileService:
             # express one publisher being allowed to buy numbers and another
             # not - and showed controls that then returned 403.
             **ProfileService._access(user),
+            # A buyer member's own leash: their buyer's zone and what they may
+            # do. The interface hides what the server refuses anyway - the
+            # refusal is the permission system, this is the courtesy.
+            **ProfileService._partner_access(user),
         }
+
+    @staticmethod
+    def _partner_access(user: User) -> dict:
+        if getattr(user, 'role', '') == 'buyer' and getattr(user, 'buyer_id', None) and user.buyer:
+            b = user.buyer
+            return {
+                'partner_timezone': b.timezone or 'UTC',
+                'partner_permissions': {
+                    'block_numbers': b.can_block_numbers,
+                    'download_reports': b.can_download_reports,
+                },
+            }
+        return {'partner_timezone': None, 'partner_permissions': None}
 
     @staticmethod
     def _access(user) -> dict:

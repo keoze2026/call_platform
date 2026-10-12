@@ -5488,3 +5488,39 @@ Remaining known offender: the engine's `is_duplicate` window statuses and the
 pre-check are already single-sourced (CH-090/093). No other computer of these
 metrics exists in the repo as of this entry - verified by grep over every
 aggregate on call tables, not by memory.
+
+
+## CH-103 — Buyer access: time zone and permissions, enforced server-side
+
+**2026-10-12 · Access · Routing · commit pending**
+
+The frontend's spec, boss priority: control what a buyer's own logins may do,
+like publishers. Built whole, not as hidden buttons:
+
+  **Model** `Buyer.timezone`, `can_block_numbers`, `can_download_reports`
+  (buyers 0019). **Endpoints** `GET/PATCH /api/buyers/{id}/access` -
+  Capability.EDIT, same organization, zone validated with zoneinfo, 400
+  "Unknown time zone" on garbage; partial saves save only what was sent.
+  **/me** carries `partner_timezone` and `partner_permissions` for a buyer
+  member (declared on the schema - the Ninja line of the checklist).
+
+  **Enforcement, the part that matters:**
+  - Export: a buyer member without the switch gets 403 at
+    `/api/analytics/calls/export` - viewing stays, the file does not.
+    Admins untouched.
+  - Blocking: `Blacklist.buyer` (spam_protection 0004). A member with the
+    switch manages blocks for their own buyer alone - forced server-side,
+    whatever the payload says; without it, 403. Their list shows only their
+    rows.
+  - **Routing**: a buyer-scoped block takes that buyer out of the running -
+    the ordered walker, Round Robin and Weighted all skip it, the call still
+    goes to anyone else, and the trace says so. Organization-wide blocks
+    (buyer null) refuse the call exactly as always - the org-wide check now
+    explicitly ignores buyer rows so a client's block can never kill a call.
+  - Time zone: a buyer member with no zone parameter gets their buyer's own
+    - "today" starts where the admin said it does. Explicit parameter wins.
+
+Checklist run (BEFORE_YOU_SHIP): auth on every route, role scoping on list
+and per-entry actions, schema declarations for every new field, no guard
+removed, queries grouped. Publishers' matching panel is specced optional and
+deliberately not in this change.

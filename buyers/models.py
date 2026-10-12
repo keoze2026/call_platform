@@ -37,6 +37,13 @@ class Buyer(models.Model):
     # Contact
     contact_name = models.CharField(max_length=255, blank=True, default='')
     contact_email = models.EmailField(blank=True, default='')
+
+    # What this buyer's own logins may do, and the zone their reports count
+    # days in. Controlled by the workspace admin; enforced server-side - a
+    # hidden button is not a permission system (frontend spec, boss request).
+    timezone = models.CharField(max_length=64, default='UTC')
+    can_block_numbers = models.BooleanField(default=False)
+    can_download_reports = models.BooleanField(default=False)
     payout_model = models.CharField(max_length=20, default='flat')
 
     # Financial
