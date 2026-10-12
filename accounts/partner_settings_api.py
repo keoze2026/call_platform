@@ -21,11 +21,15 @@ from accounts.partner_permissions import (
     clean_permissions,
     clean_report_columns,
 )
+from accounts.api import JWTAuth
 from accounts.permissions import Capability, require
 
 logger = logging.getLogger(__name__)
 
-router = Router(tags=['Partner settings'])
+# The router was born without an auth class, so request.auth never existed
+# here: every endpoint that touched it 500'd, and the catalogue answered
+# without a token at all. Found the day the settings page was first wired.
+router = Router(tags=['Partner settings'], auth=JWTAuth())
 
 
 def _resolve(request, kind: str, partner_id: str):

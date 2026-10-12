@@ -5692,3 +5692,23 @@ with the old gate; the explicit partner refusal preserves the only thing
 they actually protected. Payment webhooks stay auth=None, untouched.
 
 The smoke now also proves a buyer gets 403 on /api/billing/account.
+
+## CH-109 — Partner settings endpoints had no auth at all
+
+**2026-10-12 · Access · the 500 Evans reported**
+
+`GET /api/accounts/{buyer|publisher}/{id}/settings` 500'd on every partner:
+the router in `accounts/partner_settings_api.py` was created with no auth
+class, so `request.auth` never existed and the first line reading it raised
+AttributeError. Nothing recent broke it - it was born this way at CH-051 and
+nobody had wired the settings page against it until today. The same gap
+meant `GET /api/accounts/partner-permissions` answered without a token.
+
+Fix: the router authenticates like the rest (JWTAuth). The PATCH already
+required Capability.MEMBERS once request.auth exists; unchanged.
+
+Found via `scripts/debug_partner_settings.py` on the server - the in-container
+HTTP repro printed the exact traceback on the first clean run. Lesson, again
+in a new costume: an endpoint that was never called in anger is an endpoint
+that was never tested - "the backend now exists" (OPEN-26) was true of the
+code and false of the proof.
