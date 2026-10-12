@@ -5590,6 +5590,15 @@ Phase 1, shipped together:
   campaigns routes take view / edit-campaign / edit-advanced / delete per
   tick.
 
+**Seeding collision (found by the acceptance run):** this workspace already
+held a custom role literally named "Admin" from the earlier super-admin
+build, and `CustomRole` is unique on (organization, name) - seeding the
+built-ins crashed on it, and that one crash cascaded: no manager row, failed
+test login, 401 on every later step. The seeder now adopts a same-named
+legacy row as the built-in instead of colliding. Lesson for any seeder: a
+name-unique table plus historical data means adopt-or-skip, never blind
+create - and one early crash can disguise itself as ten unrelated failures.
+
 Phase 2 (next): the same mechanical guard across the remaining 19 areas.
 Admin and the owner always pass; the existing broad-capability guards stay
 as the floor, so nothing loosened anywhere.
