@@ -51,10 +51,22 @@ def format_request(r):
 @router.post("/", auth=None, response={201: dict, 400: dict, 429: dict})
 def create_access_request(request, payload: AccessRequestSchema):
     from django_ratelimit.decorators import is_ratelimited
-    if is_ratelimited(request, group='access_request', key='ip', rate='5/m', method='POST', increment=True):
-        return 429, {"detail": "Too many requests. Please wait 1 minute."}
+    # 3/h, not 5/m: this is a human filling in a signup form once, not an API.
+    # The old rate allowed 7200 submissions a day from one address.
+    if is_ratelimited(request, group='access_request', key='ip', rate='3/h', method='POST', increment=True):
+        return 429, {"detail": "Too many requests. Please try again later."}
 
     from accounts.access_requests import AccessRequest
+
+    # A resubmission of a pending address changes nothing and notifies nobody.
+    # Answered 201 all the same, so a probe cannot tell it was deduplicated.
+    existing = AccessRequest.objects.filter(
+        email__iexact=payload.email, status='pending',
+        created_at__gte=timezone.now() - timedelta(days=1),
+    ).first()
+    if existing:
+        return 201, format_request(existing)
+
     req = AccessRequest.objects.create(
         name=payload.name,
         company=payload.company,
@@ -62,22 +74,17 @@ def create_access_request(request, payload: AccessRequestSchema):
         phone=payload.phone,
         use_case=payload.use_case,
     )
-    # Send confirmation email to user
-    try:
-        from django.core.mail import send_mail
-        send_mail(
-            subject='We received your request — Avortyx',
-            message=f'Hi {payload.name},\n\nThank you for your interest in Avortyx. We have received your request and will review it shortly.\n\nYou will receive another email once your account has been approved.\n\nAvortyx Team',
-            from_email=settings.PLATFORM_FROM_EMAIL,
-            recipient_list=[payload.email],
-            fail_silently=True,
-        )
-    except Exception:
-        # Not fatal - the request is already saved. Logged because a silent
-        # failure here is indistinguishable from an email that was never sent.
-        logger.warning('access request ack email failed for %s', payload.email, exc_info=True)
 
-    # Notify admin
+    # No acknowledgement email. This endpoint is public, so the address is
+    # whatever a stranger typed: mailing it meant anyone could make the
+    # platform send mail to any address on earth, with their own text echoed
+    # in it, from our sender. Fake addresses bounced that mail straight back
+    # into the support inbox and burned the domain's sending reputation - the
+    # same reputation the invite and approval emails depend on. The requester
+    # hears from us when a human approves them, from a verified flow.
+
+    # Notify support - once. This block was duplicated, so every request
+    # arrived in the inbox twice.
     try:
         from django.core.mail import send_mail
         send_mail(
@@ -89,19 +96,6 @@ def create_access_request(request, payload: AccessRequestSchema):
         )
     except Exception:
         logger.warning('access request notification to support failed', exc_info=True)
-
-    # Notify admin
-    try:
-        from django.core.mail import send_mail
-        send_mail(
-            subject=f'New Access Request — {payload.name} from {payload.company}',
-            message=f'New access request received:\n\nName: {payload.name}\nCompany: {payload.company}\nEmail: {payload.email}\nPhone: {payload.phone}\nUse Case: {payload.use_case}\n\nLogin to review: {settings.PUBLIC_SITE_URL}/admin/access-requests',
-            from_email=settings.PLATFORM_FROM_EMAIL,
-            recipient_list=[settings.PLATFORM_SUPPORT_EMAIL],
-            fail_silently=False,
-        )
-    except Exception as e:
-        print('Admin email failed:', e)
 
     return 201, format_request(req)
 

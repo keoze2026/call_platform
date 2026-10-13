@@ -15,6 +15,9 @@ and the Stats API shipped the identical hole the same week.
 - [ ] Every response field named on the schema or passed as dict knowingly —
       Ninja silently drops undeclared keys (caller geo, CH-067)
 - [ ] Destructive actions: confirmed, logged, idempotent on retry (CH-085)
+- [ ] Never email an address a stranger typed into a public form - it is a
+      spam relay with our sender name, and fake addresses bounce back at
+      support and burn the domain's reputation (CH-110)
 
 ## Any new field or figure
 - [ ] It reaches all five layers or it vanishes: column → mirror → mirror

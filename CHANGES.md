@@ -5712,3 +5712,27 @@ HTTP repro printed the exact traceback on the first clean run. Lesson, again
 in a new costume: an endpoint that was never called in anger is an endpoint
 that was never tested - "the backend now exists" (OPEN-26) was true of the
 code and false of the proof.
+
+## CH-110 — The support inbox bounce flood: the public form was a mail cannon
+
+**2026-10-13 · Security · the Undelivered Mail flood**
+
+The support inbox filled with "Undelivered Mail Returned to Sender". Cause:
+`POST /api/accounts/access-requests/` (public, auth=None by design) sent a
+confirmation email to whatever address the submitter typed, unverified, with
+the submitter's own name echoed into the body. Anyone could make the platform
+mail any address on earth from our sender - and bots did, with fake
+addresses, so every ack bounced back at support and chipped at the sending
+reputation our invite and approval emails depend on. Probes are visible in
+the inbox ("Keozx Internal Audit", "probeorg").
+
+Four fixes in one pass: the ack email is gone (the requester hears from us
+at approval, a staff-verified flow); the support notification is sent once -
+the block was literally duplicated, which is why every request arrived
+twice; a pending address resubmitted within a day changes nothing and
+notifies nobody, answered 201 so a probe cannot tell; and the rate limit
+dropped from 5/min (7,200/day per IP) to 3/hour.
+
+`scripts/access_request_audit.py` lists recent submissions, to see who has
+been knocking and to clear the junk rows. Checklist line added: never email
+an address a stranger typed into a public form.
