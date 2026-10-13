@@ -35,11 +35,17 @@ worst = []
 for t in THEIRS:
     at = datetime.strptime(t['at'], '%Y-%m-%d %H:%M:%S').replace(tzinfo=EDT)
     digits = t['caller'][-10:]
+    # Match on the call's START. CallRecord.created_at is the mirror write,
+    # which happens at call END (CH-078) - matching on it pushed every long
+    # call outside the window. started_at holds the real start.
+    from django.db.models import Q, F
+    from django.db.models.functions import Coalesce
     ours = (CallRecord.objects
+            .annotate(begin=Coalesce('started_at', 'created_at'))
             .filter(caller_number__endswith=digits,
-                    created_at__gte=at - timedelta(minutes=6),
-                    created_at__lte=at + timedelta(minutes=6))
-            .order_by('created_at').first())
+                    begin__gte=at - timedelta(minutes=6),
+                    begin__lte=at + timedelta(minutes=6))
+            .order_by('begin').first())
     if ours is None:
         missing += 1
         if missing <= 8:
