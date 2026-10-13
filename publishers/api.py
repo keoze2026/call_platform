@@ -265,7 +265,7 @@ def remove_publisher_member(request: HttpRequest, publisher_id: str, data: Remov
     means the login is still live and it has to say so.
     """
     from accounts.models import User
-    from accounts.partner_access import revoke_partner_access
+    from accounts.partner_access import erase_partner_member
 
     require(request.auth, Capability.EDIT)
 
@@ -279,7 +279,7 @@ def remove_publisher_member(request: HttpRequest, publisher_id: str, data: Remov
         return 404, {"detail": f"{email} is not a member of this publisher.",
                      "code": "member_not_found"}
 
-    if not revoke_partner_access(user, reason='removed from publisher'):
+    if not erase_partner_member(user, reason='removed from publisher'):
         return 403, {"detail": "That account is a staff login and was not changed.",
                      "code": "not_a_partner"}
 

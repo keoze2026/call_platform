@@ -75,10 +75,14 @@ def revoke_partner_access(user, *, reason: str = '') -> bool:
     user.buyer = None
     user.publisher = None
     user.last_login = None
+    # is_active is what JWTAuth checks on every request, so this is the line
+    # that actually ends the open browser tab - the password and invite
+    # changes only stop the NEXT sign-in.
+    user.is_active = False
     user.invite_status = User.InviteStatus.REVOKED
     user.accepted_at = None
     user.save(update_fields=[
-        'password', 'buyer', 'publisher', 'last_login',
+        'password', 'buyer', 'publisher', 'last_login', 'is_active',
         'invite_status', 'accepted_at',
     ])
 
@@ -88,6 +92,32 @@ def revoke_partner_access(user, *, reason: str = '') -> bool:
         'revoked partner access for %s (%s sessions ended)%s',
         user.email, ended, f' - {reason}' if reason else '',
     )
+    return True
+
+
+def erase_partner_member(user, *, reason: str = '') -> bool:
+    """Members → Remove, done the way the owner specified: the account goes.
+
+    Revoking keeps the row (unusable password, revoked status), which meant
+    the email could not be invited fresh and the person's record lingered.
+    The owner's rule for partner members is stronger: email and password gone
+    from the server, the address re-invitable from scratch. Staff accounts
+    are refused exactly as in revoke_partner_access. Safe to delete: nothing
+    references User with PROTECT - ten SET_NULLs and two CASCADEs (setup
+    tokens, security profile), checked before this existed.
+
+    Open sessions die with the row: JWTAuth loads the user from the database
+    on every request, so the next poll gets 401 and the frontend signs them
+    out - that is the "within a few seconds" in the acceptance test.
+    """
+    if not is_partner_account(user):
+        logger.info('not erasing %s: role is %s, not a partner', user.email, user.role)
+        return False
+
+    email, user_id = user.email, user.id
+    user.delete()
+    logger.info('erased partner member %s (%s)%s',
+                email, user_id, f' - {reason}' if reason else '')
     return True
 
 

@@ -5812,3 +5812,31 @@ anyone could reset their passwords) and rejects the two probe access
 requests; evaslangat@gmail.com is left pending, it looks real. The server
 restart the security updates want is written up in `docs/SERVER_REBOOT.md`:
 quiet window, zero active calls, compose down, reboot, verify chain.
+
+## CH-115 — Removing a member now actually removes them
+
+**2026-10-13 · Security · reported by the owner via the frontend dev**
+
+Members -> Remove on a buyer or publisher cleared the row and the person
+kept using the portal on their open tab, could sign in again, and their
+email could not be invited fresh. Three gaps stacked:
+
+- `end_all_sessions` has always been a no-op: the token blacklist app is
+  not installed (known since CH-059), so "sessions ended: 0" every time.
+- JWTAuth never checked `is_active`. A token's signature stays valid for
+  its whole lifetime, and the per-request database lookup - the only place
+  a live session can be refused - accepted deactivated accounts.
+- Removal only revoked (unusable password, detached, REVOKED status). The
+  row stayed, so the address was never free to re-invite from scratch.
+
+Now: every auth class (JWT, capability, staff) refuses `is_active=False`
+on every request, so any deactivation ends open sessions within one poll.
+`revoke_partner_access` sets `is_active=False` too - whole-partner deletes
+now bite immediately. And Members -> Remove calls `erase_partner_member`,
+which deletes the partner account outright (staff refused, as before):
+email and password gone from the server, the address re-invitable fresh.
+Safe to delete - no FK references User with PROTECT, checked first.
+
+`scripts/member_removal_smoke.py` runs the owner's acceptance test over
+real HTTP: works, removed, open tab 401s, password refused, account gone,
+email reusable, and a deactivated account's token dies too.

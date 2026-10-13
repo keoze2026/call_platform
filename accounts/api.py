@@ -36,7 +36,11 @@ class JWTAuth(HttpBearer):
         try:
             validated = AccessToken(token)
             user = User.objects.select_related('organization').get(id=validated['user_id'])
-            if _org_suspended(user):
+            # A deactivated account's token keeps carrying a valid signature
+            # for its full lifetime - this lookup is the only place it can be
+            # refused, and until CH-115 it never was: removed members kept
+            # browsing on their open tab.
+            if not user.is_active or _org_suspended(user):
                 return None
             return user
         except (InvalidToken, TokenError, User.DoesNotExist):
@@ -64,7 +68,7 @@ class CapabilityAuth(HttpBearer):
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
 
-        if _org_suspended(user):
+        if not user.is_active or _org_suspended(user):
             return None
         if self.capability and not has(user, self.capability):
             return None
@@ -94,7 +98,7 @@ class StaffAuth(HttpBearer):
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
 
-        if not (user.is_superuser or user.is_staff):
+        if not user.is_active or not (user.is_superuser or user.is_staff):
             return None
         return user
 

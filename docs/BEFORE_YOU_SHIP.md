@@ -21,6 +21,9 @@ and the Stats API shipped the identical hole the same week.
 - [ ] Rate limits key on `config.ratelimit.client_ip`, never key='ip' -
       REMOTE_ADDR behind Cloudflare is a different edge node per request,
       so key='ip' throttles nobody (CH-111)
+- [ ] Taking access away must end the OPEN session, not just the next
+      sign-in: auth refuses is_active=False on every request, and partner
+      member removal deletes the account outright (CH-115)
 
 ## Any new field or figure
 - [ ] It reaches all five layers or it vanishes: column → mirror → mirror
