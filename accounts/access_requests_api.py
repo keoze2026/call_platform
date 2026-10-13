@@ -53,7 +53,9 @@ def create_access_request(request, payload: AccessRequestSchema):
     from django_ratelimit.decorators import is_ratelimited
     # 3/h, not 5/m: this is a human filling in a signup form once, not an API.
     # The old rate allowed 7200 submissions a day from one address.
-    if is_ratelimited(request, group='access_request', key='ip', rate='3/h', method='POST', increment=True):
+    if is_ratelimited(request, group='access_request',
+                      key='config.ratelimit.client_ip',
+                      rate='3/h', method='POST', increment=True):
         return 429, {"detail": "Too many requests. Please try again later."}
 
     from accounts.access_requests import AccessRequest

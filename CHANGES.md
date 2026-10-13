@@ -5736,3 +5736,27 @@ dropped from 5/min (7,200/day per IP) to 3/hour.
 `scripts/access_request_audit.py` lists recent submissions, to see who has
 been knocking and to clear the junk rows. Checklist line added: never email
 an address a stranger typed into a public form.
+
+## CH-111 — Every rate limit counted the proxy, not the visitor
+
+**2026-10-13 · Security · found by the CH-110 smoke test**
+
+The access-request smoke test sent four submissions and the fourth was not
+blocked. The counter and the cache were fine - the key was not: key='ip'
+reads REMOTE_ADDR, which behind Cloudflare is a different edge node per
+request, so every request counted against a fresh key and no limit could
+ever accumulate. This was not one endpoint: the login brute-force limit, MFA
+verify, both password-reset limits, contact, and both support-chat throttles
+were keyed the same way. Every throttle on the platform was decorative.
+
+All eight call sites now key on `config.ratelimit.client_ip`: Cloudflare's
+CF-Connecting-IP first, then the first X-Forwarded-For hop, then
+REMOTE_ADDR. One shared function, so the next endpoint cannot reintroduce
+the proxy key. `scripts/ratelimit_probe.py` proves the mechanism: five posts
+from one visitor at 3/h must read [pass, pass, pass, limited, limited] and a
+different visitor must still pass. Checklist line added.
+
+Lesson: a limit that has never been seen refusing a request is not known to
+exist. The smoke test asserted the 429, which is the only reason this
+surfaced - every earlier "rate limited" claim rested on the code reading as
+if it should work.

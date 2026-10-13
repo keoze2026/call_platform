@@ -141,7 +141,7 @@ def register(request: HttpRequest, data: RegisterSchema):
 @router.post("/login", response={200: dict, 400: dict, 429: dict}, auth=None)
 def login(request: HttpRequest, data: LoginSchema):
     from django_ratelimit.decorators import is_ratelimited
-    if is_ratelimited(request, group="login", key="ip", rate="5/m", method="POST", increment=True):
+    if is_ratelimited(request, group="login", key='config.ratelimit.client_ip', rate="5/m", method="POST", increment=True):
         return 429, {"detail": "Too many login attempts. Please wait 1 minute."}
     try:
         result, is_mfa = AuthService.login(
@@ -157,7 +157,7 @@ def login(request: HttpRequest, data: LoginSchema):
 @router.post("/verify-mfa", response={200: TokenResponseSchema, 400: dict, 429: dict}, auth=None)
 def verify_mfa(request: HttpRequest, data: VerifyMFASchema):
     from django_ratelimit.decorators import is_ratelimited
-    if is_ratelimited(request, group='verify_mfa', key='ip', rate='10/m', method='POST', increment=True):
+    if is_ratelimited(request, group='verify_mfa', key='config.ratelimit.client_ip', rate='10/m', method='POST', increment=True):
         return 429, {"detail": "Too many attempts. Please wait 1 minute."}
     try:
         tokens = AuthService.verify_mfa(data.temp_token, data.token, get_client_ip(request), get_user_agent(request))
@@ -295,7 +295,7 @@ def unlink_telegram(request: HttpRequest):
 def request_password_reset(request: HttpRequest, data: PasswordResetRequestSchema):
     """Request password reset email"""
     from django_ratelimit.decorators import is_ratelimited
-    if is_ratelimited(request, group='pw_reset_request', key='ip', rate='5/m', method='POST', increment=True):
+    if is_ratelimited(request, group='pw_reset_request', key='config.ratelimit.client_ip', rate='5/m', method='POST', increment=True):
         return 429, {"detail": "Too many reset requests. Please wait 1 minute."}
     PasswordResetService.request_reset(data.email)
     # Always return success for security (don't reveal if email exists)
@@ -309,7 +309,7 @@ def request_password_reset(request: HttpRequest, data: PasswordResetRequestSchem
 def confirm_password_reset(request: HttpRequest, data: PasswordResetConfirmSchema):
     """Confirm password reset with token"""
     from django_ratelimit.decorators import is_ratelimited
-    if is_ratelimited(request, group='pw_reset_confirm', key='ip', rate='10/m', method='POST', increment=True):
+    if is_ratelimited(request, group='pw_reset_confirm', key='config.ratelimit.client_ip', rate='10/m', method='POST', increment=True):
         return 429, {"detail": "Too many attempts. Please wait 1 minute."}
     try:
         PasswordResetService.confirm_reset(data.token, data.new_password)

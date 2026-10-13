@@ -13,7 +13,7 @@ class ContactSchema(Schema):
 @router.post("/", auth=None, response={201: dict, 422: dict, 429: dict})
 def contact(request, payload: ContactSchema):
     from django_ratelimit.decorators import is_ratelimited
-    if is_ratelimited(request, group='contact', key='ip', rate='100/m', method='POST', increment=True):
+    if is_ratelimited(request, group='contact', key='config.ratelimit.client_ip', rate='100/m', method='POST', increment=True):
         return 429, {"detail": "Too many requests. Please wait a minute."}
 
     name = payload.name.strip()

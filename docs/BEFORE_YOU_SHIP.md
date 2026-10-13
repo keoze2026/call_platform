@@ -18,6 +18,9 @@ and the Stats API shipped the identical hole the same week.
 - [ ] Never email an address a stranger typed into a public form - it is a
       spam relay with our sender name, and fake addresses bounce back at
       support and burn the domain's reputation (CH-110)
+- [ ] Rate limits key on `config.ratelimit.client_ip`, never key='ip' -
+      REMOTE_ADDR behind Cloudflare is a different edge node per request,
+      so key='ip' throttles nobody (CH-111)
 
 ## Any new field or figure
 - [ ] It reaches all five layers or it vanishes: column → mirror → mirror
