@@ -5855,3 +5855,24 @@ firefight - Django wanted to DROP a constraint that protects the roles
 store. Declaration restored; no migration, no SQL, the model simply tells
 the truth about the table again. `makemigrations --dry-run` on the server
 now reports no changes.
+
+## CH-116 — Stats API: /destinations, and buyers that show their capacity
+
+**2026-10-13 · API · asked for by the bot integration**
+
+Two additions to the key-authenticated read-only surface, both specified by
+the bot developer. `GET /api/stats/destinations`: one row per destination
+visible to the key - literally the same row `/tfn/{number}` serves, via the
+same `format_destination` with the grouped-counts fast path (CH-074 lesson,
+never five queries per row) - plus `incoming_calls`, the window figure from
+one grouped CallLog query. Filters `buyer_id`, `enabled`, `has_calls`. Cap
+counters stay on their natural windows so each number remains true to its
+cap; the window only drives `incoming_calls`.
+
+`GET /api/stats/buyers` rows gain `status` (the buyer record's own
+active/paused/archived), `concurrency_cap` and `live_calls` (both summed
+over the buyer's enabled destinations - the figures routing caps against),
+and `include_idle=true` appends zero rows for buyers silent in the window.
+Scoping unchanged: a key is its creator, a buyer key sees its own slice.
+`docs/STATS_API.md` sections 6 and 7; `scripts/stats_destinations_smoke.py`
+proves both with a minted-and-deleted key.

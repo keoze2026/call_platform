@@ -93,6 +93,35 @@ shows.
 
 ---
 
+## 6. GET /destinations — every destination with caps and calls
+
+One row per destination visible to the key — the same fields as
+`/tfn/{number}`: `id`, `tfn`, `name`, `buyer_id`, `buyer_name`, `enabled`,
+`concurrency_cap`, `live_calls`, `daily_cap`, `daily_calls`, `monthly_cap`,
+`monthly_calls`, `global_cap`, `global_calls` — plus `incoming_calls`, the
+calls that reached the TFN in the date window (`date_from`/`date_to`,
+defaulting to today in `timezone_name`). Cap counters stay on their natural
+windows (today, this month, all time) whatever window you ask for;
+`incoming_calls` is the window figure.
+
+Filters: `buyer_id=<uuid>`, `enabled=true|false`, `has_calls=true` (only
+destinations that received calls in the window). A buyer-created key sees
+only that buyer's destinations.
+
+    curl -H "Authorization: Bearer $KEY" \
+      "https://avortyx.io/api/stats/destinations?has_calls=true&date_from=2026-10-01"
+
+## 7. GET /buyers — extra fields and include_idle
+
+Every `/buyers` row now also carries `status` (`active` / `paused` /
+`archived`), `concurrency_cap` (summed over the buyer's enabled
+destinations) and `live_calls` (summed the same way — the figure routing
+caps against). Pass `include_idle=true` to also get buyers with no calls in
+the window, as rows with zero counters.
+
+    curl -H "Authorization: Bearer $KEY" \
+      "https://avortyx.io/api/stats/buyers?include_idle=true"
+
 ## Ground rules
 
 - **Read-only.** These endpoints change nothing.

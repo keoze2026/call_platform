@@ -59,7 +59,8 @@ def index(request: HttpRequest):
         "documentation": "docs/STATS_API.md in the backend repository",
         "endpoints": [
             "GET /api/stats/campaigns?date_from&date_to&timezone_name",
-            "GET /api/stats/buyers?date_from&date_to&timezone_name",
+            "GET /api/stats/buyers?date_from&date_to&timezone_name&include_idle",
+            "GET /api/stats/destinations?date_from&date_to&timezone_name&buyer_id&enabled&has_calls",
             "GET /api/stats/missed?date_from&date_to&timezone_name",
             "GET /api/stats/tfn/{number}",
             "GET /api/stats/concurrency",
@@ -86,11 +87,130 @@ def campaigns(request: HttpRequest, date_from: str = None, date_to: str = None,
 
 @stats_router.get("/buyers", response={200: list})
 def buyers(request: HttpRequest, date_from: str = None, date_to: str = None,
-           timezone_name: str = None):
-    """Every buyer with caller statistics - same field meanings as /campaigns."""
+           timezone_name: str = None, include_idle: bool = False):
+    """Every buyer with caller statistics - same field meanings as /campaigns.
+
+    Each row also carries `status` (active / paused / archived),
+    `concurrency_cap` (summed over the buyer's enabled destinations) and
+    `live_calls` (summed the same way, the figure routing caps against).
+    `include_idle=true` adds buyers with no calls in the window as zero rows.
+    """
+    from django.db.models import Sum
     from analytics.services import AnalyticsService
-    return 200, AnalyticsService.get_buyer_performance(
+    from accounts.permissions import scope_queryset
+    from buyers.models import Buyer
+    from buyers.destination import Destination
+
+    rows = AnalyticsService.get_buyer_performance(
         request.auth, _filters(date_from, date_to, timezone_name))
+
+    # The same slice the key's creator sees: a buyer key gets its own buyer.
+    visible = scope_queryset(
+        request.auth,
+        Buyer.objects.filter(organization=request.auth.organization),
+        buyer_field='id', publisher_field=None,
+    )
+    status_by_id = {b.id: b.status for b in visible}
+    caps = {
+        r['buyer_id']: r for r in
+        Destination.objects.filter(organization=request.auth.organization,
+                                   enabled=True, buyer_id__in=status_by_id)
+        .values('buyer_id')
+        .annotate(cc=Sum('concurrency_cap'), live=Sum('live_calls'))
+    }
+
+    seen = set()
+    for row in rows:
+        bid = row.get('buyer_id')
+        seen.add(bid)
+        cap_row = caps.get(bid, {})
+        row['status'] = status_by_id.get(bid)
+        row['concurrency_cap'] = cap_row.get('cc', 0) or 0
+        row['live_calls'] = cap_row.get('live', 0) or 0
+
+    if include_idle:
+        for b in visible:
+            if b.id in seen:
+                continue
+            cap_row = caps.get(b.id, {})
+            rows.append({
+                'buyer_id': b.id, 'buyer_name': b.name,
+                'status': b.status,
+                'concurrency_cap': cap_row.get('cc', 0) or 0,
+                'live_calls': cap_row.get('live', 0) or 0,
+                'total_calls': 0, 'connected_calls': 0,
+                'not_connected_calls': 0, 'converted': 0,
+            })
+    return 200, rows
+
+
+@stats_router.get("/destinations", response={200: list})
+def destinations(request: HttpRequest, date_from: str = None, date_to: str = None,
+                 timezone_name: str = None, buyer_id: str = None,
+                 enabled: bool = None, has_calls: bool = False):
+    """One row per destination visible to the key - the same fields as
+    /tfn/{number} - plus `incoming_calls`, the calls that reached the TFN in
+    the date window (defaulting to today in `timezone_name`).
+
+    Filters: `buyer_id`, `enabled=true|false`, and `has_calls=true` to keep
+    only destinations that received calls in the window. A buyer-created key
+    sees only that buyer's destinations, same as the Destinations page.
+    """
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    from buyers.destination import Destination
+    from buyers.destinations_api import format_destination, gather_destination_counts
+    from accounts.permissions import scope_queryset
+    from analytics.services import mask_partner_money
+
+    qs = scope_queryset(
+        request.auth,
+        Destination.objects.select_related('buyer')
+        .filter(organization=request.auth.organization),
+        buyer_field='buyer_id', publisher_field=None,
+    )
+    if buyer_id:
+        qs = qs.filter(buyer_id=buyer_id)
+    if enabled is not None:
+        qs = qs.filter(enabled=enabled)
+    dests = list(qs.order_by('name'))
+
+    # Cap counters (live/hourly/daily/monthly/all-time) in grouped queries,
+    # on their natural windows so each number stays true to its cap.
+    tfns = [d.tfn for d in dests if d.tfn]
+    counts = gather_destination_counts(request.auth.organization, tfns)
+
+    # The requested window, one grouped query - same day-cut convention as
+    # format_destination: the reader's timezone, defaulting to today.
+    try:
+        tz = ZoneInfo(timezone_name or 'America/New_York')
+    except Exception:
+        tz = ZoneInfo('America/New_York')
+    local_now = timezone.localtime(timezone.now(), tz)
+    if date_from:
+        window_start = datetime.fromisoformat(date_from + 'T00:00:00').replace(tzinfo=tz)
+    else:
+        window_start = local_now.replace(hour=0, minute=0, second=0, microsecond=0)
+    window = Q(created_at__gte=window_start)
+    if date_to:
+        window &= Q(created_at__lte=datetime.fromisoformat(date_to + 'T23:59:59').replace(tzinfo=tz))
+    incoming = dict(
+        CallLog.objects.filter(organization=request.auth.organization,
+                               destination_number__in=tfns)
+        .filter(window)
+        .values_list('destination_number')
+        .annotate(c=Count('id'))
+    )
+
+    rows = []
+    for d in dests:
+        n = incoming.get(d.tfn, 0)
+        if has_calls and n == 0:
+            continue
+        row = format_destination(d, counts=counts)
+        row['incoming_calls'] = n
+        rows.append(mask_partner_money(request.auth, row))
+    return 200, rows
 
 
 @stats_router.get("/missed", response={200: dict})
