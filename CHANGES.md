@@ -5912,3 +5912,21 @@ answer for 23 JUNE (old vs new counting per limit, stuck live rows listed);
 --smoke proves all four behaviours through the real engine with a throwaway
 campaign. Lesson for the checklist era: one error string serving four causes
 is how a billing dispute starts - a refusal must name the limit that refused.
+
+## CH-118 — The cap counted the caller against themselves: CC=5 behaved as 4
+
+**2026-10-13 · Routing · the boss's team, verbatim: "not coming above 4 cc"**
+
+The inbound handler writes the call's own row (status RINGING) before the
+engine runs, and the campaign concurrency check counted RINGING rows - so
+the newcomer always counted against the cap they were being admitted to. At
+4 real calls the 5th caller's own row read as the 5th live call and the
+engine refused: a CC of N could never fill past N-1, deterministically,
+which is why the team saw the portal "stuck at 4". The CH-117 forensics
+read "genuinely filled 5/5 in the burst" - wrong by one: those refusals
+began at 4 real calls plus the caller themselves.
+
+`check_campaign_caps` now takes the routed call's sid and excludes that row
+from the live count. The buyer and destination CC checks never had the bug:
+the row has no buyer or destination_number until after the decision. Smoke
+extended: 4 live plus the caller routes, 5 live plus the caller refuses.

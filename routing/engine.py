@@ -145,8 +145,11 @@ class RoutingEngine:
         pass
     
     @staticmethod
-    def check_campaign_caps(campaign):
+    def check_campaign_caps(campaign, current_sid=None):
         """The reason this campaign cannot take another call, or None.
+
+        `current_sid` is the call being routed, excluded from the live count -
+        its row already exists by the time this check runs.
 
         'Campaign cap reached' is reserved for a FULL concurrency limit - the
         only refusal the portal may show as Overflow Missed. The owner's rule,
@@ -194,13 +197,19 @@ class RoutingEngine:
         # a missing end-of-call webhook cannot block a campaign for ever.
         if cap.max_concurrency > 0:
             from datetime import timedelta
-            live = CallLog.objects.filter(
+            live_qs = CallLog.objects.filter(
                 campaign=campaign,
                 status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
                 ended_at__isnull=True,
                 created_at__gte=timezone.now() - timedelta(hours=4),
-            ).count()
-            if live >= cap.max_concurrency:
+            )
+            # The call being routed already has its own row, written on arrival
+            # with status RINGING - counting it made every cap off by one: at 4
+            # real calls the newcomer's own row read as the 5th and CC=5 could
+            # never fill. The boss's team, verbatim: "not coming above 4 cc".
+            if current_sid:
+                live_qs = live_qs.exclude(twilio_call_sid=current_sid)
+            if live_qs.count() >= cap.max_concurrency:
                 return 'Campaign cap reached'
 
         return None
@@ -678,7 +687,8 @@ class RoutingEngine:
                 return {'destination': None, 'rule': None, 'error': 'Duplicate call blocked'}
             if trace: trace.step('duplicate', True)
 
-        cap_reason = RoutingEngine.check_campaign_caps(campaign)
+        cap_reason = RoutingEngine.check_campaign_caps(
+            campaign, current_sid=call_data.get('twilio_call_sid'))
         if cap_reason:
             if trace: trace.step('campaign_cap', False, cap_reason.lower())
             return {'destination': None, 'rule': None, 'error': cap_reason}

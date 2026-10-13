@@ -123,9 +123,9 @@ def smoke():
 
     def mklog(**kw):
         # twilio_call_sid is unique on the table, so every row needs its own.
+        kw.setdefault('twilio_call_sid', f'droplabel-{_uuid.uuid4()}')
         return CallLog.objects.create(
-            organization=org, caller_number='x', called_number='y',
-            twilio_call_sid=f'droplabel-{_uuid.uuid4()}', **kw)
+            organization=org, caller_number='x', called_number='y', **kw)
 
     camp = Campaign.objects.create(organization=org, name='DROPLABEL SMOKE')
     cap = CampaignCap.objects.create(campaign=camp)
@@ -169,6 +169,23 @@ def smoke():
         mklog(campaign=camp, status='in_progress', destination_number=tfn)
         r = RoutingEngine.route_call(str(camp.id), dict(caller))
         check('campaign cc full -> overflow  ', r['error'], 'Campaign cap reached')
+
+        # 5. The off-by-one the boss's team caught: "not coming above 4 cc".
+        # The caller's own row exists (status ringing) before the check runs;
+        # it must not count against the campaign's CC.
+        CallLog.objects.filter(campaign=camp, status__in=['in_progress', 'ringing']).delete()
+        cap.max_concurrency = 5
+        cap.save()
+        for _ in range(4):
+            mklog(campaign=camp, status='in_progress')
+        mklog(campaign=camp, status='ringing', twilio_call_sid='droplabel-self')
+        with_self = dict(caller)
+        with_self['twilio_call_sid'] = 'droplabel-self'
+        r = RoutingEngine.route_call(str(camp.id), dict(with_self))
+        check('4 live + itself routes (5th)  ', r['error'], None)
+        mklog(campaign=camp, status='in_progress')
+        r = RoutingEngine.route_call(str(camp.id), dict(with_self))
+        check('5 live + itself refuses (6th) ', r['error'], 'Campaign cap reached')
     finally:
         CallLog.objects.filter(campaign=camp).delete()
         camp.delete()
