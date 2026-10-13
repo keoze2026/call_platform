@@ -5930,3 +5930,22 @@ began at 4 real calls plus the caller themselves.
 from the live count. The buyer and destination CC checks never had the bug:
 the row has no buyer or destination_number until after the decision. Smoke
 extended: 4 live plus the caller routes, 5 live plus the caller refuses.
+
+## CH-119 — TTC closed for good: two platforms, two legs, both honest
+
+**2026-10-13 · Reporting · the owner's "0 sec TTC is fake data" with the Revo export**
+
+The owner compared our call log against the downstream platform's excel for
+the same day and the TTCs disagreed: ours 0s, theirs 18-22s. Their own
+export settles it: their "Dialed" column is 18779641530 - the number WE
+forward to. The chain is caller -> our TFN -> their intake line (a machine,
+answers instantly - our honest 0s) -> their system rings the real buyers
+(Q24, CDM... 18-22s of ring - their honest TTC). Same callers, same
+minutes, verified row against row. Two legs of one call; neither figure is
+fake and they can never match while we hand calls to a platform mid-chain.
+
+Also proven on the way (CDR cross-check): every error in our TTC can only
+inflate it, never deflate - webhook delay adds seconds - so 154 answered
+calls all reading exactly 0 was itself proof the dialed endpoint answers
+instantly. Our TTC will read like theirs the day Avortyx routes straight to
+the end buyers' numbers. Until then: our TTC measures OUR leg, by design.
