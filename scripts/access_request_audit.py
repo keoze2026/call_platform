@@ -19,6 +19,12 @@ django.setup()
 
 from accounts.access_requests import AccessRequest  # noqa: E402
 
+if '--cleanup' in sys.argv:
+    gone, _ = AccessRequest.objects.filter(
+        email__iendswith='@smoke-test.invalid').delete()
+    print(f'smoke-test rows removed: {gone}')
+    raise SystemExit(0)
+
 total = AccessRequest.objects.count()
 pending = AccessRequest.objects.filter(status='pending').count()
 print(f'access requests: {total} total, {pending} pending')
