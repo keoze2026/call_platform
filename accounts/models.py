@@ -242,6 +242,17 @@ class CustomRole(models.Model):
     class Meta:
         db_table = 'custom_roles'
         unique_together = ('organization', 'name')
+        constraints = [
+            # Added by 0012 and still in the database - the declaration fell
+            # out of this Meta during the CH-105 seeding firefight, which made
+            # every migrate warn about unreflected changes. One workspace can
+            # hold each built-in slug once; NULL slugs (custom roles) are free.
+            models.UniqueConstraint(
+                fields=['organization', 'slug'],
+                condition=models.Q(slug__isnull=False),
+                name='one_builtin_slug_per_org',
+            ),
+        ]
 
 
 # Avatar field added to existing User model via migration

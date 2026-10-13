@@ -5847,3 +5847,11 @@ its AlterField. Choices-only, zero SQL, but unrecorded state means every
 future makemigrations would bundle it into something unrelated. Recorded
 as accounts 0013. Lesson: read the whole migrate output, not just the OK -
 the warning had been printing since phase 1.
+
+**CH-115 addendum 2:** the drift warning had a second cause the dry run
+exposed: `one_builtin_slug_per_org` lives in the database (0012) but its
+declaration fell out of CustomRole's Meta during the CH-105 seeding
+firefight - Django wanted to DROP a constraint that protects the roles
+store. Declaration restored; no migration, no SQL, the model simply tells
+the truth about the table again. `makemigrations --dry-run` on the server
+now reports no changes.
