@@ -127,6 +127,16 @@ def smoke():
         return CallLog.objects.create(
             organization=org, caller_number='x', called_number='y', **kw)
 
+    def sweep():
+        # Buyer deletion SET_NULLs its destinations, so the smoke TFN survived
+        # one run as an enabled orphan and its unique constraint blocked the
+        # next. Clean slate first, same sweep again at the end.
+        CallLog.objects.filter(twilio_call_sid__startswith='droplabel-').delete()
+        Destination.objects.filter(organization=org, tfn='15550009999').delete()
+        Campaign.objects.filter(organization=org, name='DROPLABEL SMOKE').delete()
+        Buyer.objects.filter(organization=org, name='DROPLABEL BUYER').delete()
+
+    sweep()
     camp = Campaign.objects.create(organization=org, name='DROPLABEL SMOKE')
     cap = CampaignCap.objects.create(campaign=camp)
     buyer = Buyer.objects.create(organization=org, name='DROPLABEL BUYER', status='active')
@@ -187,9 +197,7 @@ def smoke():
         r = RoutingEngine.route_call(str(camp.id), dict(with_self))
         check('5 live + itself refuses (6th) ', r['error'], 'Campaign cap reached')
     finally:
-        CallLog.objects.filter(campaign=camp).delete()
-        camp.delete()
-        buyer.delete()
+        sweep()
         print('smoke objects deleted')
     print('ALL GREEN' if fail == 0 else f'{fail} FAILURES')
     sys.exit(1 if fail else 0)
