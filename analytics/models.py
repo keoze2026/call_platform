@@ -122,6 +122,8 @@ class CallRecord(models.Model):
     status          = models.CharField(max_length=20, choices=Status.choices, default=Status.IN_PROGRESS)
     routing_type    = models.CharField(max_length=20, choices=RoutingType.choices, blank=True)
     duration_seconds = models.IntegerField(default=0)
+    # Switch-measured ring of the outbound leg (CH-120); null = unknown.
+    ring_seconds = models.IntegerField(null=True, blank=True)
     billable_seconds = models.IntegerField(default=0)
     is_converted    = models.BooleanField(default=False)
     is_qualified    = models.BooleanField(default=False)

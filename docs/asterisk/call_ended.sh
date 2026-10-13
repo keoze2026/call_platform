@@ -12,6 +12,9 @@ DURATION="${2:-0}"
 DIALSTATUS="$3"
 RECORDING_URL="$4"
 CALLER="$5"
+# DIALEDTIME - ANSWEREDTIME = the outbound leg's ring, measured by the
+# switch. This is the TTC the downstream platform reports for its own leg.
+DIALED="${6:-0}"
 
 if [ "$DURATION" -gt 0 ] 2>/dev/null || [ "$DIALSTATUS" = "ANSWERED" ] || [ "$DIALSTATUS" = "ANSWER" ]; then
     ANSWERED="true"
@@ -19,6 +22,6 @@ else
     ANSWERED="false"
 fi
 
-PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'call_log_id': sys.argv[1], 'duration': int(sys.argv[2] or 0), 'answered': sys.argv[3]=='true', 'recording_url': sys.argv[4], 'caller': sys.argv[5]}))" "$CALL_LOG_ID" "$DURATION" "$ANSWERED" "$RECORDING_URL" "$CALLER")
+PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'call_log_id': sys.argv[1], 'duration': int(sys.argv[2] or 0), 'answered': sys.argv[3]=='true', 'recording_url': sys.argv[4], 'caller': sys.argv[5], 'dialed_seconds': int(sys.argv[6] or 0)}))" "$CALL_LOG_ID" "$DURATION" "$ANSWERED" "$RECORDING_URL" "$CALLER" "$DIALED")
 
 curl -s -X POST -H "Content-Type: application/json" -H "X-Asterisk-Secret: 4DZDdyfcLaIoKekpZhAWnuGGLOZv_tIgBgblX2ObrjA" -d "$PAYLOAD" http://127.0.0.1:8000/api/twilio/asterisk/call-ended/ >> /tmp/call_end_debug.log 2>&1

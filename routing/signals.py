@@ -108,6 +108,8 @@ def mirror_call_log(call_log_id) -> bool:
             'publisher_name': call.publisher.name if call.publisher_id else '',
             'status': STATUS_MAP.get(call.status, CallRecord.Status.FAILED),
             'duration_seconds': call.duration or 0,
+            # Switch-measured ring (CH-120); null until the dialplan sent it.
+            'ring_seconds': call.ring_seconds,
             'is_converted': _is_converted(call),
             # Qualified means an answered call from a new caller: answered, and
             # not a repeat inside the campaign's duplicate window. The Qualified

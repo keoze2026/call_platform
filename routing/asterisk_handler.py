@@ -372,6 +372,15 @@ def call_ended(request):
     call_log.ended_at = timezone.now()
     if answered and not call_log.answered_at:
         call_log.answered_at = timezone.now() - timezone.timedelta(seconds=duration)
+    # Switch-measured ring: DIALEDTIME covers the whole Dial (ring + talk),
+    # ANSWEREDTIME the talk alone; the difference is how long the dialed line
+    # rang. Stored only when the dialplan sent it (old shell omits it).
+    try:
+        dialed_seconds = int(data.get('dialed_seconds') or 0)
+    except (TypeError, ValueError):
+        dialed_seconds = 0
+    if answered and dialed_seconds >= duration > 0:
+        call_log.ring_seconds = dialed_seconds - duration
 
     if recording_url:
         # Asterisk was sending `https` - the URL truncated at the first colon by

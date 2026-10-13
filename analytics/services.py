@@ -1299,11 +1299,13 @@ class AnalyticsService:
             'ended_at':         r.ended_at,
             'created_at':       r.created_at,
             'ipqs_line_type':   r.ipqs_line_type,
-            # Seconds the caller waited before pickup, measured exactly as the
-            # backend export measures it. The table was inventing this from a
-            # hash of the id - the same disease as the old Live column. None
-            # for a call never answered; a dash is honest there.
+            # Seconds the caller waited before pickup. Preferred source: the
+            # ring the switch itself measured on the outbound leg (CH-120,
+            # DIALEDTIME - ANSWEREDTIME), the same leg-for-leg figure the
+            # downstream platform reports. Older calls fall back to
+            # answered-minus-started. None for a call never answered.
             'ttc': (
+                r.ring_seconds if r.ring_seconds is not None and r.answered_at else
                 max(0, int((r.answered_at - (r.started_at or r.created_at)).total_seconds()))
                 if r.answered_at and (r.started_at or r.created_at) else None
             ),
@@ -1389,14 +1391,20 @@ class AnalyticsService:
             # which would read as "answered instantly".
             ttc = ''
             answered_at = getattr(r, 'answered_at', None)
-            # CallRecord.created_at is auto_now_add - the moment the mirror row
-            # was written, which is when the call ENDED. Measuring from it made
-            # every TTC negative and `max(0, ...)` printed 0 on every answered
-            # call. started_at holds the real start, same Coalesce the reports
-            # bucket on.
-            call_start = getattr(r, 'started_at', None) or r.created_at
-            if answered_at and call_start:
-                ttc = max(0, int((answered_at - call_start).total_seconds()))
+            ring = getattr(r, 'ring_seconds', None)
+            if ring is not None and answered_at:
+                # Switch-measured (CH-120) - same figure, same source quality
+                # as the downstream platform's own TTC column.
+                ttc = ring
+            else:
+                # CallRecord.created_at is auto_now_add - the moment the mirror
+                # row was written, which is when the call ENDED. Measuring from
+                # it made every TTC negative and `max(0, ...)` printed 0 on
+                # every answered call. started_at holds the real start, same
+                # Coalesce the reports bucket on.
+                call_start = getattr(r, 'started_at', None) or r.created_at
+                if answered_at and call_start:
+                    ttc = max(0, int((answered_at - call_start).total_seconds()))
 
             row = [
                 timezone.localtime(r.created_at, tz).strftime('%Y-%m-%d %H:%M:%S'),

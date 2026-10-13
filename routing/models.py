@@ -157,6 +157,10 @@ class CallLog(models.Model):
 
     # Duration and cost
     duration = models.IntegerField(default=0)
+    # Ring of OUR outbound leg, stamped by the switch itself: DIALEDTIME minus
+    # ANSWEREDTIME from the dialplan. Null = the call predates the measurement
+    # or was never answered; display falls back to answered_at - started_at.
+    ring_seconds = models.IntegerField(null=True, blank=True)
     twilio_cost = models.DecimalField(max_digits=10, decimal_places=4, default=0.0000)
     # What this call actually cost the client, written when the charge succeeds.
     # Recomputing it from duration and the current rate meant the figure moved

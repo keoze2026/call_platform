@@ -5949,3 +5949,28 @@ inflate it, never deflate - webhook delay adds seconds - so 154 answered
 calls all reading exactly 0 was itself proof the dialed endpoint answers
 instantly. Our TTC will read like theirs the day Avortyx routes straight to
 the end buyers' numbers. Until then: our TTC measures OUR leg, by design.
+
+## CH-120 — TTC measured by the switch, leg for leg like the downstream platform
+
+**2026-10-14 · Reporting · the owner: "Fix like them so we can get TTC too"**
+
+After CH-119 settled that both TTCs were honest halves of one call, the
+owner asked for ours to be measured the way theirs is. Now it is: the
+dialplan passes DIALEDTIME alongside ANSWEREDTIME, and their difference -
+the outbound leg's ring, stamped by Asterisk itself - lands on
+`CallLog.ring_seconds` (routing 0014), mirrors to `CallRecord.ring_seconds`
+(analytics 0019), and both the call-log API and the CSV export prefer it
+over the old derived answered-minus-started, which stays as the fallback
+for history and for the old shell. All five layers of the field chain
+walked deliberately: column, mirror, mirror default (null = unknown),
+formatter x2, schema (ttc already declared).
+
+Honest expectation set with the owner: through the downstream platform's
+intake line this still reads 0, because that line answers instantly and the
+switch will now prove it per call. Real ring numbers appear the day calls
+route straight to the end buyers' numbers.
+
+Deploy needs three pieces: migrate, the new call_ended.sh copied to
+/usr/local/bin, and one dialplan line gaining "${DIALEDTIME}" + reload -
+the paste edits that line in place with sed and backs the file up first,
+never overwriting a dialplan file wholesale.
