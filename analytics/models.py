@@ -165,4 +165,41 @@ class CallRecord(models.Model):
 
     def __str__(self):
         return f"{self.caller_number} → {self.campaign_name} ({self.status})"
+
+
+class GuestVisit(models.Model):
+    """One row per anonymous visitor, page and day, with a counter.
+
+    The owner's question is "how many times does the same person query the
+    page" - so the row is the answer: ip + page + day, count incremented in
+    place rather than a new row per hit. Logged-in traffic is skipped.
+    Country comes free from Cloudflare's CF-IPCountry header.
+    """
+    id = models.BigAutoField(primary_key=True)
+    ip = models.GenericIPAddressField()
+    country = models.CharField(max_length=8, blank=True, default='')
+    page = models.CharField(max_length=300)
+    day = models.DateField()
+    count = models.PositiveIntegerField(default=1)
+    first_seen = models.DateTimeField(auto_now_add=True)
+    last_seen = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'guest_visits'
+        ordering = ['-last_seen']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['ip', 'page', 'day'],
+                name='one_guest_visit_per_ip_page_day',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['day'], name='guestvisit_day_idx'),
+            models.Index(fields=['ip'], name='guestvisit_ip_idx'),
+        ]
+
+    def __str__(self):
+        return f"{self.ip} {self.page} {self.day} x{self.count}"
+
+
 from .scheduled_reports import ScheduledReport

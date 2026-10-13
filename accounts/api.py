@@ -16,6 +16,18 @@ from .services import (
 from .models import User, ActivityLog
 from ninja.security import HttpBearer
 
+def _org_suspended(user) -> bool:
+    """A suspended organization's logins stop here, owner excepted.
+
+    This is what the owner's Suspend button actually does - without this
+    check it would only change a flag nobody read (the toggle-with-nothing-
+    behind-it mistake, CH-092).
+    """
+    return (user.organization_id is not None
+            and not user.is_superuser
+            and not user.organization.is_active)
+
+
 class JWTAuth(HttpBearer):
     def authenticate(self, request, token):
         from rest_framework_simplejwt.tokens import AccessToken
@@ -23,7 +35,9 @@ class JWTAuth(HttpBearer):
         from .models import User
         try:
             validated = AccessToken(token)
-            user = User.objects.get(id=validated['user_id'])
+            user = User.objects.select_related('organization').get(id=validated['user_id'])
+            if _org_suspended(user):
+                return None
             return user
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
@@ -46,10 +60,12 @@ class CapabilityAuth(HttpBearer):
         from .models import User
         try:
             validated = AccessToken(token)
-            user = User.objects.get(id=validated['user_id'])
+            user = User.objects.select_related('organization').get(id=validated['user_id'])
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
 
+        if _org_suspended(user):
+            return None
         if self.capability and not has(user, self.capability):
             return None
         return user

@@ -5760,3 +5760,55 @@ Lesson: a limit that has never been seen refusing a request is not known to
 exist. The smoke test asserted the 429, which is the only reason this
 surfaced - every earlier "rate limited" claim rested on the code reading as
 if it should work.
+
+## CH-112 — Guest visitor tracking, as agreed with the boss
+
+**2026-10-13 · Analytics · owner milestone side-dish**
+
+The design the boss approved, built exactly: `GuestVisitMiddleware` (last in
+the stack, observe-only) records every request that carries no login - real
+IP via `config.ratelimit.client_ip`, country free from Cloudflare's
+CF-IPCountry header, the page and the day - as ONE row per ip+page+day with
+a counter, so "the same person queried the pricing page 14 times today" is
+one row reading 14. Webhooks, Asterisk callbacks and static files are
+skipped as noise. Every middleware failure is swallowed and logged: tracking
+must never break the page it tracks. Model `GuestVisit` (analytics 0018),
+read at `GET /api/owner/guest-visits` (owner only; day/q filters, totals).
+Known honest limit, told to the boss at agreement: one person on mobile data
+can appear as two or three IPs; an office can share one.
+
+## CH-113 — Owner M1: Organizations, full CRUD, and suspension that bites
+
+**2026-10-13 · Owner portal · M1 of M0→M8**
+
+The milestone list, recorded here at last because only the chat held it:
+M0 foundation (done), M1 organizations (this entry), M2 users & access,
+then the Owner Dashboard, M3 carriers & whitelisting, M4 numbers with the
+expiring view, M5 calls/routing/blocking, M6 billing oversight, M7
+notifications, M8 platform health. Order M0 → M1 → M2 → Dashboard → rest.
+
+M1 endpoints, all behind the superuser gate: list organizations (users,
+balance, rate, markup, calls today, revenue today - grouped queries, one
+per table), create (unique name, slugged, billing account attached,
+optional admin invite reusing the set-password token flow with the full
+email as username - local parts collide), detail, PATCH of the whitelisted
+billing fields only (balance and Stripe ids are unreachable; balance moves
+solely through credit/debit, each leaving a completed ADJUSTMENT
+transaction with before/after under a row lock), suspend and activate.
+
+Suspension actually suspends: JWTAuth and CapabilityAuth refuse tokens of a
+suspended organization's users (owner excepted), so every login dies the
+moment the switch flips - not a flag nobody reads (the CH-092 lesson). The
+owner's own workspace refuses suspension. `scripts/owner_m1_smoke.py`
+proves all of it over HTTP, then deletes its throwaway org.
+
+## CH-114 — Housekeeping: test logins revoked, junk rejected, reboot runbook
+
+**2026-10-13 · Process ·**
+
+`scripts/cleanup_test_partners.py` deactivates the four temp partner logins
+(mkwbuyer1, adc11test, mkwpub1, mkwadc11 - mailnesia inboxes are public, so
+anyone could reset their passwords) and rejects the two probe access
+requests; evaslangat@gmail.com is left pending, it looks real. The server
+restart the security updates want is written up in `docs/SERVER_REBOOT.md`:
+quiet window, zero active calls, compose down, reboot, verify chain.

@@ -129,6 +129,10 @@ MIDDLEWARE = [
     'accounts.current_request.CurrentRequestMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # Last on purpose: it only observes. Counts anonymous requests per
+    # ip+page+day for the owner's guest-visits view, and swallows every one
+    # of its own errors - tracking must never break the page it tracks.
+    'analytics.guest_tracking.GuestVisitMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
