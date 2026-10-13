@@ -128,6 +128,16 @@ def route_incoming_call(request):
         # refused stays a failed row with its reason.
         if reason == 'Duplicate call':
             call_log.status = CallLog.Status.NO_ANSWER
+        elif reason.startswith('Destination missed'):
+            # The owner's rule: the buyer's line could not take the call, so
+            # it is MISSED on that line - status missed, TFN and buyer stamped
+            # so the mirror and every report count it against them, not shown
+            # as an anonymous platform drop.
+            call_log.status = CallLog.Status.NO_ANSWER
+            call_log.destination_number = decision.get('refused_destination') or ''
+            refused_buyer = decision.get('refused_buyer')
+            if refused_buyer is not None:
+                call_log.buyer = refused_buyer
         else:
             call_log.status = CallLog.Status.FAILED
         call_log.block_reason = reason[:100]
@@ -135,6 +145,7 @@ def route_incoming_call(request):
         call_log.routing_trace = trace.as_dict(selected=None)
         call_log.save(update_fields=[
             'status', 'block_reason', 'ended_at', 'routing_trace', 'updated_at',
+            'destination_number', 'buyer',
         ])
         # The rejected-call fee, off the call path. The refusal is already
         # decided and returned either way; the worker takes the fee.

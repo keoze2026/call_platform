@@ -145,35 +145,44 @@ class RoutingEngine:
         pass
     
     @staticmethod
-    def check_campaign_caps(campaign) -> bool:
+    def check_campaign_caps(campaign):
+        """The reason this campaign cannot take another call, or None.
+
+        'Campaign cap reached' is reserved for a FULL concurrency limit - the
+        only refusal the portal may show as Overflow Missed. The owner's rule,
+        verbatim: "Overflow drop only possible when camp given cc is full."
+        The volume limits answer with their own words.
+
+        The volume counts take only calls that were actually dispatched to a
+        destination. Every refusal of ours - no rule, duplicate, blacklist,
+        destination missed - carries a block_reason and must not eat the
+        campaign's quota: counting them meant a day of refused traffic locked
+        the campaign below its concurrency and the label blamed the cap.
+        """
         try:
             cap = campaign.cap
         except Exception:
-            return True
+            return None
 
         today = timezone.now().date()
         month_start = today.replace(day=1)
+        dispatched = (
+            CallLog.objects.filter(campaign=campaign, block_reason='')
+            .exclude(destination_number='')
+            .exclude(destination_number__isnull=True)
+        )
 
         if cap.max_calls_daily > 0:
-            daily_count = CallLog.objects.filter(
-                campaign=campaign,
-                created_at__date=today
-            ).count()
-            if daily_count >= cap.max_calls_daily:
-                return False
+            if dispatched.filter(created_at__date=today).count() >= cap.max_calls_daily:
+                return 'Campaign daily limit reached'
 
         if cap.max_calls_monthly > 0:
-            monthly_count = CallLog.objects.filter(
-                campaign=campaign,
-                created_at__date__gte=month_start
-            ).count()
-            if monthly_count >= cap.max_calls_monthly:
-                return False
+            if dispatched.filter(created_at__date__gte=month_start).count() >= cap.max_calls_monthly:
+                return 'Campaign monthly limit reached'
 
         if cap.max_calls_global > 0:
-            global_count = CallLog.objects.filter(campaign=campaign).count()
-            if global_count >= cap.max_calls_global:
-                return False
+            if dispatched.count() >= cap.max_calls_global:
+                return 'Campaign total limit reached'
 
         # Concurrency. This was the one cap on the campaign that nothing read:
         # daily, monthly and global were all enforced here and max_concurrency
@@ -192,9 +201,9 @@ class RoutingEngine:
                 created_at__gte=timezone.now() - timedelta(hours=4),
             ).count()
             if live >= cap.max_concurrency:
-                return False
+                return 'Campaign cap reached'
 
-        return True
+        return None
 
     @staticmethod
     def check_buyer_caps(buyer) -> bool:
@@ -493,18 +502,34 @@ class RoutingEngine:
 
             if reason is None and destination.buyer:
                 buyer = destination.buyer
+                dest_fault = None
                 if buyer.status != 'active':
                     reason = f'buyer {buyer.name} is {buyer.status}'
+                    dest_fault = 'Destination missed (buyer paused)'
                 elif not RoutingEngine.is_destination_enabled(
                     buyer, destination.destination
                 ):
                     reason = f'destination {destination.destination} is switched off'
+                    dest_fault = 'Destination missed (TFN off)'
                 elif not RoutingEngine.check_buyer_caps(buyer):
                     reason = f'buyer {buyer.name} has reached its cap'
+                    dest_fault = 'Destination missed (cap full)'
                 elif not RoutingEngine.check_buyer_concurrency(
                     buyer, destination_number=destination.destination
                 ):
                     reason = f'buyer {buyer.name} is at concurrency limit'
+                    dest_fault = 'Destination missed (CC full)'
+                # The owner's rule: a call the buyer's line could not take is
+                # missed ON THAT LINE, never an anonymous campaign drop. The
+                # first destination-side refusal in priority order is the line
+                # that should have answered, so the call is recorded against
+                # it if no later destination takes the call.
+                if dest_fault and 'refused_destination' not in call_data:
+                    call_data['refused_destination'] = {
+                        'tfn': destination.destination,
+                        'buyer': buyer,
+                        'label': dest_fault,
+                    }
 
             if reason is None:
                 if trace is not None:
@@ -653,9 +678,10 @@ class RoutingEngine:
                 return {'destination': None, 'rule': None, 'error': 'Duplicate call blocked'}
             if trace: trace.step('duplicate', True)
 
-        if not RoutingEngine.check_campaign_caps(campaign):
-            if trace: trace.step('campaign_cap', False, 'campaign cap reached')
-            return {'destination': None, 'rule': None, 'error': 'Campaign cap reached'}
+        cap_reason = RoutingEngine.check_campaign_caps(campaign)
+        if cap_reason:
+            if trace: trace.step('campaign_cap', False, cap_reason.lower())
+            return {'destination': None, 'rule': None, 'error': cap_reason}
         if trace: trace.step('campaign_cap', True)
 
         # Funds check runs last of the guardrails — it is the most expensive, and
@@ -794,6 +820,14 @@ class RoutingEngine:
                 'buyer': destination.buyer,
                 'error': None
             }
+
+        refused = call_data.get('refused_destination')
+        if refused:
+            if trace: trace.step('rule_match', False,
+                                 f"{refused['label'].lower()} on {refused['tfn']}")
+            return {'destination': None, 'rule': None, 'error': refused['label'],
+                    'refused_destination': refused['tfn'],
+                    'refused_buyer': refused['buyer']}
 
         if trace: trace.step('rule_match', False, 'no rule produced a destination')
         return {'destination': None, 'rule': None, 'error': 'No matching rule found'}

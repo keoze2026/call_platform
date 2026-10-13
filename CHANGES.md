@@ -5876,3 +5876,39 @@ and `include_idle=true` appends zero rows for buyers silent in the window.
 Scoping unchanged: a key is its creator, a buyer key sees its own slice.
 `docs/STATS_API.md` sections 6 and 7; `scripts/stats_destinations_smoke.py`
 proves both with a minted-and-deleted key.
+
+## CH-117 — Drop labels: overflow means full, and a missed call names its line
+
+**2026-10-13 · Routing · the owner's dispute rule, via the frontend dev**
+
+23 JUNE sat at 4/5 live and refused calls as "Campaign cap reached", which
+the portal renders as Overflow Missed. Two faults compounded:
+
+- `check_campaign_caps` answered one bare False for four different limits,
+  and the call site stamped them all "Campaign cap reached". A daily limit
+  tripping at 4/5 live wore the overflow label.
+- The daily/monthly/global counts took every CallLog row, including calls
+  WE refused - no rule, duplicates, blacklist. A morning of refused traffic
+  could eat the whole quota, and the label then blamed the cap.
+
+Now the check returns the limiting reason or None: 'Campaign cap reached'
+exists only for a full concurrency limit (the owner, verbatim: "Overflow
+drop only possible when camp given cc is full"), the volume limits say
+'Campaign daily/monthly/total limit reached', and they count only rows
+dispatched to a destination (block_reason empty, destination_number set).
+
+And the owner's second rule: a call the buyer's line could not take is
+missed ON THAT LINE. `get_valid_destination` remembers the first
+destination-side refusal in priority order (CC full, cap full, TFN off,
+buyer paused); if no later destination takes the call, the refusal returns
+'Destination missed (...)' with the TFN and buyer, and the handler stores
+the row as NO_ANSWER with destination_number and buyer stamped - the mirror
+already copies both, so Reports and /missed count it against that
+destination and buyer instead of an anonymous campaign drop. The
+rejected-call fee is unchanged on every refusal path.
+
+`scripts/drop_labels_forensics.py`: default run is the read-only dispute
+answer for 23 JUNE (old vs new counting per limit, stuck live rows listed);
+--smoke proves all four behaviours through the real engine with a throwaway
+campaign. Lesson for the checklist era: one error string serving four causes
+is how a billing dispute starts - a refusal must name the limit that refused.
