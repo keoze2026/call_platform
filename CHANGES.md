@@ -5840,3 +5840,10 @@ Safe to delete - no FK references User with PROTECT, checked first.
 `scripts/member_removal_smoke.py` runs the owner's acceptance test over
 real HTTP: works, removed, open tab 401s, password refused, account gone,
 email reusable, and a deactivated account's token dies too.
+
+**CH-115 addendum:** the migrate run warned "accounts have changes not yet
+reflected in a migration" - the VIEWER role choice from CH-105 never got
+its AlterField. Choices-only, zero SQL, but unrecorded state means every
+future makemigrations would bundle it into something unrelated. Recorded
+as accounts 0013. Lesson: read the whole migrate output, not just the OK -
+the warning had been printing since phase 1.
