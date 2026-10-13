@@ -44,6 +44,10 @@ and the Stats API shipped the identical hole the same week.
 
 ## Before saying "done"
 - [ ] Tested on the server, output shown - both numbers, never a proxy
+- [ ] Every limit proven on BOTH sides of its line: N fills, N+1 refuses,
+      exact counts shown. "It blocks when full" proved nothing about WHERE
+      full is - CC=5 shipped as 4 and the boss's team found the boundary,
+      not the test (CH-118)
 - [ ] After touching any api.py: one real HTTP request answered, not a
       service-layer call - shell tests passed while every endpoint 500'd,
       because they never import the API module (CH-107)
