@@ -6020,3 +6020,11 @@ The four summaries were already single GROUP BY queries (CH-074/086); their
 slowness was the missing expression index. `scripts/reports_timing.py`
 times a day and a month over real HTTP - run before the deploy and after,
 the pair of outputs is the proof, plus a repeat run to show the cache hit.
+
+**CH-121 addendum — assigned dates backfilled:** the owner reported missing
+Assigned dates. Every assignment path already stamps since CH-082 (the
+Numbers page, the edit dialog, import_tfns with --campaign); the blanks are
+rows assigned before the stamp existed. `scripts/backfill_assigned_dates.py`
+fills them from the number's first call (it was certainly assigned by then),
+else the number's creation date - recorded here as estimates, not invented
+precision.
