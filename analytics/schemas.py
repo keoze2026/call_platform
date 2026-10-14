@@ -83,9 +83,13 @@ class CallRecordSchema(Schema):
     publisher_id:     Optional[str]
     publisher_name:   str
     status:           str
-    duration_seconds: int
-    is_converted:     bool
-    is_duplicate:     bool
+    # Nullable on purpose: partner masking sets a hidden Reporting
+    # Visibility column to null - "not yours", never zero (CH-104). Declared
+    # strict, the first masked publisher row failed response validation and
+    # the whole call list answered 500 (CH-124).
+    duration_seconds: Optional[int] = None
+    is_converted:     Optional[bool] = None
+    is_duplicate:     Optional[bool] = None
     is_spam:          bool
     # Seconds to connect; None when never answered. Ninja drops undeclared keys.
     ttc: Optional[int] = None

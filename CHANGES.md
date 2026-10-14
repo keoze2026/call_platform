@@ -6055,3 +6055,22 @@ so Reports and /missed attribute the drop to the line that refused it.
 Engine-side refusals keep their CH-117 labels; this only fills the blank
 on dial-time failures. Deploy: new call_ended.sh to /usr/local/bin plus a
 web restart; the dialplan already passes DIALSTATUS, nothing to reload.
+
+## CH-124 — A masked column crashed the partner call list
+
+**2026-10-14 · Reporting · publisher Reports page showed the red error**
+
+A publisher opening Reports got a 500 on /api/analytics/calls while every
+summary worked. The server log said it plainly: response validation -
+is_duplicate "should be a valid boolean", null given, once per row. Partner
+masking nulls hidden Reporting Visibility columns by design ("null is not
+yours, never zero", CH-104), but CallRecordSchema declared duration_seconds,
+is_converted and is_duplicate as strict - so the first partner whose
+visibility hid one of those columns got every row rejected at the door.
+Admins never mask, which is why only partner logins crashed; a partner with
+zero calls got an empty list, which is why the fresh repro login passed.
+The three fields are Optional now, same as every other maskable column.
+
+Found via the container log, not guesswork - the blamed suspects (the new
+paging, the cache, gzip) were all innocent; the crash predates today and
+needed only a partner with calls and a hidden column to fire.
