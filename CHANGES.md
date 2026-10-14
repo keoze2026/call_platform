@@ -5974,3 +5974,16 @@ Deploy needs three pieces: migrate, the new call_ended.sh copied to
 /usr/local/bin, and one dialplan line gaining "${DIALEDTIME}" + reload -
 the paste edits that line in place with sed and backs the file up first,
 never overwriting a dialplan file wholesale.
+
+## CH-121 — TCL and ACL per tracking number
+
+**2026-10-14 · Reporting · asked by the owner**
+
+Every TFN on the Numbers page now carries TCL and ACL, computed inside the
+same single grouped query that already answers live/hourly/daily/monthly/
+global - one definition only (CH-102): connected is completed or
+in_progress, TCL is their summed duration, ACL is TCL over their count.
+Served as tcl_seconds/acl_seconds (the list endpoint returns dicts, so no
+schema trap), rendered hh:mm:ss with the same formatTimer the reports use.
+Frontend: two toggleable columns after Global on the tracking table, dash
+until the backend figure arrives.

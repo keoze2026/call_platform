@@ -84,6 +84,12 @@ def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
     today = djtz.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
     month = today.replace(day=1)
     counters = {}
+    from django.db.models import Sum
+    from django.db.models.functions import Coalesce
+    # Connected and its talk time use the CH-102 single definition: completed
+    # or in_progress, nothing else - TCL is their summed duration, ACL is
+    # TCL over their count. Same words as the reports, per TFN.
+    CONNECTED = Q(status__in=['completed', 'in_progress'])
     rows = CallLog.objects.filter(organization=request.auth.organization).values(
         'called_number',
     ).annotate(
@@ -92,10 +98,14 @@ def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
         daily=Count('id', filter=Q(created_at__gte=today)),
         monthly=Count('id', filter=Q(created_at__gte=month)),
         total=Count('id'),
+        connected=Count('id', filter=CONNECTED),
+        tcl=Coalesce(Sum('duration', filter=CONNECTED), 0),
     )
     for r in rows:
         key = _last10(r['called_number'])
-        c = counters.setdefault(key, {'live': 0, 'hourly': 0, 'daily': 0, 'monthly': 0, 'total': 0})
+        c = counters.setdefault(key, {'live': 0, 'hourly': 0, 'daily': 0,
+                                      'monthly': 0, 'total': 0,
+                                      'connected': 0, 'tcl': 0})
         for k in c:
             c[k] += r[k]
 
@@ -107,6 +117,10 @@ def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
         d['calls_today'] = c.get('daily', 0)
         d['calls_monthly'] = c.get('monthly', 0)
         d['calls_global'] = c.get('total', 0)
+        connected = c.get('connected', 0)
+        d['connected_calls'] = connected
+        d['tcl_seconds'] = c.get('tcl', 0)
+        d['acl_seconds'] = int(c.get('tcl', 0) / connected) if connected else 0
         data.append(d)
     return 200, paginate_list(data, page, page_size)
 
