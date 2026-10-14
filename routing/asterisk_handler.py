@@ -391,8 +391,9 @@ def call_ended(request):
         call_log.block_reason = {
             'BUSY': 'Destination busy',
             'NOANSWER': 'Destination no answer',
-            'CONGESTION': 'Destination error (line unavailable)',
-            'CHANUNAVAIL': 'Destination error (line unavailable)',
+            # The owner's wording, verbatim from his test review.
+            'CONGESTION': 'Destination Missed',
+            'CHANUNAVAIL': 'Destination Missed',
             'CANCEL': 'Caller hung up before answer',
         }.get(dial_status, call_log.block_reason)
 

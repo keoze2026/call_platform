@@ -6074,3 +6074,8 @@ The three fields are Optional now, same as every other maskable column.
 Found via the container log, not guesswork - the blamed suspects (the new
 paging, the cache, gzip) were all innocent; the crash predates today and
 needed only a partner with calls and a hidden column to fire.
+
+**CH-123 addendum:** the owner's pause test fired correctly and he renamed
+the label: a far-end unavailable line now reads "Destination Missed", his
+wording verbatim, instead of "Destination error (line unavailable)". Busy,
+no-answer and caller-hung-up keep their own words.
