@@ -5987,3 +5987,36 @@ Served as tcl_seconds/acl_seconds (the list endpoint returns dicts, so no
 schema trap), rendered hh:mm:ss with the same formatTimer the reports use.
 Frontend: two toggleable columns after Global on the tracking table, dash
 until the backend figure arrives.
+
+## CH-122 — Reports on old dates: the four reasons they crawled
+
+**2026-10-14 · Performance · the owner wants past days instant; spec from the frontend dev**
+
+Four distinct faults, each fixed at its own layer:
+
+- **Every page re-read every page before it.** get_call_log fetched
+  offset+limit rows and discarded the first offset - page 40 of a month
+  read 20,000 rows to serve 500, and the frontend fetches pages 4 at a
+  time. Now a range with no live rows (every past range) is a plain
+  database slice; the merge path survives only for ranges that include
+  right now. limit accepts up to 2000 (clamped), so a month needs a
+  quarter of the round trips.
+- **The date filter could not use its indexes.** _base_qs filters on
+  COALESCE(started_at, created_at) - an expression - so callrec_org_started
+  _idx never fired and every report walked the table. An expression index
+  on (organization, COALESCE(...)) now matches the query exactly
+  (analytics 0020).
+- **No compression.** GZipMiddleware added; a 500-row page is ~10x smaller
+  on the wire.
+- **Closed ranges recomputed for every viewer.** analytics/report_cache.py:
+  a range ending before today (requester's timezone) is served from Redis,
+  keyed by org, every filter, and the audience class - partners get their
+  own entries, employees share one per workspace role, so masking stays
+  per-viewer-correct on a cache hit. TTL six hours, not forever: repairs
+  and backfills do change history (CH-097 repaired calls weeks back), and
+  "a closed day never changes" is only almost true.
+
+The four summaries were already single GROUP BY queries (CH-074/086); their
+slowness was the missing expression index. `scripts/reports_timing.py`
+times a day and a month over real HTTP - run before the deploy and after,
+the pair of outputs is the proof, plus a repeat run to show the cache hit.

@@ -122,7 +122,10 @@ def campaign_performance(request: HttpRequest, filters: AnalyticsFilterSchema = 
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
-    data = AnalyticsService.get_campaign_performance(request.auth, filters)
+    from analytics.report_cache import closed_range_response
+    data = closed_range_response(
+        request, filters, 'campaigns',
+        lambda: AnalyticsService.get_campaign_performance(request.auth, filters))
     return 200, data
 
 
@@ -132,7 +135,10 @@ def carrier_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Q
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
-    data = AnalyticsService.get_carrier_performance(request.auth, filters)
+    from analytics.report_cache import closed_range_response
+    data = closed_range_response(
+        request, filters, 'carriers',
+        lambda: AnalyticsService.get_carrier_performance(request.auth, filters))
     return 200, data
 
 
@@ -142,7 +148,10 @@ def buyer_performance(request: HttpRequest, filters: AnalyticsFilterSchema = Que
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
-    data = AnalyticsService.get_buyer_performance(request.auth, filters)
+    from analytics.report_cache import closed_range_response
+    data = closed_range_response(
+        request, filters, 'buyers',
+        lambda: AnalyticsService.get_buyer_performance(request.auth, filters))
     return 200, data
 
 
@@ -152,7 +161,10 @@ def publisher_performance(request: HttpRequest, filters: AnalyticsFilterSchema =
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
-    data = AnalyticsService.get_publisher_performance(request.auth, filters)
+    from analytics.report_cache import closed_range_response
+    data = closed_range_response(
+        request, filters, 'publishers',
+        lambda: AnalyticsService.get_publisher_performance(request.auth, filters))
     return 200, data
 
 
@@ -162,7 +174,10 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
-    data = AnalyticsService.get_call_log(request.auth, filters)
+    from analytics.report_cache import closed_range_response
+    data = closed_range_response(
+        request, filters, 'calls',
+        lambda: AnalyticsService.get_call_log(request.auth, filters))
     return 200, data
 
 

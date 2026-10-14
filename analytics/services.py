@@ -1182,14 +1182,32 @@ class AnalyticsService:
             # one name filter cannot be applied to both, and half of it would
             # have raised.
 
-        total = hist_qs.count() + live_qs.count()
-        
-        offset = getattr(filters, 'offset', 0)
-        limit = getattr(filters, 'limit', 50)
-        fetch_limit = offset + limit
-        
-        hist_items = list(hist_qs[:fetch_limit])
-        live_items = list(live_qs[:fetch_limit])
+        live_qs = live_qs.select_related('campaign', 'buyer', 'publisher')
+        live_count = live_qs.count()
+        total = hist_qs.count() + live_count
+
+        offset = max(0, getattr(filters, 'offset', 0))
+        # 2000 on request from the frontend: a month at 500 took 40 round
+        # trips. Clamped, never trusted raw.
+        limit = min(max(1, getattr(filters, 'limit', 50)), 2000)
+
+        if live_count == 0:
+            # The usual case for a past range: no live rows can belong to it,
+            # so the page is a plain database slice. The old path fetched
+            # offset+limit rows and threw the first offset away - page 40 of
+            # a month read 20,000 rows to serve 500, every page re-reading
+            # everything before it.
+            hist_items = list(hist_qs[offset:offset + limit])
+            live_items = []
+            local_offset = 0
+        else:
+            # Live rows interleave by time, so the merge needs everything up
+            # to the requested window. Bounded in practice: only ranges that
+            # include right now have live rows, and those are read at page 1.
+            fetch_limit = offset + limit
+            hist_items = list(hist_qs[:fetch_limit])
+            live_items = list(live_qs[:fetch_limit])
+            local_offset = offset
 
         sids = [r.twilio_call_sid for r in hist_items if r.twilio_call_sid]
         dest_map = dict(
@@ -1201,7 +1219,8 @@ class AnalyticsService:
         live_formatted = [AnalyticsService._format_live_log(r) for r in live_items]
 
         combined = sorted(hist_formatted + live_formatted, key=lambda x: x['created_at'], reverse=True)
-        items = mask_partner_columns(user, mask_partner_money(user, combined[offset : fetch_limit]))
+        items = mask_partner_columns(user, mask_partner_money(
+            user, combined[local_offset : local_offset + limit]))
 
         return {
             'total':  total,

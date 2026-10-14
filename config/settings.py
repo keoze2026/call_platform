@@ -117,7 +117,10 @@ MIDDLEWARE = [
     # REMOTE_ADDR, which is the proxy's address until this rewrites it.
     'config.real_ip.RealClientIPMiddleware',
     'django.middleware.security.SecurityMiddleware',
-    'whitenoise.middleware.WhiteNoiseMiddleware', 
+    # A 500-row report page is ~10x smaller gzipped; the month view the
+    # owner waits on is mostly wire time without this.
+    'django.middleware.gzip.GZipMiddleware',
+    'whitenoise.middleware.WhiteNoiseMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',

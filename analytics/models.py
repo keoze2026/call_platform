@@ -1,6 +1,7 @@
 from decimal import Decimal
 import uuid
 from django.db import models
+from django.db.models.functions import Coalesce
 from accounts.models import Organization
 
 
@@ -163,6 +164,15 @@ class CallRecord(models.Model):
             # index at all, so each one scanned the table.
             models.Index(fields=['organization', 'started_at'], name='callrec_org_started_idx'),
             models.Index(fields=['started_at'], name='callrec_started_idx'),
+            # The two indexes above never fire for reports: _base_qs filters
+            # on COALESCE(started_at, created_at), an expression, which only
+            # an expression index can serve. Without it every report over a
+            # date range walked the whole table (CH-122).
+            models.Index(
+                models.F('organization'),
+                Coalesce('started_at', 'created_at'),
+                name='callrec_org_calltime_idx',
+            ),
         ]
 
     def __str__(self):
