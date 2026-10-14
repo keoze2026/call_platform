@@ -26,7 +26,9 @@ django.setup()
 from phone_numbers.models import PhoneNumber  # noqa: E402
 from routing.models import CallLog  # noqa: E402
 
-blank = PhoneNumber.objects.filter(campaign__isnull=False, assigned_at__isnull=True)
+# The owner's rule (Oct 14): EVERY TFN shows a date, campaign or not - the
+# day it reached the platform, updated when a campaign assignment happens.
+blank = PhoneNumber.objects.filter(assigned_at__isnull=True)
 print(f'assigned numbers with no assigned date: {blank.count()}')
 for pn in blank:
     digits = ''.join(c for c in pn.number if c.isdigit())[-10:]

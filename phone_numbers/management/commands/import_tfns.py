@@ -108,7 +108,10 @@ class Command(BaseCommand):
                 country_code='US',
                 carrier=carrier,
                 campaign=campaign,
-                assigned_at=timezone.now() if campaign else None,
+                # The owner's definition: every TFN carries its date - the day
+                # it was assigned to the platform, updated if a campaign
+                # assignment comes later.
+                assigned_at=timezone.now(),
                 allocated_capacity=1,
                 voice_enabled=True,
                 sms_enabled=False,

@@ -6028,3 +6028,10 @@ rows assigned before the stamp existed. `scripts/backfill_assigned_dates.py`
 fills them from the number's first call (it was certainly assigned by then),
 else the number's creation date - recorded here as estimates, not invented
 precision.
+
+**CH-121 addendum 2:** the owner checked the page and said "not visible
+here" - he meant every TFN, not only campaign-assigned ones. His definition
+wins: assigned_at is now stamped on every import (the day the number
+reached the platform) and updated on campaign assignment; the backfill
+covers all numbers, dated from first call else creation. No frontend change
+- the column was already rendering whatever the backend sends.
