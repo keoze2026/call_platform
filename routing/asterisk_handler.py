@@ -382,6 +382,20 @@ def call_ended(request):
     if answered and dialed_seconds >= duration > 0:
         call_log.ring_seconds = dialed_seconds - duration
 
+    # Why an unanswered call died, in the switch's own words. The owner's
+    # test: the team paused the TFN at the far end and the drop showed as a
+    # bare missed call - routing cannot know a far-end pause before dialing,
+    # only the dial result can say it (CH-123).
+    if not answered and call_log.destination_number and not call_log.block_reason:
+        dial_status = str(data.get('dial_status') or '').upper()
+        call_log.block_reason = {
+            'BUSY': 'Destination busy',
+            'NOANSWER': 'Destination no answer',
+            'CONGESTION': 'Destination error (line unavailable)',
+            'CHANUNAVAIL': 'Destination error (line unavailable)',
+            'CANCEL': 'Caller hung up before answer',
+        }.get(dial_status, call_log.block_reason)
+
     if recording_url:
         # Asterisk was sending `https` - the URL truncated at the first colon by
         # the shell that posts it - and it was stored as-is, then joined onto

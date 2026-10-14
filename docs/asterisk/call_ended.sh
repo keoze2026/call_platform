@@ -22,6 +22,9 @@ else
     ANSWERED="false"
 fi
 
-PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'call_log_id': sys.argv[1], 'duration': int(sys.argv[2] or 0), 'answered': sys.argv[3]=='true', 'recording_url': sys.argv[4], 'caller': sys.argv[5], 'dialed_seconds': int(sys.argv[6] or 0)}))" "$CALL_LOG_ID" "$DURATION" "$ANSWERED" "$RECORDING_URL" "$CALLER" "$DIALED")
+# DIALSTATUS rides along raw: BUSY / NOANSWER / CONGESTION / CHANUNAVAIL /
+# CANCEL say WHY an unanswered call died - a destination paused at the far
+# end reports as unavailable, which the backend could never see before.
+PAYLOAD=$(python3 -c "import json,sys; print(json.dumps({'call_log_id': sys.argv[1], 'duration': int(sys.argv[2] or 0), 'answered': sys.argv[3]=='true', 'recording_url': sys.argv[4], 'caller': sys.argv[5], 'dialed_seconds': int(sys.argv[6] or 0), 'dial_status': sys.argv[7]}))" "$CALL_LOG_ID" "$DURATION" "$ANSWERED" "$RECORDING_URL" "$CALLER" "$DIALED" "$DIALSTATUS")
 
 curl -s -X POST -H "Content-Type: application/json" -H "X-Asterisk-Secret: 4DZDdyfcLaIoKekpZhAWnuGGLOZv_tIgBgblX2ObrjA" -d "$PAYLOAD" http://127.0.0.1:8000/api/twilio/asterisk/call-ended/ >> /tmp/call_end_debug.log 2>&1

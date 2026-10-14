@@ -6035,3 +6035,23 @@ wins: assigned_at is now stamped on every import (the day the number
 reached the platform) and updated on campaign assignment; the backfill
 covers all numbers, dated from first call else creation. No frontend change
 - the column was already rendering whatever the backend sends.
+
+## CH-123 — A far-end pause now reads as a destination error, not a bare miss
+
+**2026-10-14 · Routing · the owner's live test: team paused the TFN at their end**
+
+The owner's team paused the destination TFN on their platform and placed a
+call: it dropped and Avortyx showed a missed call with no reason. Routing
+cannot know a far-end pause before dialing - our Destination row was still
+enabled - and the one thing that does know, Asterisk's DIALSTATUS, was
+being collapsed to answered yes/no by the reporting shell and discarded.
+
+DIALSTATUS now rides the hangup payload raw, and an unanswered call that
+reached dialing gets its reason in the switch's words: Destination busy /
+Destination no answer / Destination error (line unavailable) - which is
+what a far-end pause reports as - / Caller hung up before answer. Status
+stays missed, the destination and buyer are already on the row (CH-117),
+so Reports and /missed attribute the drop to the line that refused it.
+Engine-side refusals keep their CH-117 labels; this only fills the blank
+on dial-time failures. Deploy: new call_ended.sh to /usr/local/bin plus a
+web restart; the dialplan already passes DIALSTATUS, nothing to reload.
