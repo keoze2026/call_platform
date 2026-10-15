@@ -6161,3 +6161,19 @@ hit it. The dialog now sends 0; a limit on a buyer exists only when a
 person sets one. Buyers created before this keep whatever they have -
 raising them is the owner's call per buyer, and the portal's Settings save
 reaches the enforced field since CH-126.
+
+## CH-130 — The buyers list carries its own spend columns
+
+**2026-10-15 · API · for the owner's Manage Buyers screen**
+
+The owner wants a one-table buyer manager like the downstream platform's:
+every buyer with hourly/daily/monthly/global spend, status and actions on
+the row. The list endpoint carried none of that, so the page fanned out one
+/stats request per buyer - 54 buyers, 54 calls. GET /api/buyers/ now
+answers with the four call-count and four spend windows per row, from one
+grouped CallRecord query using the exact definitions of the per-buyer
+stats endpoint (payout sums, same window cuts), so the row and the detail
+page can never disagree. max_concurrency rides along for the row editor.
+Partner masking unaffected: the endpoint already requires buyers.view and
+partners see their own slice via list_buyers scoping. The screen itself is
+the frontend's build, fed by this.
