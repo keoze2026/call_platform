@@ -416,6 +416,10 @@ CELERY_BEAT_SCHEDULE = {
         'schedule': 300.0,  # every 5 minutes; a 24h number should not outlive
                             # its window by most of a day
     },
+    'nightly-answered-sweep': {
+        'task': 'tasks.nightly_answered_sweep',
+        'schedule': 600.0,  # every 10 min; acts once per Eastern day at 1:30 AM
+    },
     'close-stale-calls': {
         'task': 'tasks.close_stale_calls',
         'schedule': 900.0,  # every 15 minutes

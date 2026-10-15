@@ -130,6 +130,10 @@ class Carrier(models.Model):
     single_use = models.BooleanField(default=False)
     # Hours a number stays usable from the moment it is taken on. 0 = no limit.
     lifetime_hours = models.IntegerField(default=0)
+    # The owner's Oct 15 rule, mirroring the carrier's own: a number that has
+    # taken this many ANSWERED calls is suspended at the nightly 1:30 AM
+    # Eastern sweep - suspended overnight, never killed mid-day. 0 = off.
+    max_answered_calls = models.IntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True, default='')
 

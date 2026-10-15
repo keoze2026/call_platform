@@ -624,6 +624,45 @@ def send_telegram(self, bot_token, chat_id, message, thread_id=None):
         print('Telegram failed:', e)
 
 
+@app.task(name='tasks.nightly_answered_sweep')
+def nightly_answered_sweep():
+    """The owner's Oct 15 rule: a TFN with N answered calls is suspended at
+    1:30 AM Eastern, every day - overnight, never mid-day.
+
+    Beat fires this every ten minutes; it acts only once per Eastern day,
+    and only at or after 01:30 local. zoneinfo handles EST/EDT itself.
+    """
+    from zoneinfo import ZoneInfo
+    from django.core.cache import cache
+    from django.db.models import Count, Q
+    from django.utils import timezone as djtz
+    from phone_numbers.models import PhoneNumber
+    from phone_numbers.lifecycle import retire
+    from routing.models import CallLog
+
+    ny = djtz.now().astimezone(ZoneInfo('America/New_York'))
+    if (ny.hour, ny.minute) < (1, 30):
+        return
+    marker = f'answered_sweep_done:{ny.date().isoformat()}'
+    if cache.get(marker):
+        return
+    cache.set(marker, True, 26 * 3600)
+
+    numbers = (PhoneNumber.objects
+               .filter(status__in=['active', 'pending', 'available'],
+                       carrier__isnull=False, carrier__max_answered_calls__gt=0)
+               .select_related('carrier'))
+    swept = 0
+    for n in numbers:
+        digits = ''.join(ch for ch in n.number if ch.isdigit())[-10:]
+        answered = CallLog.objects.filter(
+            called_number__endswith=digits, status='completed').count()
+        if answered >= n.carrier.max_answered_calls:
+            if retire(n, f'{answered} answered calls, nightly 1:30 AM rule'):
+                swept += 1
+    print(f'nightly answered sweep: {swept} numbers suspended')
+
+
 @app.task(name='tasks.retire_used_number')
 def retire_used_number(called_number, call_log_id):
     """Take a single-use number out of service after its call.

@@ -51,7 +51,8 @@ def _notify(number: PhoneNumber, why: str) -> None:
             'carrier': number.carrier.name if number.carrier_id else '',
             'carrier_code': number.carrier.code if number.carrier_id else '',
             'reason': why,
-            'message': 'TFN Deleted',
+            # The owner: the notification must always say WHICH numbers.
+            'message': f'TFN Deleted {number.number}',
         })
     except Exception:
         # A number that could not be announced is still retired. Leaving it

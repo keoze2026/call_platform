@@ -6190,3 +6190,24 @@ an invented figure. Through the middleman intake this prints 0 because the
 connect is genuinely instant; it grows real seconds the moment any
 destination actually rings. Frontend: render `avg_ttc` (seconds) in the
 summary tables next to ACL.
+
+## CH-132 — The nightly rule: ten answered calls, suspended at 1:30 AM Eastern
+
+**2026-10-16 · Numbers · the owner's instruction, mirroring his carrier's rule**
+
+The owner, verbatim: a TFN with 10 answered calls is suspended at 1:30 AM
+EST every day, and every deletion notice must say WHICH numbers. Built as:
+
+- `Carrier.max_answered_calls` (0 = off) - the rule lives on the carrier
+  like single_use and lifetime_hours, never in code (phone_numbers 0010).
+- `tasks.nightly_answered_sweep`, beat every 10 minutes, acting once per
+  Eastern day at or after 01:30 local - zoneinfo America/New_York, so
+  EST/EDT is never hand-computed. A qualifying number is retired through
+  the same lifecycle as every other retirement: released not erased,
+  history kept, alert sent.
+- The TFN Deleted notification now carries the number in its message text,
+  so the notification box names each suspended number.
+
+Rule values are set per carrier on deploy: 10 on every carrier except XOLO,
+whose numbers are permanent by the owner's earlier standing instruction -
+flagged to him in the deploy message in case he wants XOLO included.
