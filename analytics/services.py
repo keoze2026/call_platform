@@ -558,6 +558,13 @@ class AnalyticsService:
                 avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])), 0.0),
+                # Average seconds to connect, switch-stamped (CH-120), over
+                # answered calls that carry the measurement - never invented
+                # for history, so early days read 0 until stamped calls exist.
+                avg_ttc=Coalesce(Avg('ring_seconds', filter=Q(
+                    ring_seconds__isnull=False,
+                    status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS],
+                )), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 
                 # Columns the summary table was deriving client-side. Definitions
@@ -603,6 +610,7 @@ class AnalyticsService:
             t_total = total or 1
             result.append({
                 'campaign_id':     str(cid),
+                'avg_ttc': int(round(r['avg_ttc'] or 0)),
                 'campaign_name':   r['campaign_name'],
                 'total_calls':     total,
                 'qualified_calls': r['qualified_calls'],
@@ -863,6 +871,13 @@ class AnalyticsService:
                 avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])), 0.0),
+                # Average seconds to connect, switch-stamped (CH-120), over
+                # answered calls that carry the measurement - never invented
+                # for history, so early days read 0 until stamped calls exist.
+                avg_ttc=Coalesce(Avg('ring_seconds', filter=Q(
+                    ring_seconds__isnull=False,
+                    status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS],
+                )), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
                 
                 repeat_answered=Count('id', filter=Q(is_duplicate=True)),
@@ -903,6 +918,7 @@ class AnalyticsService:
             total = r['total_calls'] or 1
             result.append({
                 'carrier':         r['carrier'] or 'Unknown',
+                'avg_ttc': int(round(r['avg_ttc'] or 0)),
                 'carrier_name':    r['carrier'] or 'Unknown',
                 'total_calls':     r['total_calls'],
                 'qualified_calls': r['qualified_calls'],
@@ -972,6 +988,13 @@ class AnalyticsService:
                 avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])), 0.0),
+                # Average seconds to connect, switch-stamped (CH-120), over
+                # answered calls that carry the measurement - never invented
+                # for history, so early days read 0 until stamped calls exist.
+                avg_ttc=Coalesce(Avg('ring_seconds', filter=Q(
+                    ring_seconds__isnull=False,
+                    status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS],
+                )), 0.0),
             )
         )
 
@@ -985,6 +1008,7 @@ class AnalyticsService:
             t_total = total or 1
             result.append({
                 'buyer_id':       str(bid),
+                'avg_ttc': int(round(r['avg_ttc'] or 0)),
                 'buyer_name':     r['buyer_name'],
                 'total_calls':    total,
                 'won_calls':      r['converted'],
@@ -1085,6 +1109,13 @@ class AnalyticsService:
                 avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])), 0.0),
+                # Average seconds to connect, switch-stamped (CH-120), over
+                # answered calls that carry the measurement - never invented
+                # for history, so early days read 0 until stamped calls exist.
+                avg_ttc=Coalesce(Avg('ring_seconds', filter=Q(
+                    ring_seconds__isnull=False,
+                    status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS],
+                )), 0.0),
             )
         )
 
@@ -1098,6 +1129,7 @@ class AnalyticsService:
             t_total = total or 1
             result.append({
                 'publisher_id':    str(pid),
+                'avg_ttc': int(round(r['avg_ttc'] or 0)),
                 'publisher_name':  r['publisher_name'],
                 'total_calls':     total,
                 'qualified_calls': r['qualified_calls'],

@@ -6177,3 +6177,16 @@ page can never disagree. max_concurrency rides along for the row editor.
 Partner masking unaffected: the endpoint already requires buyers.view and
 partners see their own slice via list_buyers scoping. The screen itself is
 the frontend's build, fed by this.
+
+## CH-131 — Average TTC on every summary table
+
+**2026-10-15 · Reporting · the owner: "how we can see ttc in portal"**
+
+The per-call TTC existed; the summaries had nothing. Campaign, buyer,
+publisher and carrier summaries now carry `avg_ttc`: the switch-stamped
+ring (CH-120) averaged over answered calls that have the measurement.
+Never derived for history - days before the stamping read 0 rather than
+an invented figure. Through the middleman intake this prints 0 because the
+connect is genuinely instant; it grows real seconds the moment any
+destination actually rings. Frontend: render `avg_ttc` (seconds) in the
+summary tables next to ACL.
