@@ -6238,3 +6238,10 @@ name-only rows - links are filled by staff, never invented.
 with logo, hide/show visibility split, 403 for non-staff, per-user stars,
 javascript: URL refused, category delete cascading. Deploy: migrate
 marketplace, restart, run smoke, and confirm nginx serves /media/.
+
+**CH-133 addendum:** the smoke's logo upload crashed with InvalidStorageError
+- STORAGES was declared with only staticfiles, which replaces Django's
+defaults and silently removes the 'default' file storage. Nothing on the
+platform had ever uploaded a file through a FileField before, so it sat
+unnoticed until the first logo. Default FileSystemStorage restored; nginx
+already serves /media/, confirmed in the same run.

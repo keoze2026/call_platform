@@ -260,6 +260,11 @@ ADMIN_URL_PATH = config('ADMIN_URL_PATH', default='').strip().strip('/')
 STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 STORAGES = {
+    # Declaring STORAGES at all REPLACES Django's defaults, and this block
+    # held only staticfiles - so the 'default' alias every FileField save
+    # needs was gone, and the first upload on the platform (a marketplace
+    # logo, CH-133) crashed with InvalidStorageError.
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {"BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage"},
 }
 
