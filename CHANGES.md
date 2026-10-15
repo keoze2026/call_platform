@@ -6134,3 +6134,17 @@ notices. Both settings empty keeps today's behaviour byte for byte - the
 routing only engages when the ids are set in .env, after the topics exist
 in the group. Senders touched: support/api.py, tasks.send_telegram (grew an
 optional thread), contact_api, daily_status.
+
+## CH-128 — Missed calls carry their wait time
+
+**2026-10-15 · Reporting · the field: "users are charging for missed calls too"**
+
+TTC was deliberately blank on a call nobody answered. The team's correction
+from live dispute work: missed calls are charged as well, and the person
+watching needs to see how long the line rang before the caller gave up -
+the downstream platform prints 9s on the same call we blanked. On an
+unanswered call the switch's DIALEDTIME is exactly that wait, so the
+hangup handler now stores it as ring_seconds and both the call-log API and
+the CSV show it as the TTC, answered or not. Old missed calls (before the
+switch stamping) stay blank - their wait was never recorded and will not
+be invented.

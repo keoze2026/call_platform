@@ -1324,7 +1324,9 @@ class AnalyticsService:
             # downstream platform reports. Older calls fall back to
             # answered-minus-started. None for a call never answered.
             'ttc': (
-                r.ring_seconds if r.ring_seconds is not None and r.answered_at else
+                # Switch-stamped wait, answered or not: on a missed call it is
+                # how long the line rang before the caller gave up (CH-128).
+                r.ring_seconds if r.ring_seconds is not None else
                 max(0, int((r.answered_at - (r.started_at or r.created_at)).total_seconds()))
                 if r.answered_at and (r.started_at or r.created_at) else None
             ),
@@ -1411,7 +1413,7 @@ class AnalyticsService:
             ttc = ''
             answered_at = getattr(r, 'answered_at', None)
             ring = getattr(r, 'ring_seconds', None)
-            if ring is not None and answered_at:
+            if ring is not None:
                 # Switch-measured (CH-120) - same figure, same source quality
                 # as the downstream platform's own TTC column.
                 ttc = ring

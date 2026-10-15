@@ -381,6 +381,12 @@ def call_ended(request):
         dialed_seconds = 0
     if answered and dialed_seconds >= duration > 0:
         call_log.ring_seconds = dialed_seconds - duration
+    elif not answered and dialed_seconds > 0:
+        # Nobody answered, so the whole dial WAS the wait: how long it rang
+        # before the caller gave up or the line failed. The field charges
+        # for missed calls too and needs this on the row ("they need TTC to
+        # watch") - the downstream platform shows 9s on the same call.
+        call_log.ring_seconds = dialed_seconds
 
     # Why an unanswered call died, in the switch's own words. The owner's
     # test: the team paused the TFN at the far end and the drop showed as a
