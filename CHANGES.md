@@ -6148,3 +6148,16 @@ hangup handler now stores it as ring_seconds and both the call-log API and
 the CSV show it as the TTC, answered or not. Old missed calls (before the
 switch stamping) stay blank - their wait was never recorded and will not
 be invented.
+
+## CH-129 — New buyers were born pinched at 10 concurrent
+
+**2026-10-15 · Frontend · why the CC ceiling kept coming back**
+
+TBLA refused above 10, got fixed, then brand-new PDSO arrived refusing
+above 10 the same evening. The source: the create-buyer dialog hardcoded
+concurrencyCap 10 into every buyer it made, while the backend default is 0
+(unlimited). Nobody chose the limit and nobody saw it until live traffic
+hit it. The dialog now sends 0; a limit on a buyer exists only when a
+person sets one. Buyers created before this keep whatever they have -
+raising them is the owner's call per buyer, and the portal's Settings save
+reaches the enforced field since CH-126.
