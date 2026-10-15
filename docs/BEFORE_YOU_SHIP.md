@@ -62,6 +62,11 @@ and the Stats API shipped the identical hole the same week.
 - [ ] After a mechanical batch edit, audit route-by-route with a DIFFERENT
       pattern than the injector used; "N edits made" says nothing about
       what was missed (CH-106)
+- [ ] A multi-step deploy is not done until EVERY step's output has been
+      seen - a step whose output never came back is an undeployed step,
+      whatever the conversation moved on to. The CH-120 dialplan edit sat
+      unapplied for a day while "TTC is switch-measured" was being said,
+      because the chat changed subject before the paste came back
 - [ ] CHANGES.md entry written in the same push as the code - and the
       mistake goes in the entry, not just the fix (CH-107 exists because
       a full-API outage went unrecorded)
