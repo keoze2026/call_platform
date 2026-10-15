@@ -106,6 +106,8 @@ api.add_router("/destinations/", destinations_router)
 api.add_router("/referrals/", referrals_router)
 from integrations.api import router as integrations_router
 api.add_router("/integrations/", integrations_router)
+from marketplace.api import router as marketplace_router
+api.add_router("/marketplace/", marketplace_router)
 
 
 # ── Reports PIN ───────────────────────────────────────────────────────────────

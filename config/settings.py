@@ -97,6 +97,7 @@ INSTALLED_APPS = [
     'notifications',
     'billing',
     'call_queue',
+    'marketplace',
 ]
 
 

@@ -6211,3 +6211,30 @@ EST every day, and every deletion notice must say WHICH numbers. Built as:
 Rule values are set per carrier on deploy: 10 on every carrier except XOLO,
 whose numbers are permanent by the owner's earlier standing instruction -
 flagged to him in the deploy message in case he wants XOLO included.
+
+## CH-133 — Marketplace Services directory: the backend the screen was missing
+
+**2026-10-16 · Marketplace · Sir's request, spec from the frontend dev**
+
+The Services tab existed with browser-only storage - staff added entries
+nobody else could see. New `marketplace` app, platform-wide by design (one
+directory for every organization): ServiceCategory, MarketplaceService
+(logo ImageField under media/marketplace/logos/), FavoriteService
+(per-user stars, unique per pair). Endpoints exactly as the frontend
+specified: GET /api/marketplace/services answers categories + services +
+is_favorite in one shape; staff-only writes (403 for everyone else -
+explicit check, not StaffAuth, because the spec's tests expect 403 not
+401); service create/update as POST multipart since Django parses files
+on POST only; favorites idempotent both ways.
+
+Safety per the spec: website_url http/https only (it renders as a link),
+logos PNG/JPG/WEBP max 1MB - SVG refused outright rather than sanitized,
+flagged to the frontend; translation JSON accepts keys zh/ja/ru only,
+strings only, clipped. Hidden services exist for staff and vanish for
+everyone else. `seed_marketplace` loads the reference list as hidden
+name-only rows - links are filled by staff, never invented.
+
+`scripts/marketplace_smoke.py` runs the acceptance list over HTTP: create
+with logo, hide/show visibility split, 403 for non-staff, per-user stars,
+javascript: URL refused, category delete cascading. Deploy: migrate
+marketplace, restart, run smoke, and confirm nginx serves /media/.
