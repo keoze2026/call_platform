@@ -6101,3 +6101,18 @@ Known truths the list makes visible, unchanged here: a login belongs to one
 partner, so a second invite MOVES the account (the evaslangat case), and
 pausing a partner does not block its logins - whether it should is the
 owner's call, one auth-gate line away if he says yes.
+
+## CH-126 — The concurrency the portal saved was not the one the engine read
+
+**2026-10-15 · Routing · the owner set TBLA to 1000 and nothing changed**
+
+Buyer concurrency lives twice: `Buyer.max_concurrency` (what
+check_buyer_concurrency enforces) and `BuyerCap.max_concurrency` (what the
+Settings tab's save writes). The owner typed 1000 into the portal, the cap
+row took it, the engine kept refusing at the field's 10, and the limit had
+to be corrected on the server by hand. The CH-092 disease in its third
+costume: a control wired to a storage nothing reads.
+
+`update_cap` now syncs the enforced field whenever concurrency is saved, so
+the portal's number IS the engine's number. Existing rows left alone: the
+engine has always enforced the field, so the field is the lived truth.
