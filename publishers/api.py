@@ -250,6 +250,43 @@ class RemoveMemberSchema(Schema):
     email: str
 
 
+
+
+@router.get("/{publisher_id}/members", response={200: list, 404: dict})
+def list_publisher_members(request: HttpRequest, publisher_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'traffic-sources', 'view')
+    """Who can actually sign in to this publisher - read from the server.
+
+    The Members box on the edit page was browser storage: it only remembered
+    people invited from that box on that machine, while logins created any
+    other way (auto-invite on create, another browser, cleared storage) kept
+    working invisibly. This is the real list, from the users table, so what
+    the admin sees is what the database enforces.
+    """
+    from accounts.models import User
+    from publishers.models import Publisher
+    from django.core.exceptions import ValidationError
+
+    try:
+        partner = Publisher.objects.get(
+            id=publisher_id, organization=request.auth.organization)
+    except (Publisher.DoesNotExist, ValidationError, ValueError):
+        return 404, {"detail": "Publisher not found"}
+
+    rows = []
+    for u in User.objects.filter(publisher_id=partner.id).order_by('email'):
+        rows.append({
+            'id': str(u.id),
+            'email': u.email,
+            'is_active': u.is_active,
+            'invite_status': u.invite_status,
+            'invited_at': u.invited_at.isoformat() if u.invited_at else None,
+            'accepted_at': u.accepted_at.isoformat() if u.accepted_at else None,
+            'last_login': u.last_login.isoformat() if u.last_login else None,
+        })
+    return 200, rows
+
 @router.post("/{publisher_id}/members/remove", response={200: dict, 403: dict, 404: dict})
 def remove_publisher_member(request: HttpRequest, publisher_id: str, data: RemoveMemberSchema):
     from accounts.workspace_permissions import require_perm

@@ -6079,3 +6079,25 @@ needed only a partner with calls and a hidden column to fire.
 the label: a far-end unavailable line now reads "Destination Missed", his
 wording verbatim, instead of "Destination error (line unavailable)". Busy,
 no-answer and caller-hung-up keep their own words.
+
+## CH-125 — The Members box reads the server at last
+
+**2026-10-15 · Access · reported by the frontend dev with the mon12oct88 case**
+
+A publisher's Members box was browser storage: it listed only people invited
+from that box on that machine, while logins created any other way - the
+auto-invite on create, another browser, cleared storage - kept signing in
+invisibly. Free's box stood empty while mon12oct88@mailnesia.com read
+Free's reports. The remove side was already real (CH-115 deletes the
+account); the LIST had nothing behind it, the CH-092 disease in list form.
+
+GET /api/buyers/{id}/members and GET /api/publishers/{id}/members now
+return the partner's actual logins from the users table: email, active,
+invite status, invited/accepted/last-login times. Org-scoped, view
+permission. What the admin sees is now what the database enforces, and the
+frontend can drop its browser copy.
+
+Known truths the list makes visible, unchanged here: a login belongs to one
+partner, so a second invite MOVES the account (the evaslangat case), and
+pausing a partner does not block its logins - whether it should is the
+owner's call, one auth-gate line away if he says yes.

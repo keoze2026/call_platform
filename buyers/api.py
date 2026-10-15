@@ -333,6 +333,43 @@ class RemoveMemberSchema(Schema):
     email: str
 
 
+
+
+@router.get("/{buyer_id}/members", response={200: list, 404: dict})
+def list_buyer_members(request: HttpRequest, buyer_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'buyers', 'view')
+    """Who can actually sign in to this buyer - read from the server.
+
+    The Members box on the edit page was browser storage: it only remembered
+    people invited from that box on that machine, while logins created any
+    other way (auto-invite on create, another browser, cleared storage) kept
+    working invisibly. This is the real list, from the users table, so what
+    the admin sees is what the database enforces.
+    """
+    from accounts.models import User
+    from buyers.models import Buyer
+    from django.core.exceptions import ValidationError
+
+    try:
+        partner = Buyer.objects.get(
+            id=buyer_id, organization=request.auth.organization)
+    except (Buyer.DoesNotExist, ValidationError, ValueError):
+        return 404, {"detail": "Buyer not found"}
+
+    rows = []
+    for u in User.objects.filter(buyer_id=partner.id).order_by('email'):
+        rows.append({
+            'id': str(u.id),
+            'email': u.email,
+            'is_active': u.is_active,
+            'invite_status': u.invite_status,
+            'invited_at': u.invited_at.isoformat() if u.invited_at else None,
+            'accepted_at': u.accepted_at.isoformat() if u.accepted_at else None,
+            'last_login': u.last_login.isoformat() if u.last_login else None,
+        })
+    return 200, rows
+
 @router.post("/{buyer_id}/members/remove", response={200: dict, 403: dict, 404: dict})
 def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberSchema):
     from accounts.workspace_permissions import require_perm
