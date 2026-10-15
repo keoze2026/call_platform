@@ -30,6 +30,8 @@ def send_telegram_support(text, session_id):
                 'text': text,
                 'parse_mode': 'HTML',
                 'disable_web_page_preview': True,
+                **({'message_thread_id': int(settings.TELEGRAM_SUPPORT_THREAD_ID)}
+                   if getattr(settings, 'TELEGRAM_SUPPORT_THREAD_ID', '') else {}),
             },
             timeout=5
         )

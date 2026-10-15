@@ -607,12 +607,15 @@ def transcribe_call_recording(call_log_id):
     return f"Transcription done for call {call_log_id}: {call_log.transcription_status}"
 
 @app.task(name='tasks.send_telegram', bind=True)
-def send_telegram(self, bot_token, chat_id, message):
+def send_telegram(self, bot_token, chat_id, message, thread_id=None):
     try:
         import requests
+        payload = {'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True}
+        if thread_id:
+            payload['message_thread_id'] = int(thread_id)
         r = requests.post(
             f'https://api.telegram.org/bot{bot_token}/sendMessage',
-            json={'chat_id': chat_id, 'text': message, 'disable_web_page_preview': True},
+            json=payload,
             timeout=5
         )
         print('Telegram status:', r.status_code)

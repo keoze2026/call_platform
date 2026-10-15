@@ -259,6 +259,9 @@ class Command(BaseCommand):
                     'chat_id': chat,
                     'text': text,
                     'disable_web_page_preview': 'true',
+                    # The notifications topic, when the group uses topics.
+                    **({'message_thread_id': settings.TELEGRAM_NOTIFY_THREAD_ID}
+                       if getattr(settings, 'TELEGRAM_NOTIFY_THREAD_ID', '') else {}),
                 },
                 timeout=15,
             )

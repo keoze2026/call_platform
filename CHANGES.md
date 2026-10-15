@@ -6122,3 +6122,15 @@ engine has always enforced the field, so the field is the lived truth.
 because the steps were chained by newlines, not &&. The fix itself is in
 this commit. Checklist truth re-learned in miniature: an entry describing a
 fix is not the fix; verify the diff names the code file.
+
+## CH-127 — Telegram topics: support chatter and alerts in separate threads
+
+**2026-10-15 · Support · the bot developer's suggestion**
+
+The support group mixes customer chat with system alerts. Two forum topics
+split them: TELEGRAM_SUPPORT_THREAD_ID carries the website support chat,
+TELEGRAM_NOTIFY_THREAD_ID carries the daily status and contact-form
+notices. Both settings empty keeps today's behaviour byte for byte - the
+routing only engages when the ids are set in .env, after the topics exist
+in the group. Senders touched: support/api.py, tasks.send_telegram (grew an
+optional thread), contact_api, daily_status.

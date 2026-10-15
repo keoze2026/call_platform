@@ -82,7 +82,8 @@ def contact(request, payload: ContactSchema):
         if bot_token and chat_id:
             ellipsis = '...' if len(message) > 300 else ''
             tg_message = f'New contact form submission\nName: {name}\nEmail: {email}\nMessage: {message[:300]}{ellipsis}'
-            send_telegram(bot_token, chat_id, tg_message)
+            send_telegram(bot_token, chat_id, tg_message,
+                          getattr(settings, 'TELEGRAM_NOTIFY_THREAD_ID', '') or None)
     except Exception as e:
         print('Telegram task failed:', e)
 

@@ -690,6 +690,11 @@ MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = f'{MEDIA_BASE_URL}/media/'
 
 TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
+# Forum topics inside the support group (the bot dev's suggestion): customer
+# support chatter in one thread, system notifications in another. Empty =
+# no topics, everything lands in the group root, exactly as before.
+TELEGRAM_SUPPORT_THREAD_ID = config('TELEGRAM_SUPPORT_THREAD_ID', default='')
+TELEGRAM_NOTIFY_THREAD_ID = config('TELEGRAM_NOTIFY_THREAD_ID', default='')
 # Where the daily business status goes. Separate from the support chat on
 # purpose: the support group gets technical alerts, and the person paying for
 # this wants calls, revenue and whether anything broke. Falls back to the
