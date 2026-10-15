@@ -259,9 +259,13 @@ class Command(BaseCommand):
                     'chat_id': chat,
                     'text': text,
                     'disable_web_page_preview': 'true',
-                    # The notifications topic, when the group uses topics.
+                    # The notifications topic - but only when sending to the
+                    # group that has topics. The boss's private chat has none,
+                    # and a thread id there is a 400 that kills the report.
                     **({'message_thread_id': settings.TELEGRAM_NOTIFY_THREAD_ID}
-                       if getattr(settings, 'TELEGRAM_NOTIFY_THREAD_ID', '') else {}),
+                       if getattr(settings, 'TELEGRAM_NOTIFY_THREAD_ID', '')
+                       and str(chat) == str(getattr(settings, 'TELEGRAM_SUPPORT_CHAT_ID', ''))
+                       else {}),
                 },
                 timeout=15,
             )
