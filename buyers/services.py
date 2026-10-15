@@ -175,12 +175,21 @@ class BuyerService:
         cap, created = BuyerCap.objects.get_or_create(buyer=buyer)
 
         field_map = {'daily': 'max_calls_daily', 'monthly': 'max_calls_monthly', 'concurrency': 'max_concurrency'}
-        for field, value in cap_data.model_dump(exclude_none=True).items():
+        incoming = cap_data.model_dump(exclude_none=True)
+        for field, value in incoming.items():
             mapped = field_map.get(field, field)
             if hasattr(cap, mapped):
                 setattr(cap, mapped, value)
 
         cap.save()
+
+        # One definition. The engine enforces Buyer.max_concurrency; this
+        # method wrote only the cap row, so the Settings tab's concurrency
+        # save landed in a drawer nothing reads - the owner set TBLA to 1000
+        # on the portal and the engine kept refusing at the field's 10.
+        if 'concurrency' in incoming:
+            buyer.max_concurrency = incoming['concurrency']
+            buyer.save(update_fields=['max_concurrency'])
         return cap
 
     @staticmethod

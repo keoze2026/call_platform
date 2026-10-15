@@ -6116,3 +6116,9 @@ costume: a control wired to a storage nothing reads.
 `update_cap` now syncs the enforced field whenever concurrency is saved, so
 the portal's number IS the engine's number. Existing rows left alone: the
 engine has always enforced the field, so the field is the lived truth.
+
+**CH-126 addendum:** the previous commit carried this entry WITHOUT the code
+- the editing script died on a syntax error and the push chain ran anyway,
+because the steps were chained by newlines, not &&. The fix itself is in
+this commit. Checklist truth re-learned in miniature: an entry describing a
+fix is not the fix; verify the diff names the code file.
