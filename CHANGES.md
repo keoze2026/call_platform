@@ -6275,3 +6275,21 @@ rows). Derived live from the carrier's rules, so flipping a carrier's terms
 flips its numbers' badge with no second bookkeeping. Backend field `risk`
 on both list and detail (declared on the schema - the Ninja trap), frontend
 column toggleable like the rest, red High, green Low.
+
+## CH-136 — Blocked caller: missed, comment "Callerid Blocked"
+
+**2026-10-17 · Routing · the owner's rule, verbatim: "if they call that caller id should missed, and under missed comment should show - Callerid Blocked"**
+
+A number the team blocked (Block button / Blocked Numbers, reason `manual`)
+was refused as a FAILED row reading "Caller is blacklisted". It is now a
+MISSED row (status no_answer) whose reason reads "Callerid Blocked" - the
+same treatment a duplicate on "Different" and a Destination Missed already
+get. Calls made before the block keep what really happened; nothing is
+rewritten. Spam, fraud, do-not-call and anonymous refusals are unchanged
+and stay failed. A buyer member's own block (routing skips that buyer
+only) is unchanged.
+
+The mistake avoided: `charge_rejected_call` took its fee only from FAILED
+rows, so moving the status alone would have silently stopped billing
+blocked calls. The fee check now also accepts a no_answer row whose reason
+is "Callerid Blocked" - billing is exactly as before.

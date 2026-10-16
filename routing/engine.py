@@ -99,11 +99,16 @@ class RoutingEngine:
     # previous call (spam_protection/dnc.py), which reads nothing like a
     # blacklist to whoever is looking at the export - the boss read them as
     # duplicates. One query, and only for a call that is already refused.
+    BLOCKED_CALLER_LABEL = 'Callerid Blocked'
+
     BLOCK_LABELS = {
         'auto_detected': 'Caller is on a do-not-call register',
         'spam':          'Caller flagged as spam',
         'fraud':         'Caller flagged as fraud',
-        'manual':        'Caller is blacklisted',
+        # A number the team blocked on purpose (Block button / Blocked
+        # Numbers). The boss's wording: the call is MISSED and the comment
+        # reads "Callerid Blocked" (asterisk_handler marks it missed).
+        'manual':        BLOCKED_CALLER_LABEL,
     }
 
     @staticmethod

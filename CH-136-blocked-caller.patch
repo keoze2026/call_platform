@@ -1,0 +1,213 @@
+diff --git a/CHANGES.md b/CHANGES.md
+index ca6fed72..c718c4f9 100644
+--- a/CHANGES.md
++++ b/CHANGES.md
+@@ -6275,3 +6275,21 @@ rows). Derived live from the carrier's rules, so flipping a carrier's terms
+ flips its numbers' badge with no second bookkeeping. Backend field `risk`
+ on both list and detail (declared on the schema - the Ninja trap), frontend
+ column toggleable like the rest, red High, green Low.
++
++## CH-136 — Blocked caller: missed, comment "Callerid Blocked"
++
++**2026-10-17 · Routing · the owner's rule, verbatim: "if they call that caller id should missed, and under missed comment should show - Callerid Blocked"**
++
++A number the team blocked (Block button / Blocked Numbers, reason `manual`)
++was refused as a FAILED row reading "Caller is blacklisted". It is now a
++MISSED row (status no_answer) whose reason reads "Callerid Blocked" - the
++same treatment a duplicate on "Different" and a Destination Missed already
++get. Calls made before the block keep what really happened; nothing is
++rewritten. Spam, fraud, do-not-call and anonymous refusals are unchanged
++and stay failed. A buyer member's own block (routing skips that buyer
++only) is unchanged.
++
++The mistake avoided: `charge_rejected_call` took its fee only from FAILED
++rows, so moving the status alone would have silently stopped billing
++blocked calls. The fee check now also accepts a no_answer row whose reason
++is "Callerid Blocked" - billing is exactly as before.
+diff --git a/routing/asterisk_handler.py b/routing/asterisk_handler.py
+index 1bd129fb..e55566e5 100644
+--- a/routing/asterisk_handler.py
++++ b/routing/asterisk_handler.py
+@@ -128,6 +128,11 @@ def route_incoming_call(request):
+         # refused stays a failed row with its reason.
+         if reason == 'Duplicate call':
+             call_log.status = CallLog.Status.NO_ANSWER
++        elif reason == RoutingEngine.BLOCKED_CALLER_LABEL:
++            # The boss's rule: a caller the team blocked is MISSED, with the
++            # comment "Callerid Blocked" - not a failed row. It is still a
++            # refusal, so the rejected-call fee below is taken as before.
++            call_log.status = CallLog.Status.NO_ANSWER
+         elif reason.startswith('Destination missed'):
+             # The owner's rule: the buyer's line could not take the call, so
+             # it is MISSED on that line - status missed, TFN and buyer stamped
+diff --git a/routing/engine.py b/routing/engine.py
+index bfbd7d0e..d5f8812e 100644
+--- a/routing/engine.py
++++ b/routing/engine.py
+@@ -99,11 +99,16 @@ class RoutingEngine:
+     # previous call (spam_protection/dnc.py), which reads nothing like a
+     # blacklist to whoever is looking at the export - the boss read them as
+     # duplicates. One query, and only for a call that is already refused.
++    BLOCKED_CALLER_LABEL = 'Callerid Blocked'
++
+     BLOCK_LABELS = {
+         'auto_detected': 'Caller is on a do-not-call register',
+         'spam':          'Caller flagged as spam',
+         'fraud':         'Caller flagged as fraud',
+-        'manual':        'Caller is blacklisted',
++        # A number the team blocked on purpose (Block button / Blocked
++        # Numbers). The boss's wording: the call is MISSED and the comment
++        # reads "Callerid Blocked" (asterisk_handler marks it missed).
++        'manual':        BLOCKED_CALLER_LABEL,
+     }
+ 
+     @staticmethod
+diff --git a/scripts/blocked_caller_smoke.py b/scripts/blocked_caller_smoke.py
+new file mode 100644
+index 00000000..bc32e1e5
+--- /dev/null
++++ b/scripts/blocked_caller_smoke.py
+@@ -0,0 +1,125 @@
++"""Blocked caller smoke (CH-136) - the owner's rule over real HTTP.
++
++    Locally:     docker compose exec -T web python scripts/blocked_caller_smoke.py
++    On server:   cd /opt/call_platform && docker compose exec -T web python scripts/blocked_caller_smoke.py
++
++What it proves, through the same endpoint Asterisk calls (/api/twilio/asterisk/route/):
++  1. A caller on Blocked Numbers (reason "manual") is MISSED (status no_answer)
++     and its reason reads "Callerid Blocked".
++  2. The rejected-call fee still applies to that call (billing unchanged).
++  3. A different refusal (caller flagged as spam) is still FAILED, unchanged.
++
++Safe on the live server: it builds its own throw-away organization, campaign
++and number inside one database transaction and rolls everything back at the
++end - no rows are left behind and no real money is charged (the billing call
++is replaced by a stub for the duration of the test). No phone call is made.
++"""
++import json
++import os
++import re
++import sys
++import uuid
++
++ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
++sys.path.insert(0, ROOT)
++if not os.environ.get('DJANGO_SETTINGS_MODULE'):
++    src = open(os.path.join(ROOT, 'manage.py')).read()
++    os.environ['DJANGO_SETTINGS_MODULE'] = re.search(
++        r"DJANGO_SETTINGS_MODULE['\"]\s*,\s*['\"]([^'\"]+)", src).group(1)
++import django  # noqa: E402
++django.setup()
++from django.conf import settings  # noqa: E402
++from django.db import transaction  # noqa: E402
++from django.test import Client  # noqa: E402
++
++settings.ALLOWED_HOSTS = list(settings.ALLOWED_HOSTS) + ['testserver']
++# The endpoint only answers callers that know the Asterisk secret. A laptop
++# usually has none in .env, so the test sets one for itself.
++if not getattr(settings, 'ASTERISK_SHARED_SECRET', ''):
++    settings.ASTERISK_SHARED_SECRET = 'local-smoke-secret'
++SECRET = settings.ASTERISK_SHARED_SECRET
++
++from accounts.models import Organization  # noqa: E402
++from billing.services import BillingService  # noqa: E402
++from campaigns.models import Campaign  # noqa: E402
++from phone_numbers.models import PhoneNumber  # noqa: E402
++from routing.engine import RoutingEngine  # noqa: E402
++from routing.models import CallLog  # noqa: E402
++from spam_protection.models import Blacklist  # noqa: E402
++import tasks  # noqa: E402
++
++fail = 0
++
++
++def check(label, got, want):
++    global fail
++    ok = got == want
++    fail += 0 if ok else 1
++    print(f"{'PASS' if ok else 'FAIL'}  {label}: {got!r} (want {want!r})")
++
++
++class Rollback(Exception):
++    pass
++
++
++def ring(client, caller, called):
++    """What Asterisk sends when a call comes in."""
++    r = client.post(
++        '/api/twilio/asterisk/route/',
++        data=json.dumps({'caller_number': caller, 'called_number': called,
++                         'asterisk_call_id': f'smoke-{uuid.uuid4()}'}),
++        content_type='application/json',
++        HTTP_X_ASTERISK_SECRET=SECRET,
++    )
++    return r.status_code, json.loads(r.content or b'{}')
++
++
++tag = uuid.uuid4().hex[:8]
++blocked_caller = '+1555' + str(uuid.uuid4().int)[:7]
++spam_caller = '+1556' + str(uuid.uuid4().int)[:7]
++tfn = '+1888' + str(uuid.uuid4().int)[:7]
++
++# Stub the money: record what would be charged, charge nothing.
++charged = []
++real_charge = BillingService.charge_call
++real_cost = BillingService.rejected_call_cost
++BillingService.charge_call = staticmethod(lambda *a, **k: charged.append(k) or None)
++BillingService.rejected_call_cost = staticmethod(lambda org: 1)
++
++try:
++    with transaction.atomic():
++        org = Organization.objects.create(name=f'SMOKE {tag}', slug=f'smoke-{tag}')
++        camp = Campaign.objects.create(organization=org, name=f'SMOKE {tag}', status='active')
++        PhoneNumber.objects.create(organization=org, number=tfn, campaign=camp, status='active')
++        Blacklist.objects.create(organization_id=org.id, phone_number=blocked_caller, reason='manual')
++        Blacklist.objects.create(organization_id=org.id, phone_number=spam_caller, reason='spam')
++        c = Client()
++
++        # 1. Blocked caller rings: missed, "Callerid Blocked".
++        code, body = ring(c, blocked_caller, tfn)
++        check('route answered                ', code, 200)
++        check('call hung up (not forwarded)  ', body.get('action'), 'hangup')
++        check('reason sent to Asterisk       ', body.get('reason'), 'Callerid Blocked')
++        log = CallLog.objects.filter(caller_number=blocked_caller).first()
++        check('row status is missed          ', log and log.status, CallLog.Status.NO_ANSWER)
++        check('row comment                   ', log and log.block_reason, RoutingEngine.BLOCKED_CALLER_LABEL)
++
++        # 2. The rejected-call fee still applies (stubbed - nothing is charged).
++        result = tasks.charge_rejected_call(str(log.id)) if log else None
++        check('fee still taken for blocked   ', result != 'not a refusal' and len(charged) >= 1, True)
++
++        # 3. Other refusals are untouched: spam stays failed.
++        code, body = ring(c, spam_caller, tfn)
++        log2 = CallLog.objects.filter(caller_number=spam_caller).first()
++        check('spam reason unchanged         ', body.get('reason'), 'Caller flagged as spam')
++        check('spam row still failed         ', log2 and log2.status, CallLog.Status.FAILED)
++
++        raise Rollback()
++except Rollback:
++    print('-- test data rolled back, nothing left behind')
++finally:
++    BillingService.charge_call = real_charge
++    BillingService.rejected_call_cost = real_cost
++
++print('ALL PASS' if not fail else f'{fail} FAILED')
++sys.exit(1 if fail else 0)
+diff --git a/tasks.py b/tasks.py
+index 8351c24f..f3506a4e 100644
+--- a/tasks.py
++++ b/tasks.py
+@@ -716,7 +716,12 @@ def charge_rejected_call(call_log_id):
+         return 'call not found'
+ 
+     # Only a refusal. A call that routed is charged by call_ended.
+-    if call.status != CallLog.Status.FAILED or not call.block_reason:
++    # A blocked caller is recorded as missed ("Callerid Blocked") but is still
++    # a refusal, so it keeps paying the fee it paid as a failed row.
++    from routing.engine import RoutingEngine
++    blocked_caller = (call.status == CallLog.Status.NO_ANSWER
++                      and call.block_reason == RoutingEngine.BLOCKED_CALLER_LABEL)
++    if (call.status != CallLog.Status.FAILED and not blocked_caller) or not call.block_reason:
+         return 'not a refusal'
+ 
+     amount = BillingService.rejected_call_cost(call.organization)

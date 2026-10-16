@@ -128,6 +128,11 @@ def route_incoming_call(request):
         # refused stays a failed row with its reason.
         if reason == 'Duplicate call':
             call_log.status = CallLog.Status.NO_ANSWER
+        elif reason == RoutingEngine.BLOCKED_CALLER_LABEL:
+            # The boss's rule: a caller the team blocked is MISSED, with the
+            # comment "Callerid Blocked" - not a failed row. It is still a
+            # refusal, so the rejected-call fee below is taken as before.
+            call_log.status = CallLog.Status.NO_ANSWER
         elif reason.startswith('Destination missed'):
             # The owner's rule: the buyer's line could not take the call, so
             # it is MISSED on that line - status missed, TFN and buyer stamped
