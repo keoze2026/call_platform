@@ -6263,3 +6263,15 @@ platform staff and keeps the 403.
 Also per the frontend: the drop caption "Caller hung up before answer" is
 now "Caller Abandoned" - renamed at the source for new calls and updated
 on the rows already written, so the portal shows one caption.
+
+## CH-135 — Risk column on the Numbers page
+
+**2026-10-16 · Numbers · the owner's ask, verbatim: "Low Risk have no expiry"**
+
+Next to Code every TFN now shows Risk: High when any retirement rule can
+take the number - the carrier's single use, lifetime hours, or the nightly
+answered sweep - Low when nothing ever expires it (XLR, XOLO, carrier-less
+rows). Derived live from the carrier's rules, so flipping a carrier's terms
+flips its numbers' badge with no second bookkeeping. Backend field `risk`
+on both list and detail (declared on the schema - the Ninja trap), frontend
+column toggleable like the rest, red High, green Low.

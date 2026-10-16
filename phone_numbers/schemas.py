@@ -85,6 +85,7 @@ class PhoneNumberOutSchema(Schema):
     carrier_id: Optional[str] = None
     carrier_name: str = ''
     carrier_code: str = ''
+    risk: str = 'low'
     assigned_at: Optional[str] = None
     expires_at: Optional[str] = None
     used_at: Optional[str] = None
@@ -129,6 +130,7 @@ class PhoneNumberListSchema(Schema):
     carrier_id: Optional[str] = None
     carrier_name: str = ''
     carrier_code: str = ''
+    risk: str = 'low'
     assigned_at: Optional[str] = None
     expires_at: Optional[str] = None
     used_at: Optional[str] = None
