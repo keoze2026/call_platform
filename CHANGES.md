@@ -6245,3 +6245,21 @@ defaults and silently removes the 'default' file storage. Nothing on the
 platform had ever uploaded a file through a FileField before, so it sat
 unnoticed until the first logo. Default FileSystemStorage restored; nginx
 already serves /media/, confirmed in the same run.
+
+## CH-134 — Staff flags on /me, and Caller Abandoned
+
+**2026-10-16 · Access · the frontend's Marketplace follow-up**
+
+The Services tab looked empty for everyone: hidden services only answer to
+platform staff, and the portal decides staff-ness from /me - which never
+carried is_staff or is_superuser because UserOutSchema left them out (the
+five-layer trap, again: the service could have sent them and the schema
+would have dropped them). Both flags now declared on the schema and
+supplied by get_profile, so login and /me carry them; the frontend's
+probe-a-fake-category workaround can come out. Platform staff stays
+distinct from workspace roles on purpose - a workspace admin is not
+platform staff and keeps the 403.
+
+Also per the frontend: the drop caption "Caller hung up before answer" is
+now "Caller Abandoned" - renamed at the source for new calls and updated
+on the rows already written, so the portal shows one caption.

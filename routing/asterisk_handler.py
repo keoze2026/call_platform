@@ -400,7 +400,7 @@ def call_ended(request):
             # The owner's wording, verbatim from his test review.
             'CONGESTION': 'Destination Missed',
             'CHANUNAVAIL': 'Destination Missed',
-            'CANCEL': 'Caller hung up before answer',
+            'CANCEL': 'Caller Abandoned',
         }.get(dial_status, call_log.block_reason)
 
     if recording_url:

@@ -181,6 +181,8 @@ class ProfileService:
             'first_name': user.first_name,
             'last_name': user.last_name,
             'role': user.role,
+            'is_staff': bool(user.is_staff),
+            'is_superuser': bool(user.is_superuser),
             'phone_number': user.phone_number,
             'mfa_enabled': user.mfa_enabled,
             'is_email_verified': user.is_email_verified,

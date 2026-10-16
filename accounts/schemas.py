@@ -122,6 +122,11 @@ class UserOutSchema(Schema):
     first_name: str
     last_name: str
     role: str
+    # Platform staff flags (CH-134): the Marketplace shows its Add/Edit
+    # controls and hidden services on these, and they are NOT workspace
+    # roles - a workspace admin is not platform staff.
+    is_staff: bool = False
+    is_superuser: bool = False
     phone_number: str
     mfa_enabled: bool
     is_email_verified: bool
