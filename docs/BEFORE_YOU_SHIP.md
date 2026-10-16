@@ -38,6 +38,9 @@ and the Stats API shipped the identical hole the same week.
 - [ ] The rule lives in data, not code, when users will change it (carriers
       CH-083; duplicate switches that saved nothing, CH-092)
 - [ ] Clocks start on USE, not on creation (TFN expiry, CH-094)
+- [ ] Restoring a retired record restores its ATTACHMENTS, not just its
+      status - retirement detaches campaign and publisher by design, so a
+      status-only restore brings back an orphan (the XLR re-attach, CH-135)
 - [ ] Remove a guard only after replacing what it protected - the
       one-destination limit guarded a .first() in routing (CH-098)
 - [ ] Queries grouped, never per row (CH-074/086); frontend pulled, tsc'd
