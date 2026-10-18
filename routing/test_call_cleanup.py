@@ -1,0 +1,272 @@
+"""CH-138: the channel sync no longer closes live calls, and a hangup that lost
+its call id after a buyer transfer is finished as the answered call it was.
+
+Run:  python manage.py test routing.test_call_cleanup
+"""
+import json
+import uuid
+from datetime import timedelta
+from unittest import mock
+
+from django.test import TestCase, Client, override_settings
+from django.utils import timezone
+
+from accounts.models import Organization
+from campaigns.models import Campaign
+from routing.models import CallLog
+
+CACHE = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}}
+SECRET = 'test-secret'
+SYNC = '/api/twilio/asterisk/active-channels/'
+ENDED = '/api/twilio/asterisk/call-ended/'
+
+
+@override_settings(
+    ASTERISK_SHARED_SECRET=SECRET,
+    CACHES=CACHE,
+    ASTERISK_SYNC_STRIKES=2,
+    ASTERISK_SYNC_GRACE_SECONDS=120,
+    ALLOWED_HOSTS=['*'],
+    FRONTEND_URL='https://avortyx.test',
+)
+class Base(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.org = Organization.objects.create(name='Org')
+        self.campaign = Campaign.objects.create(organization=self.org, name='C')
+        self.client = Client()
+
+    def call(self, sid, caller='+15551234567', age=600, status=CallLog.Status.IN_PROGRESS,
+             destination='+15557654321', **extra):
+        row = CallLog.objects.create(
+            organization=self.org, campaign=self.campaign, caller_number=caller,
+            called_number='+15559990000', twilio_call_sid=sid, status=status,
+            destination_number=destination, **extra,
+        )
+        CallLog.objects.filter(pk=row.pk).update(created_at=timezone.now() - timedelta(seconds=age))
+        row.refresh_from_db()
+        return row
+
+    def post(self, url, payload):
+        return self.client.post(
+            url, data=json.dumps(payload), content_type='application/json',
+            HTTP_X_ASTERISK_SECRET=SECRET,
+        )
+
+    def sync(self, ids, callers=(), count=None):
+        return self.post(SYNC, {
+            'active_call_ids': list(ids),
+            'active_callers': list(callers),
+            'active_count': len(ids) if count is None else count,
+        }).json()
+
+
+class ChannelSyncTests(Base):
+    def test_call_with_replaced_channel_is_kept_while_its_caller_is_on_a_channel(self):
+        transferred = self.call('old-id', caller='+15551234567')
+        other = self.call('other', caller='+15550001111')
+        for _ in range(3):
+            out = self.sync(['other', 'new-id'], callers=['15551234567', '5550001111'])
+        transferred.refresh_from_db()
+        self.assertEqual(transferred.status, CallLog.Status.IN_PROGRESS)
+        self.assertEqual(out['closed'], 0)
+        self.assertEqual(out['spared_by_caller'], 1)
+        other.refresh_from_db()
+        self.assertEqual(other.status, CallLog.Status.IN_PROGRESS)
+
+    def test_one_missing_report_never_closes_a_call(self):
+        gone = self.call('gone')
+        self.call('still-here', caller='+15550002222')
+        out = self.sync(['still-here'])
+        gone.refresh_from_db()
+        self.assertEqual(gone.status, CallLog.Status.IN_PROGRESS)
+        self.assertEqual((out['closed'], out['waiting']), (0, 1))
+
+    def test_second_missing_report_in_a_row_closes_it(self):
+        gone = self.call('gone')
+        self.call('still-here', caller='+15550002222')
+        self.sync(['still-here'])
+        out = self.sync(['still-here'])
+        gone.refresh_from_db()
+        self.assertEqual(gone.status, CallLog.Status.NO_ANSWER)
+        self.assertEqual(gone.block_reason, 'asterisk_gone')
+        self.assertEqual(out['closed'], 1)
+
+    def test_reappearing_resets_the_count(self):
+        row = self.call('flaky')
+        self.call('anchor', caller='+15550002222')
+        self.sync(['anchor'])                 # miss 1
+        self.sync(['anchor', 'flaky'])        # back: count cleared
+        self.sync(['anchor'])                 # miss 1 again, not 2
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.IN_PROGRESS)
+
+    def test_zero_channels_still_needs_two_reports(self):
+        row = self.call('x')
+        self.sync([], count=0)
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.IN_PROGRESS)
+        self.sync([], count=0)
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+
+    def test_unrelated_ids_close_nothing(self):
+        row = self.call('x')
+        for _ in range(3):
+            out = self.sync(['some-other-format'])
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.IN_PROGRESS)
+        self.assertEqual(out['closed'], 0)
+
+    def test_young_rows_are_never_touched(self):
+        row = self.call('young', age=30)
+        for _ in range(3):
+            self.sync([], count=0)
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.IN_PROGRESS)
+
+    def test_short_or_withheld_caller_ids_never_protect_a_row(self):
+        row = self.call('x', caller='+15551234567')
+        self.call('anchor', caller='+15550002222')
+        for _ in range(2):
+            self.sync(['anchor'], callers=['100', 'anonymous'])
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+
+    def test_unreachable_cache_closes_nothing(self):
+        row = self.call('x')
+        self.call('anchor', caller='+15550002222')
+        broken = mock.Mock()
+        broken.add.side_effect = RuntimeError('redis down')
+        with mock.patch('routing.asterisk_handler.cache', broken):
+            for _ in range(3):
+                self.sync(['anchor'])
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.IN_PROGRESS)
+
+    def test_a_call_finished_meanwhile_keeps_its_outcome(self):
+        row = self.call('x')
+        self.call('anchor', caller='+15550002222')
+        self.sync(['anchor'])
+        CallLog.objects.filter(pk=row.pk).update(status=CallLog.Status.COMPLETED)
+        self.sync(['anchor'])
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.COMPLETED)
+
+    def test_older_script_without_callers_still_works(self):
+        row = self.call('x')
+        self.call('anchor', caller='+15550002222')
+        for _ in range(2):
+            self.post(SYNC, {'active_call_ids': ['anchor'], 'active_count': 1})
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+
+
+@override_settings(BLIND_HANGUP_ASSUMES_ANSWERED=True)
+class HangupReportTests(Base):
+    def setUp(self):
+        super().setUp()
+        p = mock.patch('tasks.retire_used_number')
+        p.start()
+        self.addCleanup(p.stop)
+
+    def blind(self, **kw):
+        payload = {
+            'call_log_id': '', 'duration': 0, 'answered': False,
+            'recording_url': 'recordings/.wav', 'caller': '+15551234567',
+            'dialed_seconds': 0, 'dial_status': '',
+        }
+        payload.update(kw)
+        return self.post(ENDED, payload)
+
+    def test_normal_report_is_unchanged(self):
+        row = self.call('a')
+        r = self.post(ENDED, {'call_log_id': str(row.id), 'duration': 61, 'answered': True,
+                              'dialed_seconds': 70, 'dial_status': 'ANSWER'})
+        row.refresh_from_db()
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual((row.status, row.duration, row.ring_seconds),
+                         (CallLog.Status.COMPLETED, 61, 9))
+
+    def test_garbled_call_id_is_not_found_not_a_server_error(self):
+        r = self.post(ENDED, {'call_log_id': 'not-a-uuid', 'duration': 5, 'answered': True})
+        self.assertEqual(r.status_code, 404)
+        r = self.post(ENDED, {'call_log_id': str(uuid.uuid4()), 'duration': 5, 'answered': True})
+        self.assertEqual(r.status_code, 404)
+
+    def test_replayed_report_keeps_the_time_the_call_really_ended(self):
+        row = self.call('a')
+        ended = int((timezone.now() - timedelta(minutes=30)).timestamp())
+        self.post(ENDED, {'call_log_id': str(row.id), 'duration': 120, 'answered': True,
+                          'ended_at_epoch': ended})
+        row.refresh_from_db()
+        self.assertEqual(int(row.ended_at.timestamp()), ended)
+        self.assertEqual(int(row.answered_at.timestamp()), ended - 120)
+
+    def test_implausible_end_times_are_ignored(self):
+        for epoch in (int((timezone.now() + timedelta(days=1)).timestamp()), 1000):
+            row = self.call(f'a{epoch}')
+            self.post(ENDED, {'call_log_id': str(row.id), 'duration': 5, 'answered': True,
+                              'ended_at_epoch': epoch})
+            row.refresh_from_db()
+            self.assertLess(abs((row.ended_at - timezone.now()).total_seconds()), 30)
+
+    def test_hangup_without_id_finishes_the_transferred_call_as_answered(self):
+        row = self.call('t', age=600)
+        r = self.blind()
+        row.refresh_from_db()
+        self.assertTrue(r.json().get('received'))
+        self.assertEqual(row.status, CallLog.Status.COMPLETED)
+        self.assertGreaterEqual(row.duration, 595)
+        self.assertEqual(row.recording_url, f'https://avortyx.test/recordings/{row.id}.wav')
+
+    def test_blind_hangup_can_be_left_as_reported(self):
+        row = self.call('t', age=600)
+        with override_settings(BLIND_HANGUP_ASSUMES_ANSWERED=False):
+            self.blind()
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.duration), (CallLog.Status.NO_ANSWER, 0))
+
+    def test_blind_hangup_with_a_dial_result_is_a_real_missed_call(self):
+        row = self.call('t', age=600)
+        self.blind(dial_status='NOANSWER', dialed_seconds=30)
+        row.refresh_from_db()
+        self.assertEqual((row.status, row.duration), (CallLog.Status.NO_ANSWER, 0))
+
+    def test_blind_hangup_for_a_call_never_sent_to_a_buyer_is_not_assumed_answered(self):
+        row = self.call('t', age=600, destination='')
+        self.blind()
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+
+    def test_blind_hangup_prefers_the_call_sent_to_a_buyer(self):
+        talking = self.call('talking', age=900)
+        ringing = self.call('ringing', age=20, status=CallLog.Status.RINGING, destination='')
+        self.blind()
+        talking.refresh_from_db()
+        ringing.refresh_from_db()
+        self.assertEqual(talking.status, CallLog.Status.COMPLETED)
+        self.assertEqual(ringing.status, CallLog.Status.RINGING)
+
+    def test_hangup_that_loses_the_race_to_the_sweep_still_finishes_the_call(self):
+        row = self.call('t', age=600, status=CallLog.Status.NO_ANSWER, block_reason='asterisk_gone')
+        CallLog.objects.filter(pk=row.pk).update(ended_at=timezone.now() - timedelta(minutes=2))
+        self.blind()
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.COMPLETED)
+        self.assertEqual(row.block_reason, '')
+
+    def test_blind_hangup_with_nothing_open_changes_nothing(self):
+        done = self.call('d', status=CallLog.Status.COMPLETED, duration=40)
+        r = self.blind()
+        done.refresh_from_db()
+        self.assertEqual(r.json(), {'received': True, 'matched': False})
+        self.assertEqual((done.status, done.duration), (CallLog.Status.COMPLETED, 40))
+
+    def test_campaign_with_recording_off_gets_no_rebuilt_link(self):
+        Campaign.objects.filter(pk=self.campaign.pk).update(recording_enabled=False)
+        row = self.call('t', age=600)
+        self.blind()
+        row.refresh_from_db()
+        self.assertEqual(row.recording_url, '')

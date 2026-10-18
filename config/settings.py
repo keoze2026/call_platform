@@ -300,6 +300,17 @@ STALE_CALL_MINUTES = config('STALE_CALL_MINUTES', default=60, cast=int)
 # call can exist here a moment before Asterisk reports its channel.
 ASTERISK_SYNC_GRACE_SECONDS = config('ASTERISK_SYNC_GRACE_SECONDS', default=120, cast=int)
 
+# The channel sync runs every minute. A live row is closed only after it has been
+# missing from this many reports in a row, so one odd snapshot cannot close a
+# call that is still talking.
+ASTERISK_SYNC_STRIKES = config('ASTERISK_SYNC_STRIKES', default=2, cast=int)
+
+# A hangup that arrives with no call id and no dial result came from a channel
+# that replaced the original after a buyer transfer, so the call was answered.
+# True records it as answered, timed from when the call was created; False
+# leaves it as the report says (unanswered, 0s).
+BLIND_HANGUP_ASSUMES_ANSWERED = config('BLIND_HANGUP_ASSUMES_ANSWERED', default=True, cast=bool)
+
 # Calls arrive over the SIP trunk into Asterisk, not through the Twilio voice
 # webhooks. Those webhooks are a second routing implementation with their own
 # billing, so they are kept switchable. Default on - turn off once the logs

@@ -9,8 +9,11 @@
 #   chmod +x /opt/call_platform/scripts/asterisk_channel_sync.sh
 #   ( crontab -l 2>/dev/null; echo "* * * * * /opt/call_platform/scripts/asterisk_channel_sync.sh >> /var/log/asterisk_channel_sync.log 2>&1" ) | crontab -
 #
-# Sends nothing but a count and a list of channel ids. The server decides what
-# to close, and refuses to close anything if the ids do not match what it holds.
+# Sends nothing but a count, the channel ids and the caller numbers on those
+# channels. The server decides what to close: it refuses to close anything if
+# the ids do not match what it holds, keeps a call whose caller number is still
+# on a live channel (a transfer replaces the channel id mid-call), and closes a
+# call only after it has been missing from two reports in a row.
 set -uo pipefail
 
 ENV_FILE="${ENV_FILE:-/opt/call_platform/.env}"
@@ -46,17 +49,25 @@ COUNT=${COUNT:-0}
 
 if [ "$COUNT" -eq 0 ]; then
     IDS="[]"
+    CALLERS="[]"
 else
     IDS=$(printf '%s\n' "$CHANNELS" \
         | awk -F'!' 'NF>1 {printf "\"%s\",", $NF}' \
         | sed 's/,$//')
     IDS="[${IDS}]"
+    # Caller id is the 8th field of the concise format. Only digits and a
+    # leading + are kept, so nothing odd can break the JSON. A field that does
+    # not look like a number (a name, "anonymous") is skipped.
+    CALLERS=$(printf '%s\n' "$CHANNELS" \
+        | awk -F'!' 'NF>1 {c=$8; gsub(/[^0-9+]/, "", c); if (length(c) >= 7) printf "\"%s\",", c}' \
+        | sed 's/,$//')
+    CALLERS="[${CALLERS}]"
 fi
 
 RESPONSE=$(curl -s --max-time 10 -X POST "$URL" \
     -H 'Content-Type: application/json' \
     -H "X-Asterisk-Secret: ${SECRET}" \
-    -d "{\"active_call_ids\": ${IDS}, \"active_count\": ${COUNT}}")
+    -d "{\"active_call_ids\": ${IDS}, \"active_callers\": ${CALLERS}, \"active_count\": ${COUNT}}")
 
 # Only log when something happened, so the cron log stays readable
 case "$RESPONSE" in

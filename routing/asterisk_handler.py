@@ -7,11 +7,14 @@ import json
 import re
 import logging
 import uuid
+from datetime import datetime, timezone as dt_timezone
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 from django.conf import settings
+from django.core.cache import cache
 from django.utils import timezone
 
 from phone_numbers.models import PhoneNumber
@@ -25,6 +28,51 @@ def _check_secret(request):
     secret = request.headers.get('X-Asterisk-Secret', '')
     expected = getattr(settings, 'ASTERISK_SHARED_SECRET', '')
     return bool(secret and expected and hmac.compare_digest(secret, expected))
+
+
+_LIVE_STATUSES = (CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS)
+_MISS_KEY = 'asterisk_sync_miss:%s'
+_MISS_TTL = 600
+
+
+def _caller_key(value):
+    """Last ten digits of a caller number, or '' when it is too short to trust.
+
+    Seven digits is the floor so an extension or "anonymous" can never match a
+    real caller.
+    """
+    digits = ''.join(ch for ch in str(value or '') if ch.isdigit())
+    return digits[-10:] if len(digits) >= 7 else ''
+
+
+def _count_misses(call_ids):
+    """Record one more missed report for each id; return those now due to close.
+
+    The count lives in the cache, so it needs no migration and a stopped sync
+    simply lets it expire. If the cache cannot be reached nothing is reported as
+    due: leaving a stale row open is always the safer failure than closing a
+    live call, and tasks.close_stale_calls still sweeps it.
+    """
+    need = max(1, int(getattr(settings, 'ASTERISK_SYNC_STRIKES', 2)))
+    due = set()
+    for cid in call_ids:
+        key = _MISS_KEY % cid
+        try:
+            cache.add(key, 0, timeout=_MISS_TTL)
+            if cache.incr(key) >= need:
+                due.add(cid)
+        except Exception:
+            logger.warning('asterisk sync: miss counter unavailable; not closing %s', cid)
+    return due
+
+
+def _clear_misses(call_ids):
+    if not call_ids:
+        return
+    try:
+        cache.delete_many([_MISS_KEY % cid for cid in call_ids])
+    except Exception:
+        logger.warning('asterisk sync: could not clear miss counters')
 
 
 @csrf_exempt
@@ -232,6 +280,14 @@ def active_channels(request):
         them matches a live row. If none match, the id format differs from what
         the dialplan sends and NOTHING is closed - better to do nothing than
         guess
+      * a row is also kept when a live channel carries the same caller number.
+        A transfer at the buyer replaces the inbound channel, so its unique id
+        stops matching while the call is still talking; the caller number
+        survives (CH-097). Before this a live ten-minute call was closed as
+        asterisk_gone the minute after its channel was replaced.
+      * a row is closed only after it has been missing from
+        ASTERISK_SYNC_STRIKES reports in a row (default 2), so one odd snapshot
+        - a channel caught mid-replacement, a CLI hiccup - cannot close a call
 
     Reads nothing in the routing path and changes no routing behaviour.
     """
@@ -243,7 +299,12 @@ def active_channels(request):
     except Exception:
         return JsonResponse({"error": "Bad JSON"}, status=400)
 
-    active_ids = [str(i) for i in (data.get('active_call_ids') or [])]
+    active_ids = {str(i) for i in (data.get('active_call_ids') or [])}
+    # Optional: older copies of the host script do not send it, and then only
+    # the id match applies, exactly as before.
+    active_callers = {
+        k for k in (_caller_key(c) for c in (data.get('active_callers') or [])) if k
+    }
     try:
         active_count = int(data.get('active_count', len(active_ids)))
     except (TypeError, ValueError):
@@ -253,39 +314,61 @@ def active_channels(request):
     cutoff = timezone.now() - timezone.timedelta(seconds=grace)
 
     live = CallLog.objects.filter(
-        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
+        status__in=_LIVE_STATUSES,
         created_at__lt=cutoff,
     )
 
+    still_up = []
     if active_count == 0:
-        stale = list(live)
+        missing = list(live)
         reason = 'asterisk reports no active channels'
     else:
-        live_sids = set(live.values_list('twilio_call_sid', flat=True))
-        if not (live_sids & set(active_ids)):
+        live_rows = list(live)
+        if not ({c.twilio_call_sid for c in live_rows} & active_ids):
             # No overlap: the ids Asterisk sends are not the ids stored here, so
             # absence from the list proves nothing. Leave everything alone.
             return JsonResponse({
                 "closed": 0,
-                "skipped": live.count(),
+                "skipped": len(live_rows),
                 "reason": "channel ids do not match stored call ids; nothing closed",
             })
-        stale = [c for c in live if c.twilio_call_sid not in active_ids]
+        missing = []
+        for c in live_rows:
+            if c.twilio_call_sid in active_ids or _caller_key(c.caller_number) in active_callers:
+                still_up.append(c)
+            else:
+                missing.append(c)
         reason = 'not present in asterisk channel list'
+
+    spared_by_caller = sum(1 for c in still_up if c.twilio_call_sid not in active_ids)
+
+    # A row that is up again starts its count from zero.
+    _clear_misses([c.id for c in still_up])
+    ready = _count_misses([c.id for c in missing])
 
     closed = 0
     now = timezone.now()
-    for call in stale:
+    for call in missing:
+        if call.id not in ready:
+            continue
+        # The hangup report may have landed while this request was running; a
+        # call that already finished keeps the outcome it was given.
+        call.refresh_from_db(fields=['status'])
+        if call.status not in _LIVE_STATUSES:
+            continue
         call.status = CallLog.Status.NO_ANSWER
         call.ended_at = now
         call.block_reason = 'asterisk_gone'
         # Saved one at a time so post_save fires and the call reaches CallRecord
         call.save(update_fields=['status', 'ended_at', 'block_reason', 'updated_at'])
+        _clear_misses([call.id])
         logger.info('closed orphaned call %s (%s)', call.id, reason)
         closed += 1
 
     return JsonResponse({
         "closed": closed,
+        "waiting": len(missing) - closed,
+        "spared_by_caller": spared_by_caller,
         "asterisk_active": active_count,
         "reason": reason,
     })
@@ -333,11 +416,28 @@ def call_ended(request):
     data.get('url', '')
 )
 
+    now = timezone.now()
+    # The moment the call really ended, as the switch saw it. A report that was
+    # held back and replayed (call_ended.sh --replay) must not stamp the replay
+    # time on the call. Used only when it is plausible.
+    ended_at = now
+    try:
+        epoch = int(data.get('ended_at_epoch') or 0)
+    except (TypeError, ValueError):
+        epoch = 0
+    if epoch:
+        reported = datetime.fromtimestamp(epoch, tz=dt_timezone.utc)
+        if now - timezone.timedelta(hours=48) <= reported <= now + timezone.timedelta(minutes=1):
+            ended_at = min(reported, now)
+
     call_log = None
+    matched_blind = False
     if call_log_id:
         try:
             call_log = CallLog.objects.select_related('campaign', 'buyer').get(id=call_log_id)
-        except CallLog.DoesNotExist:
+        except (CallLog.DoesNotExist, ValueError, ValidationError):
+            # Not retryable: the id will never exist. Also stops a garbled id
+            # from becoming a 500, which the host script would keep retrying.
             return JsonResponse({"error": "Call not found"}, status=404)
     else:
         # The hangup arrived without its id. A transfer at the buyer replaces
@@ -350,20 +450,42 @@ def call_ended(request):
         if caller:
             digits = ''.join(ch for ch in caller if ch.isdigit())[-10:]
             if digits:
-                from datetime import timedelta
-                call_log = (
-                    CallLog.objects.select_related('campaign', 'buyer')
-                    .filter(
-                        caller_number__endswith=digits,
-                        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
-                        created_at__gte=timezone.now() - timedelta(hours=6),
-                    )
-                    .order_by('-created_at')
-                    .first()
+                base = CallLog.objects.select_related('campaign', 'buyer').filter(
+                    caller_number__endswith=digits,
+                    created_at__gte=now - timezone.timedelta(hours=6),
                 )
+                # Prefer a call that was sent to a buyer over one still ringing
+                # here, then the newest: a caller with two open rows is almost
+                # always a fresh attempt next to the call that was transferred.
+                open_calls = list(
+                    base.filter(status__in=_LIVE_STATUSES).order_by('-created_at')[:5]
+                )
+                call_log = next(
+                    (c for c in open_calls if c.status == CallLog.Status.IN_PROGRESS),
+                    open_calls[0] if open_calls else None,
+                )
+                if call_log is None:
+                    # The sweep can beat the hangup to it: the row was closed as
+                    # asterisk_gone a moment before this report arrived. That
+                    # row is the call; finish it rather than leave it written off.
+                    call_log = (
+                        base.filter(
+                            block_reason='asterisk_gone',
+                            ended_at__gte=now - timezone.timedelta(minutes=30),
+                        )
+                        .order_by('-created_at')
+                        .first()
+                    )
                 if call_log:
+                    matched_blind = True
+                    call_log_id = str(call_log.id)
+                    if len(open_calls) > 1:
+                        logger.warning(
+                            'call_ended without an id: %d open calls from %s, took %s',
+                            len(open_calls), digits, call_log.id,
+                        )
                     logger.warning(
-                        'call_ended arrived without an id; matched open call %s by caller %s',
+                        'call_ended arrived without an id; matched call %s by caller %s',
                         call_log.id, digits,
                     )
         if call_log is None:
@@ -372,11 +494,41 @@ def call_ended(request):
             # logging an error for the expected case.
             return JsonResponse({"received": True, "matched": False})
 
+    # A hangup with no id and no dial result never ran Dial() on this channel,
+    # so it belongs to a channel that replaced the original, and a channel is
+    # only replaced after a buyer answered. The report says "unanswered, 0s"
+    # only because the variables it reads are gone. Writing that down is what
+    # showed real conversations as Missed while the upstream showed Connected.
+    # Disable with BLIND_HANGUP_ASSUMES_ANSWERED=False.
+    dial_status_raw = str(data.get('dial_status') or '').strip()
+    if (
+        matched_blind
+        and not answered
+        and duration == 0
+        and not dial_status_raw
+        and call_log.destination_number
+        and getattr(settings, 'BLIND_HANGUP_ASSUMES_ANSWERED', True)
+    ):
+        started = call_log.answered_at or call_log.created_at
+        elapsed = int((ended_at - started).total_seconds())
+        # Nothing shorter than a few seconds can be a conversation, and a call
+        # older than the dial window would be a stale row, not a talk.
+        if 5 <= elapsed <= 6 * 3600:
+            answered = True
+            duration = elapsed
+            logger.warning(
+                'call_ended for %s had no id and no dial result: recorded as '
+                'answered, %ss since it was created', call_log.id, elapsed,
+            )
+
     call_log.duration = duration
     call_log.status = CallLog.Status.COMPLETED if answered else CallLog.Status.NO_ANSWER
-    call_log.ended_at = timezone.now()
+    call_log.ended_at = ended_at
+    if answered and matched_blind and call_log.block_reason == 'asterisk_gone':
+        # No longer an orphan: it was a real call.
+        call_log.block_reason = ''
     if answered and not call_log.answered_at:
-        call_log.answered_at = timezone.now() - timezone.timedelta(seconds=duration)
+        call_log.answered_at = ended_at - timezone.timedelta(seconds=duration)
     # Switch-measured ring: DIALEDTIME covers the whole Dial (ring + talk),
     # ANSWEREDTIME the talk alone; the difference is how long the dialed line
     # rang. Stored only when the dialplan sent it (old shell omits it).
@@ -411,6 +563,15 @@ def call_ended(request):
             'CHANUNAVAIL': 'Destination Missed',
             'CANCEL': 'Caller Abandoned',
         }.get(dial_status, call_log.block_reason)
+
+    if matched_blind:
+        # The path the dialplan posted was built from the id it no longer had
+        # ("recordings/.wav"), and that passes for a file name. The audio is
+        # still <call-id>.wav, so rebuild the link from the call that matched.
+        recording_url = ''
+        if call_log.campaign is None or getattr(call_log.campaign, 'recording_enabled', True):
+            from routing.recordings import rebuilt_recording_url as _rebuild
+            recording_url = _rebuild(call_log_id)
 
     if recording_url:
         # Asterisk was sending `https` - the URL truncated at the first colon by

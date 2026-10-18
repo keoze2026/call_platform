@@ -6331,3 +6331,51 @@ failed-dial case produced the first where it should have produced the second.
 Not covered here: transfers that replace the inbound channel and the
 asterisk_gone sweep (the linkedid work), the hangup curl that has no retry, and
 the Asterisk shared secret committed inside docs/asterisk/call_ended.sh.
+
+## CH-138 - Live calls are no longer closed, transferred calls finish as answered, hangup reports are not lost
+
+**2026-10-18 · Routing / Asterisk · the owner: "calls are dropping", a month unresolved**
+
+Three ways a call that was fine on the phone ended up wrong on the portal.
+
+1. **The channel sync closed live calls.** `active_channels` closed any live row
+   whose channel id was not in Asterisk's list. A buyer transfer replaces the
+   inbound channel, its id changes, and the call was written off as
+   `asterisk_gone` (no_answer, 0s) the next minute while still talking. Now:
+   a row is kept while a live channel carries its caller number (the script
+   sends `active_callers`; the number survives a transfer, CH-097); a row is
+   closed only after it is missing from two reports in a row
+   (`ASTERISK_SYNC_STRIKES`, counted in the cache, no migration); a call that
+   finished while the request ran keeps its outcome; if the cache cannot be
+   reached nothing is closed, because a stale row is the safer failure.
+2. **A hangup that lost its id** (the replacement channel carries no variables)
+   was matched to the open call by caller number but then wrote "unanswered,
+   0s", posted a recording path built from the missing id ("recordings/.wav"),
+   and lost the race if the sweep closed the row first. Now it prefers the call
+   that was sent to a buyer over one still ringing, also finishes a row the
+   sweep closed in the last 30 minutes, rebuilds the recording link from the
+   matched call, and records a hangup with no id and no dial result as answered
+   (a channel is only replaced after a buyer answered), timed from when the call
+   was created. That duration includes the ring, so it can run a few seconds
+   long. `BLIND_HANGUP_ASSUMES_ANSWERED=False` turns this off.
+3. **The hangup report was one curl with no timeout and no second try.** Any
+   restart or slow request lost it for good. `docs/asterisk/call_ended.sh` now
+   tries twice with a 10s limit, saves an undelivered report to
+   `/var/spool/call_ended` and resends it every minute for 24 hours
+   (`call_ended.sh --replay`, cron). It sends `ended_at_epoch` so a late report
+   keeps the time the call really ended. A garbled id returns 404 instead of a
+   500 so the script does not retry it. The shared secret is no longer written in
+   the script: it is read from the environment, `/etc/asterisk/call_ended.secret`
+   or `.env`.
+
+**Not verified on live traffic:** what a real transferred call posts. The
+answered assumption in (2) rests on the channel-replacement behaviour found in
+CH-097; read `/tmp/call_end_debug.log` after the first transfer and switch the
+setting off if the report already carries a real duration.
+
+**Still to do:** the old shared secret remains valid and sits in git history in
+the previous `call_ended.sh`; rotate it (`deploy/rotate_secret_key.sh` covers the
+Django key, not this one) and update `.env`, `/etc/asterisk/call_ended.secret`
+if used, and the dialplan if it is hardcoded there.
+
+Tests: `python manage.py test routing.test_call_cleanup` (23).
