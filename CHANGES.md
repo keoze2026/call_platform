@@ -6366,7 +6366,11 @@ Three ways a call that was fine on the phone ended up wrong on the portal.
    keeps the time the call really ended. A garbled id returns 404 instead of a
    500 so the script does not retry it. The shared secret is no longer written in
    the script: it is read from the environment, `/etc/asterisk/call_ended.secret`
-   or `.env`.
+   or `.env`. Install notes are in the script header: the secret file, the spool
+   folder and the replay cron must belong to the user Asterisk really runs as
+   (found with `stat -c %U /tmp/call_end_debug.log`, it was `asterisk`, not
+   root). A first install assumed root, the new script could not read its secret
+   as `asterisk`, so it was rolled back, fixed and reinstalled.
 
 **Not verified on live traffic:** what a real transferred call posts. The
 answered assumption in (2) rests on the channel-replacement behaviour found in

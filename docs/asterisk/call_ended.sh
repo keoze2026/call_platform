@@ -7,8 +7,22 @@
 #       called by macro-call_end when a call hangs up
 #
 #   call_ended.sh --replay
-#       resends reports that could not be delivered; run it from cron:
-#       * * * * * /usr/local/bin/call_ended.sh --replay >> /var/log/call_ended_replay.log 2>&1
+#       resends reports that could not be delivered; run from cron, see Install
+#
+# Install (as root). AU is the user Asterisk runs as; find it with
+#   stat -c %U /tmp/call_end_debug.log
+# and do NOT assume root: the daemon usually runs as "asterisk", and it must be
+# able to read the secret and write the spool.
+#   AU=asterisk
+#   grep '^ASTERISK_SHARED_SECRET=' /opt/call_platform/.env | cut -d= -f2- | tr -d '"' > /etc/asterisk/call_ended.secret
+#   chown $AU /etc/asterisk/call_ended.secret; chmod 600 /etc/asterisk/call_ended.secret
+#   mkdir -p /var/spool/call_ended; chown -R $AU /var/spool/call_ended
+#   cp /opt/call_platform/docs/asterisk/call_ended.sh /usr/local/bin/call_ended.sh
+#   chmod 755 /usr/local/bin/call_ended.sh
+#   ( crontab -u $AU -l 2>/dev/null; echo "* * * * * /usr/local/bin/call_ended.sh --replay >> /tmp/call_ended_replay.log 2>&1" ) | crontab -u $AU -
+# The replay cron belongs to the SAME user, not root. root cannot append to a
+# file in /tmp that another user owns (fs.protected_regular), so a root replay
+# loses its log lines, and a lock file created by root locks the real user out.
 #
 # Why it retries: the report used to be one curl with no timeout and no second
 # attempt. A restart of the web container, a slow request or a dropped
@@ -33,7 +47,7 @@ MAX_AGE="${CALL_ENDED_MAX_AGE:-86400}"   # give up on a report after a day
 ATTEMPTS="${CALL_ENDED_ATTEMPTS:-2}"     # tries before spooling
 CURL_MAX="${CALL_ENDED_CURL_MAX:-10}"    # seconds per try
 
-log() { echo "$(date -Is) $*" >> "$LOG" 2>/dev/null; }
+log() { { echo "$(date -Is) $*" >> "$LOG"; } 2>/dev/null; }
 
 load_secret() {
     SECRET="${ASTERISK_SHARED_SECRET:-}"
@@ -58,7 +72,7 @@ post_file() {
         --data-binary "@${file}" "$URL" 2>/dev/null)
     [ -z "$code" ] && code="000"
     if [ -s "$body" ]; then
-        { cat "$body"; echo; } >> "$LOG" 2>/dev/null
+        { { cat "$body"; echo; } >> "$LOG"; } 2>/dev/null
     fi
     rm -f "$body"
     echo "$code"
