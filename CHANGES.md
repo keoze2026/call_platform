@@ -6293,3 +6293,41 @@ The mistake avoided: `charge_rejected_call` took its fee only from FAILED
 rows, so moving the status alone would have silently stopped billing
 blocked calls. The fee check now also accepts a no_answer row whose reason
 is "Callerid Blocked" - billing is exactly as before.
+
+## CH-137 - Calls are no longer answered before the buyer answers
+
+**2026-10-18 · Routing / Asterisk · the owner: every call should pass unless the buyer drops it; a call that drops on AVX must also read as missed upstream, not connected there and missed here**
+
+The live dialplan ran `Answer()` as the first step of [from-carrier], before
+`AGI(route_call.py)` and before the buyer was rung. The upstream platform saw
+a connected call the instant it arrived, so a buyer that declined (503 / 603),
+was congested or never picked up left the upstream showing Connected while our
+portal showed Missed. The call-flow table the owner posted (leg 1 answered, leg 2
+declined) is exactly this.
+
+Fix, applied on the server by `deploy/no_early_answer.py` (dry run by default,
+backs up the file, refuses while calls are active, refuses if route_call.py
+talks to the caller, rolls itself back if the reload fails):
+
+- `Answer()` is removed from [from-carrier]. `Dial()` answers the caller at the
+  moment the buyer answers, so answered now means a buyer really picked up.
+- After `Dial()`, a call the buyer did not answer hangs up with the buyer's own
+  hangup cause (a decline stays a decline, busy stays busy), so the upstream
+  receives a failed call.
+- Optional `--reject-nobuyer`: a call with no buyer is rejected instead of
+  answered and played "goodbye". Off until the owner agrees callers should hear a
+  rejection.
+
+Also in this entry: TTC on a dial that failed at once. The dialplan already
+sent DIALEDTIME, but a decline rings for 0 seconds, so `ring_seconds` stayed
+null and the log showed a dash on every Destination Missed row. `call_ended`
+now stores the measured 0 whenever a Dial ran (DIALSTATUS present), so the log
+reads 0:00:00. A call refused before dialing still reads as unknown.
+
+The mistake: the reload in the macro (CH-120) was verified as installed, so TTC
+was assumed fixed. A TTC of "unknown" and a TTC of 0 are different facts, and the
+failed-dial case produced the first where it should have produced the second.
+
+Not covered here: transfers that replace the inbound channel and the
+asterisk_gone sweep (the linkedid work), the hangup curl that has no retry, and
+the Asterisk shared secret committed inside docs/asterisk/call_ended.sh.
