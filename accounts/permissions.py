@@ -87,7 +87,39 @@ def capabilities_for(user) -> set:
         from accounts.partner_permissions import capabilities_for_partner
         return capabilities_for_partner(user)
 
-    return ROLE_CAPABILITIES.get(role, {Capability.VIEW})
+    if role in ('admin', 'reseller'):
+        return ROLE_CAPABILITIES[role]
+
+    # Every other workspace login (Manager, Viewer, Agent and any custom role)
+    # holds what its ticks on the Roles screen say. These coarse capabilities
+    # used to come from a fixed table, which overrode the ticks: a Viewer with
+    # every box ticked still could not edit, and a custom role could never
+    # change anything. The area a request touches is checked separately, by
+    # `route_permissions`; this only says whether the role may change, remove,
+    # or reach recordings and exports at all.
+    return _capabilities_from_ticks(user, role)
+
+
+def _capabilities_from_ticks(user, role) -> set:
+    from accounts.workspace_permissions import effective_permissions
+    held = set(effective_permissions(user))
+    if not held and role not in ROLE_CAPABILITIES:
+        return {Capability.VIEW}
+    caps = {Capability.VIEW}
+    if any(k.split('.', 1)[1].startswith('edit') for k in held):
+        caps |= {Capability.EDIT, Capability.CREATE}
+    if any(k.endswith('.delete') for k in held):
+        caps.add(Capability.DELETE)
+    if 'billing.view' in held:
+        caps.add(Capability.BILLING)
+    if 'reporting.listen' in held:
+        caps.add(Capability.RECORDINGS)
+    if 'reporting.download' in held:
+        caps.add(Capability.EXPORT)
+    if 'blocked-numbers.edit' in held:
+        caps.add(Capability.BLOCK_NUMBERS)
+    # MEMBERS and SETTINGS have no tick: workspace administration is the admin's.
+    return caps
 
 
 def has(user, capability: str) -> bool:

@@ -42,9 +42,14 @@ class JWTAuth(HttpBearer):
             # browsing on their open tab.
             if not user.is_active or _org_suspended(user):
                 return None
-            return user
         except (InvalidToken, TokenError, User.DoesNotExist):
             return None
+        # Outside the try: a refusal here is a 403 for a known user, not a
+        # bad token. This is where every Roles-screen tick is enforced.
+        from .route_permissions import enforce_route
+        enforce_route(request, user)
+        return user
+
 
 class CapabilityAuth(HttpBearer):
     """Authenticate, then require a capability for the whole router.
@@ -124,6 +129,10 @@ class APIKeyAuth(HttpBearer):
         if api_key:
             request.auth_user = api_key.user
             request.auth_org = api_key.organization
+            # A key carries its owner's role: a Viewer's key reads only what a
+            # Viewer may read.
+            from .route_permissions import enforce_route
+            enforce_route(request, api_key.user)
             return api_key.user
         return None
 

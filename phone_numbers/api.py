@@ -210,8 +210,10 @@ def _carrier_out(c) -> dict:
 
 @carriers_router.get("", response={200: List[CarrierOutSchema]})
 def list_carriers(request: HttpRequest):
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'tracking-numbers', 'view')
+    from accounts.workspace_permissions import has_perm
+    from ninja.errors import HttpError
+    if not (has_perm(request.auth, 'vendors', 'view') or has_perm(request.auth, 'tracking-numbers', 'view')):
+        raise HttpError(403, "Your role doesn't have access to vendors (view).")
     from .models import Carrier
     rows = Carrier.objects.filter(organization=request.auth.organization)
     return 200, [_carrier_out(c) for c in rows]
@@ -220,7 +222,7 @@ def list_carriers(request: HttpRequest):
 @carriers_router.post("", response={201: CarrierOutSchema, 400: dict})
 def create_carrier(request: HttpRequest, data: CarrierInSchema):
     from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'tracking-numbers', 'edit')
+    require_perm(request.auth, 'vendors', 'edit')
     require(request.auth, Capability.CREATE)
     from django.db import IntegrityError
     from .models import Carrier
@@ -249,8 +251,8 @@ def create_carrier(request: HttpRequest, data: CarrierInSchema):
 @carriers_router.patch("/{carrier_id}", response={200: CarrierOutSchema, 400: dict, 404: dict})
 def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSchema):
     from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'tracking-numbers', 'edit')
-    require(request.auth, Capability.UPDATE)
+    require_perm(request.auth, 'vendors', 'edit')
+    require(request.auth, Capability.EDIT)
     from django.db import IntegrityError
     from .models import Carrier
     try:
@@ -284,7 +286,7 @@ def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSch
 @carriers_router.delete("/{carrier_id}", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def delete_carrier(request: HttpRequest, carrier_id: str):
     from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'tracking-numbers', 'delete')
+    require_perm(request.auth, 'vendors', 'delete')
     require(request.auth, Capability.DELETE)
     from .models import Carrier
     try:
