@@ -43,7 +43,8 @@ class User(AbstractUser):
         blank=True
     )
     role = models.CharField(
-        max_length=20, 
+        # 40, not 20: a custom role is stored as its 36-character id.
+        max_length=40,
         choices=Role.choices, 
         default=Role.AGENT
     )
