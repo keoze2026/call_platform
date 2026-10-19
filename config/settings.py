@@ -383,7 +383,8 @@ DEFAULT_NOTIFICATION_EVENTS = [
     e.strip() for e in config(
         'DEFAULT_NOTIFICATION_EVENTS',
         default='low.balance,campaign.cap_reached,buyer.cap_reached,'
-                'destination.cap_reached,buyer.missed,aht.low,number.deleted',
+                'destination.cap_reached,buyer.missed,aht.low,number.deleted,'
+                'autopilot.alert',
     ).split(',') if e.strip()
 ]
 
@@ -444,6 +445,12 @@ CELERY_BEAT_SCHEDULE = {
     'check-alert-conditions': {
         'task': 'tasks.check_alert_conditions',
         'schedule': 300.0,  # every 5 minutes
+    },
+    # Autopilot for the workspaces that switched on "Run automatically"; each
+    # one still waits for its own interval.
+    'run-autopilot': {
+        'task': 'tasks.run_autopilot',
+        'schedule': 300.0,
     },
 }
 

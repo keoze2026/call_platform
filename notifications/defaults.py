@@ -43,7 +43,13 @@ DEFAULT_EVENTS = getattr(settings, 'DEFAULT_NOTIFICATION_EVENTS', None) or [
     'number.deleted',
 ]
 
+# Autopilot's alerts have to reach the admins even where the environment
+# overrides the list above, so this one is always added.
+if 'autopilot.alert' not in DEFAULT_EVENTS:
+    DEFAULT_EVENTS = list(DEFAULT_EVENTS) + ['autopilot.alert']
+
 NAMES = {
+    'autopilot.alert': 'Autopilot alert',
     'low.balance': 'Low balance',
     'campaign.cap_reached': 'Campaign cap reached',
     'buyer.cap_reached': 'Buyer cap reached',

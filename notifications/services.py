@@ -305,6 +305,7 @@ class NotificationService:
             'campaign.paused': f"Campaign Paused{suffix}",
             'daily.summary': "Daily Summary Report",
             'call.started': f"New Call{suffix}",
+            'autopilot.alert': f"Autopilot{suffix}",
         }
         return subjects.get(event, f"Platform Alert - {event}")
 

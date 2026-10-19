@@ -23,6 +23,7 @@ class NotificationRule(models.Model):
         BUYER_MISSED = 'buyer.missed', 'Buyer Missed Call'
         LOW_AHT = 'aht.low', 'Average Handle Time Dropped'
         NUMBER_DELETED = 'number.deleted', 'TFN Deleted'
+        AUTOPILOT_ALERT = 'autopilot.alert', 'Autopilot Alert'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='notification_rules')

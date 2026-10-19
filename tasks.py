@@ -746,3 +746,10 @@ def charge_rejected_call(call_log_id):
     from analytics.models import CallRecord
     CallRecord.objects.filter(pk=call.pk).update(platform_cost=amount)
     return f'charged {amount}'
+
+
+@app.task(name='tasks.run_autopilot')
+def run_autopilot():
+    """Run Autopilot for every workspace that switched on automatic runs."""
+    from analytics.autopilot import run_due_passes
+    return f"Autopilot ran for {run_due_passes()} workspaces"

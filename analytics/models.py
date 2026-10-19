@@ -215,3 +215,31 @@ class GuestVisit(models.Model):
 
 
 from .scheduled_reports import ScheduledReport
+
+
+class AutopilotSettings(models.Model):
+    """What Autopilot is allowed to do for one workspace, and what it has done.
+
+    The settings used to live in the cache, so a Redis restart quietly turned
+    every switch back to its default, and saving one switch overwrote the rest.
+    `options` only holds what the workspace changed; anything missing falls back
+    to the defaults in analytics.autopilot, so a new option needs no migration.
+    """
+
+    organization = models.OneToOneField(
+        Organization, on_delete=models.CASCADE, related_name='autopilot_settings'
+    )
+    options = models.JSONField(default=dict, blank=True)
+    # Buyers Autopilot paused itself (id -> when), so only those are ever
+    # resumed. A buyer someone paused by hand stays paused.
+    state = models.JSONField(default=dict, blank=True)
+    # The last 30 things it did, newest first.
+    history = models.JSONField(default=list, blank=True)
+    last_run_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'autopilot_settings'
+
+    def __str__(self):
+        return f"Autopilot for {self.organization_id}"
