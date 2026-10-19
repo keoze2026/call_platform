@@ -6426,3 +6426,29 @@ before the last apply, so it undoes only the rejection.
 
 Not changed: how Avortyx labels these rows. The owner confirmed "Overflow Missed"
 is right for a campaign set to a limited number of concurrent calls.
+
+## CH-141 - Carrier Risk can be set by hand (HYU XOLO is High)
+
+**2026-10-19 · Numbers · the owner: "HYU XOLO 0 numbers (XOLO HIGH RISK)"; "High Risk means TFN can be used to advertise your company, Low Risk means it can only forward calls from publisher to buyer"**
+
+The Risk column (CH-135) was worked out from the carrier's expiry rules: High
+when something can retire the number, Low when nothing does. That cannot
+express HYU XOLO, which has no expiry rule but is High Risk because its numbers
+may be advertised. Any number added to HYU would have shown Low.
+
+`Carrier.risk_override` ('' = work it out as before, 'high' or 'low' = set by
+hand; phone_numbers 0011). `Carrier.risk` returns the setting when there is one
+and the old derived value otherwise, and the Numbers page reads it, so KMQ, XLR
+and H24 show exactly what they showed before. The carriers API sends
+`risk_override` and `risk` and accepts `risk_override` on create and update
+(anything but high, low or empty is a 400). `add_carrier --risk high|low|auto`
+sets it; leaving `--risk` out leaves the setting alone.
+
+To apply: migrate, then
+`python manage.py add_carrier --name XOLO --code HYU --risk high`.
+
+Not changed: nothing is enforced from Risk. It is a label; the system does not
+stop a Low Risk number being advertised. The owner's wording on that is still
+open.
+
+Tests: `python manage.py test phone_numbers` (6).

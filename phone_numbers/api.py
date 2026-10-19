@@ -188,6 +188,10 @@ def release_number(request: HttpRequest, number_id: str):
 # Routed before /{number_id} would match "carriers" as an id, so these are
 # declared on their own prefix.
 
+# '' means "work it out from the carrier's rules".
+RISK_SETTINGS = ('', 'high', 'low')
+
+
 def _carrier_out(c) -> dict:
     return {
         'id': str(c.id),
@@ -197,6 +201,8 @@ def _carrier_out(c) -> dict:
         'notes': c.notes,
         'single_use': c.single_use,
         'lifetime_hours': c.lifetime_hours,
+        'risk_override': c.risk_override,
+        'risk': c.risk,
         'numbers_count': c.phone_numbers.count(),
         'created_at': c.created_at.isoformat(),
     }
@@ -222,6 +228,9 @@ def create_carrier(request: HttpRequest, data: CarrierInSchema):
     code = (data.code or '').strip().upper()
     if not name or not code:
         return 400, {"detail": "A carrier needs both a name and a code."}
+    risk_override = (data.risk_override or '').strip().lower()
+    if risk_override not in RISK_SETTINGS:
+        return 400, {"detail": "Risk must be high, low or left empty."}
     try:
         c = Carrier.objects.create(
             organization=request.auth.organization,
@@ -230,6 +239,7 @@ def create_carrier(request: HttpRequest, data: CarrierInSchema):
             notes=data.notes or '',
             single_use=bool(data.single_use),
             lifetime_hours=int(data.lifetime_hours or 0),
+            risk_override=risk_override,
         )
     except IntegrityError:
         return 400, {"detail": f"The code {code} is already used by another carrier."}
@@ -259,6 +269,11 @@ def update_carrier(request: HttpRequest, carrier_id: str, data: CarrierUpdateSch
         c.single_use = data.single_use
     if data.lifetime_hours is not None:
         c.lifetime_hours = data.lifetime_hours
+    if data.risk_override is not None:
+        risk_override = data.risk_override.strip().lower()
+        if risk_override not in RISK_SETTINGS:
+            return 400, {"detail": "Risk must be high, low or left empty."}
+        c.risk_override = risk_override
     try:
         c.save()
     except IntegrityError:

@@ -172,6 +172,8 @@ class CarrierInSchema(Schema):
     single_use: Optional[bool] = False
     # Hours a number stays usable. 0 means no limit.
     lifetime_hours: Optional[int] = 0
+    # '' = work it out from the rules, 'high' or 'low' = set by hand.
+    risk_override: Optional[str] = ''
 
 
 class CarrierUpdateSchema(Schema):
@@ -181,6 +183,7 @@ class CarrierUpdateSchema(Schema):
     notes: Optional[str] = None
     single_use: Optional[bool] = None
     lifetime_hours: Optional[int] = None
+    risk_override: Optional[str] = None
 
 
 class CarrierOutSchema(Schema):
@@ -191,5 +194,7 @@ class CarrierOutSchema(Schema):
     notes: str
     single_use: bool = False
     lifetime_hours: int = 0
+    risk_override: str = ''
+    risk: str = 'low'
     numbers_count: int = 0
     created_at: str

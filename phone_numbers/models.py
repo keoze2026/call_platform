@@ -134,6 +134,15 @@ class Carrier(models.Model):
     # taken this many ANSWERED calls is suspended at the nightly 1:30 AM
     # Eastern sweep - suspended overnight, never killed mid-day. 0 = off.
     max_answered_calls = models.IntegerField(default=0)
+    # What the Risk column shows for this carrier's numbers. Empty = work it
+    # out from the retirement rules above (CH-135). "high" or "low" overrides
+    # that, for a carrier whose risk is not about expiry: High means its
+    # numbers may be advertised publicly, Low means they only forward calls
+    # from a publisher to a buyer. HYU XOLO is High with no expiry rule.
+    risk_override = models.CharField(
+        max_length=4, blank=True, default='',
+        choices=[('', 'Auto'), ('high', 'High'), ('low', 'Low')],
+    )
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True, default='')
 
@@ -148,6 +157,20 @@ class Carrier(models.Model):
         indexes = [
             models.Index(fields=['organization', 'is_active']),
         ]
+
+    @property
+    def risk(self) -> str:
+        """'high' or 'low' for this carrier's numbers (the Risk column).
+
+        An explicit setting wins. Otherwise High when any retirement rule can
+        take a number - single use, a lifetime, the nightly answered sweep -
+        and Low when nothing ever expires it.
+        """
+        if self.risk_override in ('high', 'low'):
+            return self.risk_override
+        if self.single_use or self.lifetime_hours or self.max_answered_calls:
+            return 'high'
+        return 'low'
 
     def __str__(self):
         return f'{self.name} ({self.code})'

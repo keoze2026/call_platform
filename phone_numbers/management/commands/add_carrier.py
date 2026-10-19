@@ -27,6 +27,10 @@ class Command(BaseCommand):
                             help='Retire a number once a call has used it')
         parser.add_argument('--lifetime-hours', default=0, type=int,
                             help='Hours a number stays usable; 0 means no limit')
+        parser.add_argument('--risk', choices=['auto', 'high', 'low'], default=None,
+                            help='Risk shown on the Numbers page. auto works it out from '
+                                 'the expiry rules; high or low is set by hand. Left '
+                                 'unchanged when omitted.')
         parser.add_argument('--list', action='store_true')
 
     def handle(self, *args, **o):
@@ -54,6 +58,8 @@ class Command(BaseCommand):
                     terms.append('single use')
                 if c.lifetime_hours:
                     terms.append(f'{c.lifetime_hours}h')
+                if c.risk_override:
+                    terms.append(f'risk {c.risk_override} (set)')
                 shown = ('  ' + ', '.join(terms)) if terms else ''
                 self.stdout.write(
                     f'  {c.code:<6} {c.name}  {c.phone_numbers.count()} numbers'
@@ -72,6 +78,9 @@ class Command(BaseCommand):
                 'lifetime_hours': o['lifetime_hours'],
             },
         )
+        if o['risk'] is not None:
+            carrier.risk_override = '' if o['risk'] == 'auto' else o['risk']
+            carrier.save(update_fields=['risk_override', 'updated_at'])
         verb = 'added' if created else 'updated'
         # Terms never stamp an expiry onto unused numbers: the lifetime
         # clock starts at a number's first call (the use check the boss asked
@@ -84,6 +93,7 @@ class Command(BaseCommand):
             terms.append('retired once used')
         if carrier.lifetime_hours:
             terms.append(f'expires after {carrier.lifetime_hours}h')
+        terms.append(f'risk {carrier.risk}' + (' (set)' if carrier.risk_override else ''))
         shown = (' - ' + ', '.join(terms)) if terms else ''
         self.stdout.write(self.style.SUCCESS(
             f'{verb}: {carrier.name} ({carrier.code}){shown}'))

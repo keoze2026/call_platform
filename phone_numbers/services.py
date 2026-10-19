@@ -379,14 +379,10 @@ class PhoneNumberService:
             'carrier_id': str(phone_number.carrier_id) if phone_number.carrier_id else None,
             'carrier_name': phone_number.carrier.name if phone_number.carrier_id else '',
             'carrier_code': phone_number.carrier.code if phone_number.carrier_id else '',
-            # The owner's Risk column (CH-135): High when any retirement rule
-            # can take the number - single use, lifetime, the nightly answered
-            # sweep - Low when nothing ever expires it.
-            'risk': ('high' if phone_number.carrier_id and (
-                phone_number.carrier.single_use
-                or phone_number.carrier.lifetime_hours
-                or phone_number.carrier.max_answered_calls
-            ) else 'low'),
+            # The owner's Risk column (CH-135, CH-141): the carrier's own
+            # setting when it has one, otherwise High when any retirement
+            # rule can take the number and Low when nothing ever expires it.
+            'risk': phone_number.carrier.risk if phone_number.carrier_id else 'low',
             'assigned_at': phone_number.assigned_at.isoformat() if phone_number.assigned_at else None,
             'expires_at': phone_number.expires_at.isoformat() if phone_number.expires_at else None,
             'used_at': phone_number.used_at.isoformat() if phone_number.used_at else None,
