@@ -6473,3 +6473,20 @@ Not done here: deleting does not release numbers at the carrier (it refuses
 while any are live), and nothing is soft-deleted; take a database backup first.
 
 Tests: `python manage.py test accounts.test_owner_delete` (10).
+
+
+## CH-143 - A number's 24 hours start on an answered call
+
+**2026-10-19 · Owner · the owner: five KMQ numbers added to a campaign "WAS NOT USED - JUST ADDED IN CAMPAIGN" were retired the next day**
+
+A number was counted as used on any ended call, so a call the caller hung up
+before anyone answered started its 24-hour clock, and on a single-use carrier
+retired it on the spot. Five numbers called once each on Oct 15 to check the
+batch lost their 24 hours that way, three of them to calls nobody answered.
+`call_ended` now queues the retirement check only when the buyer answered. A
+caller who abandoned, a buyer who did not pick up and a call refused before
+dialing leave the number unused, with no clock. Limit: an answered test call is
+indistinguishable from a real one in the data, so it still starts the clock.
+Numbers already restored have `used_at` cleared, so the clock starts at their
+next answered call. Tests: `routing/test_call_cleanup.py` (`NumberClockTests`,
+`NumberClockLifecycleTests`).

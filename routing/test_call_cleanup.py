@@ -314,3 +314,64 @@ class UnansweredRingTimeTests(Base):
         row = self.call('a', age=90)
         self.end(row, duration=61, answered=True, dialed_seconds=70, dial_status='ANSWER')
         self.assertEqual(row.ring_seconds, 9)
+
+
+class NumberClockTests(Base):
+    """A number is used when a buyer answered a call on it (CH-143)."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch('tasks.retire_used_number')
+        self.queued = p.start()
+        self.addCleanup(p.stop)
+
+    def end(self, row, **kw):
+        payload = {'call_log_id': str(row.id), 'duration': 0, 'answered': False,
+                   'dialed_seconds': 0, 'dial_status': 'CANCEL'}
+        payload.update(kw)
+        self.post(ENDED, payload)
+
+    def test_an_answered_call_starts_the_clock(self):
+        row = self.call('a', age=90)
+        self.end(row, duration=61, answered=True, dialed_seconds=70, dial_status='ANSWER')
+        self.queued.delay.assert_called_once_with(row.called_number, str(row.id))
+
+    def test_a_call_the_caller_abandoned_does_not(self):
+        row = self.call('a', age=44)
+        self.end(row)
+        self.queued.delay.assert_not_called()
+
+    def test_a_buyer_who_did_not_answer_does_not(self):
+        row = self.call('a', age=30)
+        self.end(row, dial_status='NOANSWER', dialed_seconds=30)
+        self.queued.delay.assert_not_called()
+
+    def test_a_call_refused_before_dialing_does_not(self):
+        row = self.call('a', age=5, destination='')
+        self.end(row, dial_status='')
+        self.queued.delay.assert_not_called()
+
+
+class NumberClockLifecycleTests(TestCase):
+    """What the clock does to the number once an answered call queues it."""
+
+    def setUp(self):
+        from phone_numbers.models import Carrier, PhoneNumber
+        self.org = Organization.objects.create(name='Org2')
+        self.kmq = Carrier.objects.create(
+            organization=self.org, name='Freedom', code='KMQ', lifetime_hours=24)
+        self.number = PhoneNumber.objects.create(
+            organization=self.org, number='+18774893792', carrier=self.kmq, vendor='other')
+
+    def test_first_answered_use_stamps_the_24_hours(self):
+        from phone_numbers.lifecycle import retire_if_single_use
+        retire_if_single_use('+18774893792', 'call-1')
+        self.number.refresh_from_db()
+        self.assertIsNotNone(self.number.used_at)
+        self.assertAlmostEqual(
+            (self.number.expires_at - self.number.used_at).total_seconds(), 24 * 3600, delta=2)
+
+    def test_an_unused_number_has_no_clock(self):
+        self.number.refresh_from_db()
+        self.assertIsNone(self.number.used_at)
+        self.assertIsNone(self.number.expires_at)

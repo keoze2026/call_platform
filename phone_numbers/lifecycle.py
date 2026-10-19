@@ -28,6 +28,9 @@ EVENT = 'number.deleted'
 def stamp_lifetime(number: PhoneNumber) -> None:
     """The clock starts at first USE, never at import.
 
+    "Use" is a call a buyer answered (CH-143). A call the caller abandoned, a
+    decline, a no-answer or a refusal does not start it.
+
     The first version stamped the deadline when the number was taken on, and
     the whole KMQ batch deleted itself the next morning having never carried a
     call - the boss called it, rightly, a bug. A number that has not been used
@@ -85,8 +88,10 @@ def retire_if_single_use(called_number: str, call_id: str = '') -> bool:
     """Apply the carrier's terms to the number a call just used.
 
     Single use retires it on the spot. A lifetime starts its clock now - from
-    the first call, never from import, which is the use check the first
-    version lacked. Runs after the call has ended, off the call path.
+    the first ANSWERED call, never from import and never from a call nobody
+    answered, which is the use check the first version lacked. The caller
+    (call_ended) only queues this for an answered call. Runs after the call has
+    ended, off the call path.
     """
     digits = ''.join(c for c in (called_number or '') if c.isdigit())
     if not digits:

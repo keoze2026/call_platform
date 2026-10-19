@@ -680,13 +680,17 @@ def call_ended(request):
         except Exception:
             logger.exception("call_charge_error: call_log=%s", call_log.id)
 
-    # A number from a single-use carrier has now been used. Queued rather than
-    # done here: the call is over, nothing is waiting on it, and the call path
-    # stays as short as it was.
-    try:
-        from tasks import retire_used_number
-        retire_used_number.delay(call_log.called_number, str(call_log.id))
-    except Exception:
-        logger.warning('retire_not_queued: call_log=%s', call_log.id)
+    # A number is "used" when a buyer ANSWERED a call on it, and only then.
+    # It was every ended call: five KMQ numbers called once each to check the
+    # batch on Oct 15 had their 24 hours started by calls the caller abandoned
+    # before anyone picked up (3 of the 5), and were gone the next day having
+    # carried nothing. Queued rather than done here: the call is over, nothing
+    # is waiting on it, and the call path stays as short as it was.
+    if answered:
+        try:
+            from tasks import retire_used_number
+            retire_used_number.delay(call_log.called_number, str(call_log.id))
+        except Exception:
+            logger.warning('retire_not_queued: call_log=%s', call_log.id)
 
     return JsonResponse({"received": True, "call_log_id": str(call_log.id), "converted": converted})
