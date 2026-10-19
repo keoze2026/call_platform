@@ -547,7 +547,18 @@ def call_ended(request):
         # unavailable) rang for 0 seconds. That is a measured 0, not an
         # unknown, so the log reads 0:00:00 instead of a dash. DIALSTATUS only
         # exists once a Dial ran, so a call refused before dialing stays unknown.
-        call_log.ring_seconds = dialed_seconds
+        if dialed_seconds > 0:
+            call_log.ring_seconds = dialed_seconds
+        else:
+            # Asterisk only sets DIALEDTIME when a Dial is answered, so an
+            # unanswered one arrives as 0 whatever it rang for. Live rows
+            # confirmed it (CH-139): callers who gave up after 30 to 44 seconds
+            # were stored with ring 0. The row is created when routing starts
+            # and ended when the hangup happens, so that span is the wait, to
+            # within the routing step (well under a second).
+            call_log.ring_seconds = max(
+                0, int((ended_at - call_log.created_at).total_seconds())
+            )
 
     # Why an unanswered call died, in the switch's own words. The owner's
     # test: the team paused the TFN at the far end and the drop showed as a

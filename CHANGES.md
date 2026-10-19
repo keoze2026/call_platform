@@ -6383,3 +6383,23 @@ Django key, not this one) and update `.env`, `/etc/asterisk/call_ended.secret`
 if used, and the dialplan if it is hardcoded there.
 
 Tests: `python manage.py test routing.test_call_cleanup` (23).
+
+## CH-139 - TTC of a call nobody answered was always 0
+
+**2026-10-19 · Routing · found on live rows after CH-137/CH-138**
+
+CH-137 stored ring time for a call that rang and was never answered, taking it
+from the dialplan's `DIALEDTIME`. The first live test calls showed it never
+arrived: callers who hung up after 30 to 44 seconds were stored with
+`ring_seconds` 0 and read 00:00:00. Asterisk only sets `DIALEDTIME` when a Dial
+is answered, so every unanswered call reports 0 whatever it rang for. The
+earlier note that an unanswered call shows its ring time was wrong for live
+traffic; it was true only of the code path, not of what the dialplan sends.
+
+Now, when a Dial ran (a dial result is present) and no dial time came with it,
+the wait is the time from the row being created at routing to the hangup, which
+is accurate to within the routing step. A reported dial time still wins when one
+is sent, and a call refused before dialing still reads as unknown (a dash).
+Answered calls are unchanged. Calls already stored with 0 are not rewritten.
+
+Tests: `python manage.py test routing.test_call_cleanup` (28).

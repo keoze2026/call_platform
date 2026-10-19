@@ -270,3 +270,47 @@ class HangupReportTests(Base):
         self.blind()
         row.refresh_from_db()
         self.assertEqual(row.recording_url, '')
+
+
+class UnansweredRingTimeTests(Base):
+    """TTC of a call nobody answered (CH-139)."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch('tasks.retire_used_number')
+        p.start()
+        self.addCleanup(p.stop)
+
+    def end(self, row, **kw):
+        payload = {'call_log_id': str(row.id), 'duration': 0, 'answered': False,
+                   'dialed_seconds': 0, 'dial_status': 'CANCEL'}
+        payload.update(kw)
+        self.post(ENDED, payload)
+        row.refresh_from_db()
+
+    def test_caller_who_gives_up_is_charged_the_wait_not_zero(self):
+        row = self.call('a', age=44)
+        self.end(row)
+        self.assertEqual(row.block_reason, 'Caller Abandoned')
+        self.assertTrue(43 <= row.ring_seconds <= 47, row.ring_seconds)
+
+    def test_a_reported_dial_time_wins_when_the_switch_sends_one(self):
+        row = self.call('a', age=44)
+        self.end(row, dial_status='NOANSWER', dialed_seconds=30)
+        self.assertEqual(row.ring_seconds, 30)
+
+    def test_instant_decline_is_about_zero(self):
+        row = self.call('a', age=1)
+        self.end(row, dial_status='CONGESTION')
+        self.assertEqual(row.block_reason, 'Destination Missed')
+        self.assertLessEqual(row.ring_seconds, 3)
+
+    def test_call_that_never_dialed_stays_unknown(self):
+        row = self.call('a', age=44)
+        self.end(row, dial_status='')
+        self.assertIsNone(row.ring_seconds)
+
+    def test_answered_call_ring_time_is_unchanged(self):
+        row = self.call('a', age=90)
+        self.end(row, duration=61, answered=True, dialed_seconds=70, dial_status='ANSWER')
+        self.assertEqual(row.ring_seconds, 9)
