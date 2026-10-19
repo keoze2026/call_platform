@@ -6452,3 +6452,24 @@ stop a Low Risk number being advertised. The owner's wording on that is still
 open.
 
 Tests: `python manage.py test phone_numbers` (6).
+
+## CH-142 - Delete an organization from the Owner page
+
+**2026-10-19 · Owner · the owner: "Delete all useless profiles and add only which in use"; "add an action to remove ... under the three dots"**
+
+`DELETE /api/owner/organizations/{id}?confirm=<name>` and
+`GET /api/owner/organizations/{id}/delete-preview` (owner only). Deleting an
+organization removes everything under it - users, balance and transactions,
+campaigns, numbers, call history - so it is fenced: refused for the owner's own
+workspace (any org holding a superuser, or the one the caller is signed in to),
+for an org that still has phone numbers not released, and for one that took a
+call in the last 7 days (suspend it instead). The organization's name has to be
+sent back as `confirm`. Two organizations with the same name are told apart by
+id. The preview returns what would go (users, numbers, campaigns, calls, last
+call, balance) and why it is blocked, if it is. Every delete is logged with who
+did it and what it removed.
+
+Not done here: deleting does not release numbers at the carrier (it refuses
+while any are live), and nothing is soft-deleted; take a database backup first.
+
+Tests: `python manage.py test accounts.test_owner_delete` (10).

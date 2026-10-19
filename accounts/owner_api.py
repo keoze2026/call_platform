@@ -356,6 +356,91 @@ def activate_organization(request: HttpRequest, org_id: str):
     return 200, {'id': str(org.id), 'is_active': True}
 
 
+# ── delete an organization ───────────────────────────────────────────────────
+# The owner's "delete useless profiles" (CH-142). Deleting an organization
+# removes everything under it - users, balance and transactions, campaigns,
+# numbers, call history - so it is the one owner action that cannot be undone,
+# and it is fenced accordingly: never the owner's own workspace, never one that
+# still holds live phone numbers, never one that took a call in the last week
+# (suspend that one instead), and never without the name typed back.
+
+DELETE_RECENT_DAYS = 7
+
+
+def _delete_blocker(org, actor) -> str:
+    """Why this organization cannot be deleted right now, or '' when it can."""
+    from datetime import timedelta
+    from django.utils import timezone
+    from phone_numbers.models import PhoneNumber
+    from routing.models import CallLog
+
+    if org.users.filter(is_superuser=True).exists():
+        return 'This is your own workspace. It cannot be deleted.'
+    if actor.organization_id == org.id:
+        return 'You are signed in to this workspace. It cannot be deleted.'
+    live_numbers = (PhoneNumber.objects.filter(organization=org)
+                    .exclude(status=PhoneNumber.Status.RELEASED).count())
+    if live_numbers:
+        return (f'It still has {live_numbers} phone number(s). Release or move '
+                f'them first, then delete it.')
+    since = timezone.now() - timedelta(days=DELETE_RECENT_DAYS)
+    if CallLog.objects.filter(organization=org, created_at__gte=since).exists():
+        return (f'It took calls in the last {DELETE_RECENT_DAYS} days. Suspend '
+                f'it instead, or try again once it has been quiet for a week.')
+    return ''
+
+
+def _delete_summary(org) -> dict:
+    """What deleting this organization would take with it."""
+    from django.db.models import Max
+    from billing.models import BillingAccount
+    from campaigns.models import Campaign
+    from phone_numbers.models import PhoneNumber
+    from routing.models import CallLog
+
+    calls = CallLog.objects.filter(organization=org)
+    billing = BillingAccount.objects.filter(organization=org).first()
+    last_call = calls.aggregate(m=Max('created_at'))['m']
+    return {
+        'users': org.users.count(),
+        'phone_numbers': PhoneNumber.objects.filter(organization=org).count(),
+        'campaigns': Campaign.objects.filter(organization=org).count(),
+        'calls': calls.count(),
+        'last_call': last_call.isoformat() if last_call else None,
+        'balance': str(billing.balance) if billing else None,
+    }
+
+
+@owner_router.get("/organizations/{org_id}/delete-preview", response={200: dict})
+def delete_organization_preview(request: HttpRequest, org_id: str):
+    owner = require_owner(request)
+    org = _get_org(org_id)
+    return 200, {
+        'id': str(org.id), 'name': org.name, 'slug': org.slug,
+        'blocked': _delete_blocker(org, owner) or None,
+        **_delete_summary(org),
+    }
+
+
+@owner_router.delete("/organizations/{org_id}", response={200: dict, 400: dict})
+def delete_organization(request: HttpRequest, org_id: str, confirm: str = ''):
+    owner = require_owner(request)
+    org = _get_org(org_id)
+    reason = _delete_blocker(org, owner)
+    if reason:
+        return 400, {'detail': reason}
+    if (confirm or '').strip() != org.name:
+        return 400, {'detail': 'The name you typed does not match this organization.'}
+
+    removed = _delete_summary(org)
+    org_id_str, name, slug = str(org.id), org.name, org.slug
+    with db_transaction.atomic():
+        org.delete()
+    logger.warning('owner DELETED organization %r (%s, slug %r) by %s; removed %s',
+                   name, org_id_str, slug, owner.email, removed)
+    return 200, {'id': org_id_str, 'deleted': True, 'removed': removed}
+
+
 # ── guest visitors (the owner's "who is querying my pages" view) ─────────────
 
 @owner_router.get("/guest-visits", response={200: dict})
