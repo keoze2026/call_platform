@@ -6403,3 +6403,26 @@ is sent, and a call refused before dialing still reads as unknown (a dash).
 Answered calls are unchanged. Calls already stored with 0 are not rewritten.
 
 Tests: `python manage.py test routing.test_call_cleanup` (28).
+
+## CH-140 - Calls refused before dialing no longer show connected upstream
+
+**2026-10-19 · Routing / Asterisk · the owner: "if we miss calls on Avortyx we should see them missed on the backend they come from too"**
+
+CH-137 fixed the buyer side: a dial the buyer declines or never answers now
+fails upstream. It did not cover calls refused before any dial. A call over the
+concurrent-call cap ("Overflow Missed"), from a blocked caller, a duplicate, with
+no buyer or for an inactive campaign goes to the `nobuyer` label, and
+`Playback(vm-goodbye)` answers the channel to play the message. Avortyx recorded
+the call as missed or failed while the upstream saw it connected for the length
+of the message.
+
+`deploy/no_early_answer.py --apply --reject-nobuyer` now also works after the
+main change is in (before, a second run stopped at "already applied"). It turns
+the goodbye into `Hangup(21)` so the upstream receives a refusal. Callers hear a
+rejection instead of the goodbye message. Cause 21 is "call rejected"; a
+different code (17 busy, 34 no circuit) is one word in the dialplan if the
+upstream labels one of them better. `--rollback` restores the file as it was
+before the last apply, so it undoes only the rejection.
+
+Not changed: how Avortyx labels these rows. The owner confirmed "Overflow Missed"
+is right for a campaign set to a limited number of concurrent calls.

@@ -15,12 +15,19 @@ WHAT THIS CHANGES  (only inside [from-carrier] of /etc/asterisk/extensions.conf)
      no answer) so the upstream platform receives a failed call, not a
      connected one.
   3. Optional, --reject-nobuyer: a call with no buyer to send it to is rejected
-     instead of answered and played "goodbye". Off by default: callers will hear
-     a rejection instead of the goodbye message, so confirm that with the owner.
+     instead of answered and played "goodbye". Playback() answers the caller, so
+     without this every call refused before dialing (over the concurrent-call
+     cap, blocked caller, duplicate, no buyer, inactive campaign) still shows as
+     CONNECTED upstream for a second while Avortyx shows it missed. Callers hear
+     a rejection instead of the goodbye message. It can be done in the same run
+     or later: once step 1 is applied, run again with only --reject-nobuyer.
 
 USAGE  (on the server, as root, from /opt/call_platform)
   python3 deploy/no_early_answer.py              dry run: prints the change, edits nothing
   python3 deploy/no_early_answer.py --apply      back up, edit, reload, verify
+  python3 deploy/no_early_answer.py --apply --reject-nobuyer
+                                                 same, and reject calls with no buyer
+                                                 (after step 1 is in: only this part)
   python3 deploy/no_early_answer.py --rollback   put the newest backup back and reload
 
 SAFETY
@@ -60,6 +67,9 @@ RE_DIAL = re.compile(r"^\s*same\s*=>\s*n\s*,\s*Dial\(PJSIP/\$\{DIAL_NUM\}@carrie
 RE_HANGUP = re.compile(r"^\s*same\s*=>\s*n\s*,\s*Hangup\(\s*\)\s*(;.*)?$", re.I)
 RE_NOBUYER = re.compile(
     r"^\s*same\s*=>\s*n\(nobuyer\)\s*,\s*Playback\(vm-goodbye\)\s*(;.*)?$", re.I
+)
+RE_NOBUYER_DONE = re.compile(
+    r"^\s*same\s*=>\s*n\(nobuyer\)\s*,\s*Hangup\(\s*21\s*\)\s*(;.*)?$", re.I
 )
 # AGI commands that need an answered channel (the script talks to the caller).
 RE_AGI_SPEAKS = re.compile(
@@ -135,6 +145,25 @@ def next_code(block, i):
     return j
 
 
+def reject_nobuyer_lines(out, nl):
+    """Turn the goodbye playback into a rejection, in place.
+
+    Playback() answers the channel, so a refused call used to be connected
+    upstream for the length of the message. Hangup(21) refuses it instead.
+    """
+    n = next((i for i, l in enumerate(out) if RE_NOBUYER.match(l)), None)
+    if n is None:
+        if any(RE_NOBUYER_DONE.match(l) for l in out):
+            raise Stop("--reject-nobuyer: already applied, calls with no buyer are rejected.")
+        raise Stop("--reject-nobuyer: no 'n(nobuyer),Playback(vm-goodbye)' line found.")
+    k2 = next_code(out, n)
+    if k2 >= len(out) or not RE_HANGUP.match(out[k2]):
+        raise Stop("--reject-nobuyer: the line after the goodbye is not a plain Hangup().")
+    ind2 = re.match(r"\s*", out[n]).group(0)
+    out[n] = "%ssame => n(nobuyer),Hangup(21)%s" % (ind2, nl)
+    out[k2] = ""
+
+
 def transform(text, reject_nobuyer):
     nl = "\r\n" if "\r\n" in text else "\n"
     lines = text.splitlines(keepends=True)
@@ -143,7 +172,13 @@ def transform(text, reject_nobuyer):
     body = "".join(block)
 
     if MARK in body and not any(RE_ANSWER.match(l) for l in block):
-        raise Stop("Already applied: [from-carrier] has no early Answer() and carries the marker.")
+        # The early answer is already gone. Only the no-buyer part can still be asked for.
+        if not reject_nobuyer:
+            raise Stop("Already applied: [from-carrier] has no early Answer() and carries the "
+                       "marker. To also reject calls with no buyer, run with --reject-nobuyer.")
+        out = list(block)
+        reject_nobuyer_lines(out, nl)
+        return "".join(lines[:s] + out + lines[e:])
     if re.search(r"n\(finished\)", body):
         raise Stop("[from-carrier] already has a 'finished' label; not touching it.")
 
@@ -173,15 +208,7 @@ def transform(text, reject_nobuyer):
     ) % (ind, nl, ind, nl, ind, nl)
 
     if reject_nobuyer:
-        n = next((i for i, l in enumerate(out) if RE_NOBUYER.match(l)), None)
-        if n is None:
-            raise Stop("--reject-nobuyer: no 'n(nobuyer),Playback(vm-goodbye)' line found.")
-        k2 = next_code(out, n)
-        if k2 >= len(out) or not RE_HANGUP.match(out[k2]):
-            raise Stop("--reject-nobuyer: the line after the goodbye is not a plain Hangup().")
-        ind2 = re.match(r"\s*", out[n]).group(0)
-        out[n] = "%ssame => n(nobuyer),Hangup(21)%s" % (ind2, nl)
-        out[k2] = ""
+        reject_nobuyer_lines(out, nl)
 
     return "".join(lines[:s] + out + lines[e:])
 
@@ -262,7 +289,10 @@ def main():
         print("Backup saved:", backup)
         write_conf(new)
         if reload_and_verify():
-            print("\nDONE. The caller is no longer answered early. Make one test call.")
+            if args.reject_nobuyer:
+                print("\nDONE. Calls with no buyer are now rejected, not answered. Make one test call.")
+            else:
+                print("\nDONE. The caller is no longer answered early. Make one test call.")
             print("Undo any time:  python3 deploy/no_early_answer.py --rollback")
             return 0
         print("\nThe reload failed or Answer() is still loaded. Restoring the backup.")
