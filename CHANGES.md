@@ -6512,3 +6512,24 @@ workspace admins), created on the next alert sweep for every workspace. If
 default list and has to include `number.deleted`.
 
 Tests: `phone_numbers/test_answered_limit.py`.
+
+
+## CH-145 - The daily report in Sir's layout
+
+**2026-10-19 · Owner · the owner sent the layout he wants (Daily Report, bold figures, money in a code block)**
+
+The Telegram daily report is now sent as formatted text: a bold `AVORTYX` title
+and `Daily Report · Wednesday, 14 October`, then three sections with a bar
+heading - Call performance (calls received, connected with the connection rate,
+converted, turned away when a cap was hit, availability), Financials (buyers
+billed, publishers due, client margin and Avortyx routing fees in a copyable
+code block) and Live status (balance, buyers accepting calls). Same figures as
+before, same sources; only the wording and layout changed. "Balance" and
+"Buyers accepting calls" sit under Live status because they are the state now,
+not figures for the day in the heading.
+
+If Telegram refuses the formatting the report is sent again as plain text, so a
+formatting problem can never stop it arriving. `--dry-run` prints the readable
+version without the markup.
+
+Tests: `accounts/test_daily_status.py`.
