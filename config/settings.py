@@ -383,7 +383,7 @@ DEFAULT_NOTIFICATION_EVENTS = [
     e.strip() for e in config(
         'DEFAULT_NOTIFICATION_EVENTS',
         default='low.balance,campaign.cap_reached,buyer.cap_reached,'
-                'destination.cap_reached,buyer.missed,aht.low',
+                'destination.cap_reached,buyer.missed,aht.low,number.deleted',
     ).split(',') if e.strip()
 ]
 

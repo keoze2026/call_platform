@@ -38,6 +38,9 @@ DEFAULT_EVENTS = getattr(settings, 'DEFAULT_NOTIFICATION_EVENTS', None) or [
     'destination.cap_reached',
     'buyer.missed',
     'aht.low',
+    # A number retired by its carrier's rules. Without a rule here the alert was
+    # detected and then dropped, so nobody was told a TFN had been deleted.
+    'number.deleted',
 ]
 
 NAMES = {
@@ -47,6 +50,7 @@ NAMES = {
     'destination.cap_reached': 'Destination cap reached',
     'buyer.missed': 'Buyer missing calls',
     'aht.low': 'Average handle time dropped',
+    'number.deleted': 'TFN Deleted',
     'campaign.paused': 'Campaign paused',
     'daily.summary': 'Daily summary',
 }

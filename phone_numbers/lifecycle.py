@@ -63,6 +63,23 @@ def _notify(number: PhoneNumber, why: str) -> None:
         logger.exception('could not announce the retirement of %s', number.number)
 
 
+def answered_calls(number: PhoneNumber) -> int:
+    """Answered calls this number has taken inside its carrier's window.
+
+    The window is the carrier's lifetime (24 hours for KMQ and H24), counted
+    back from now: "10 answered calls within 24 hours". A carrier with no
+    lifetime has no window, so every answered call counts.
+    """
+    from routing.models import CallLog
+
+    digits = ''.join(c for c in number.number if c.isdigit())[-10:]
+    calls = CallLog.objects.filter(called_number__endswith=digits, status='completed')
+    hours = number.carrier.lifetime_hours if number.carrier_id else 0
+    if hours:
+        calls = calls.filter(created_at__gte=timezone.now() - timezone.timedelta(hours=hours))
+    return calls.count()
+
+
 def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
     """Take a number out of service. Returns False if it already was."""
     if number.status == PhoneNumber.Status.RELEASED:
@@ -113,6 +130,15 @@ def retire_if_single_use(called_number: str, call_id: str = '') -> bool:
 
     if number.carrier.single_use:
         return retire(number, 'used', call_id)
+
+    # The owner's rule: the number takes its allowance of answered calls and is
+    # gone, so the call after the last one finds it deleted. Done here, at the
+    # call that reaches the limit, rather than waiting for the 1:30 AM sweep.
+    limit = number.carrier.max_answered_calls
+    if limit:
+        taken = answered_calls(number)
+        if taken >= limit:
+            return retire(number, f'{taken} answered calls, limit {limit}', call_id)
 
     if number.carrier.lifetime_hours and not number.expires_at:
         stamp_lifetime(number)

@@ -6490,3 +6490,25 @@ indistinguishable from a real one in the data, so it still starts the clock.
 Numbers already restored have `used_at` cleared, so the clock starts at their
 next answered call. Tests: `routing/test_call_cleanup.py` (`NumberClockTests`,
 `NumberClockLifecycleTests`).
+
+
+## CH-144 - A number is deleted on its 10th answered call, and the owner is told
+
+**2026-10-19 · Owner · the owner: "11th call should delete tfns from backend and whenever tfns delete user should get notification"**
+
+The answered-call limit (10 for KMQ and H24) was only checked once a night at
+1:30 AM Eastern, and it counted every answered call the number ever took. A
+number could carry many more than 10 before the sweep reached it. The check now
+runs when an answered call ends: once the number has taken its limit inside the
+carrier's window (24 hours), it is deleted there and then, so the call after
+the last one finds it gone. The 1:30 AM sweep stays as a backstop and uses the
+same count (answered calls in the last 24 hours, not all time).
+
+The "TFN Deleted" alert existed but had no default rule behind it, so a
+workspace that never made one by hand got nothing: the alert was detected and
+dropped. `number.deleted` is now one of the default alerts (email to the
+workspace admins), created on the next alert sweep for every workspace. If
+`DEFAULT_NOTIFICATION_EVENTS` is set in the server environment it replaces the
+default list and has to include `number.deleted`.
+
+Tests: `phone_numbers/test_answered_limit.py`.

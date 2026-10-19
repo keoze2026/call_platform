@@ -637,8 +637,7 @@ def nightly_answered_sweep():
     from django.db.models import Count, Q
     from django.utils import timezone as djtz
     from phone_numbers.models import PhoneNumber
-    from phone_numbers.lifecycle import retire
-    from routing.models import CallLog
+    from phone_numbers.lifecycle import retire, answered_calls
 
     ny = djtz.now().astimezone(ZoneInfo('America/New_York'))
     if (ny.hour, ny.minute) < (1, 30):
@@ -654,9 +653,9 @@ def nightly_answered_sweep():
                .select_related('carrier'))
     swept = 0
     for n in numbers:
-        digits = ''.join(ch for ch in n.number if ch.isdigit())[-10:]
-        answered = CallLog.objects.filter(
-            called_number__endswith=digits, status='completed').count()
+        # Same count the call-end check uses: answered calls inside the
+        # carrier's window, not every call the number ever took.
+        answered = answered_calls(n)
         if answered >= n.carrier.max_answered_calls:
             if retire(n, f'{answered} answered calls, nightly 1:30 AM rule'):
                 swept += 1
