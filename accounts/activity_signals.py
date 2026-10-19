@@ -37,6 +37,30 @@ TRACKED = {
     'phone_numbers.PhoneNumber': ('phone_number', 'number'),
     'notifications.NotificationRule': ('notification_rule', 'name'),
     'accounts.User': ('user', 'email'),
+    # Everything else a person can change from the portal. '__str__' names the
+    # record by its own text where it has no name of its own (a cap belongs to
+    # a campaign, a schedule to a buyer).
+    'accounts.Organization': ('workspace', 'name'),
+    'accounts.CustomRole': ('role', 'name'),
+    'campaigns.CampaignCap': ('campaign_cap', '__str__'),
+    'campaigns.CampaignSchedule': ('campaign_schedule', '__str__'),
+    'buyers.BuyerCap': ('buyer_cap', '__str__'),
+    'buyers.BuyerSchedule': ('buyer_schedule', '__str__'),
+    'buyers.BuyerCampaign': ('buyer_campaign', '__str__'),
+    'publishers.PublisherCap': ('publisher_cap', '__str__'),
+    'publishers.PublisherCampaign': ('publisher_campaign', '__str__'),
+    'spam_protection.Blacklist': ('blocked_number', 'phone_number'),
+    'spam_protection.Whitelist': ('allowed_number', 'phone_number'),
+    'spam_protection.AnonymousCallBlock': ('anonymous_call_block', '__str__'),
+    'spam_protection.Shield': ('shield', 'name'),
+    'ivr.IVRFlow': ('ivr_flow', 'name'),
+    'call_queue.CallQueue': ('call_queue', '__str__'),
+    'webhooks.Webhook': ('webhook', 'name'),
+    'webhooks.ConversionPixel': ('conversion_pixel', 'name'),
+    'dni.DNIPool': ('dni_pool', '__str__'),
+    'phone_numbers.Carrier': ('carrier', 'name'),
+    'white_label.WhiteLabel': ('white_label', '__str__'),
+    'billing.BillingAccount': ('billing_account', '__str__'),
 }
 
 
@@ -71,7 +95,10 @@ def _write(instance, action, extra=None):
             metadata={
                 'target_type': target_type,
                 'target_id': str(instance.pk),
-                'target_name': str(getattr(instance, name_field, '') or ''),
+                'target_name': (
+                    str(instance) if name_field == '__str__'
+                    else str(getattr(instance, name_field, '') or '')
+                )[:200],
                 **(extra or {}),
             },
         )
@@ -96,6 +123,19 @@ def _client_ip(request):
 # say nothing about what a person did.
 NOISE_FIELDS = {'updated_at', 'password', 'last_login', 'live_calls',
                 'hourly_calls', 'daily_calls', 'monthly_calls', 'global_calls'}
+
+
+# A field whose value is a secret. The feed says it changed and never says to
+# what: the old value of `mfa_secret` was being written into the log, in plain
+# text, when two-factor was turned off - readable by anyone who can open the
+# Activity tab.
+SENSITIVE = ('secret', 'token', 'password', 'hash', 'api_key', 'private_key')
+HIDDEN = '(hidden)'
+
+
+def _is_sensitive(field_name: str) -> bool:
+    name = field_name.lower()
+    return any(part in name for part in SENSITIVE)
 
 
 def _snapshot(instance) -> dict:
@@ -143,6 +183,9 @@ def _changed_fields(instance) -> dict:
             continue
         if old == new:
             continue
+        if _is_sensitive(name):
+            changes[name] = {'old': HIDDEN, 'new': HIDDEN}
+            continue
         changes[name] = {
             'old': None if old is None else str(old)[:200],
             'new': None if new is None else str(new)[:200],
@@ -185,6 +228,25 @@ def on_delete(sender, instance, **kwargs):
     _write(instance, ActivityLog.Action.RECORD_DELETED)
 
 
+def on_log_save(sender, instance, **kwargs):
+    """Put the address and browser on every entry that does not have them.
+
+    The entries written by hand in `accounts/services.py` (password change,
+    two-factor, API keys, profile) never passed the address, so those rows had
+    no IP. Filled in here, once, for all of them - and for any writer added
+    later - from the request being served.
+    """
+    if instance.ip_address and instance.user_agent:
+        return
+    request = get_current_request()
+    if request is None:
+        return
+    if not instance.ip_address:
+        instance.ip_address = _client_ip(request)
+    if not instance.user_agent:
+        instance.user_agent = (request.META.get('HTTP_USER_AGENT', '') or '')[:500]
+
+
 def connect():
     """Bind the handlers to the tracked models, and to nothing else.
 
@@ -195,6 +257,11 @@ def connect():
     model means a call never enters this code at all.
     """
     from django.apps import apps
+
+    from .models import ActivityLog
+    pre_save.connect(
+        on_log_save, sender=ActivityLog, dispatch_uid='activity_log_fill_request',
+    )
 
     for label in TRACKED:
         app_label, model_name = label.split('.')

@@ -6533,3 +6533,36 @@ formatting problem can never stop it arriving. `--dry-run` prints the readable
 version without the markup.
 
 Tests: `accounts/test_daily_status.py`.
+
+
+## CH-146 - Activity log: more actions recorded, address on every entry, secrets hidden
+
+**2026-10-19 · Owner · the owner: "All activity should be recorded and make sure time and IP address should come as well"**
+
+The server already stored the time and the address of every entry; the Activity
+tab only showed the address on sign-ins. The frontend now has an IP address
+column and the exact date and time (CH-146 frontend).
+
+**More is recorded.** Changes were only logged for buyers, destinations,
+publishers, campaigns, routing rules, phone numbers, notification rules and
+users. Now also: the workspace itself, roles, campaign and buyer and publisher
+caps, schedules, buyer and publisher campaign links, blocked and allowed numbers,
+shields, anonymous-call blocks, IVR flows, call queues, webhooks, conversion
+pixels, DNI pools, carriers, white label and billing accounts. Each entry names
+the record and, for an edit, lists the fields with old and new value.
+
+**The address and browser are on every entry.** Entries written by hand (password
+change, two-factor, API keys, profile) never passed them, so those rows had no
+IP. They are now filled in from the request when an entry is saved.
+
+**Secrets are no longer written to the feed.** Turning two-factor off wrote the
+old `mfa_secret` into the log in plain text, readable by anyone who can open the
+Activity tab. Any field whose name contains secret, token, password, hash or
+api_key now shows "(hidden)" for both values. Rows already written before this
+change keep the old values until they are cleaned with the one-off command in
+the deploy notes.
+
+**Faster.** The feed loaded and built every entry on each request and then cut
+the page out of the list. It now reads only the page asked for.
+
+Tests: `accounts/test_activity_log.py`.

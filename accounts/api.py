@@ -674,13 +674,17 @@ def list_roles(request: HttpRequest):
 # ── Workspace Activity Log ────────────────────────────────────────────────────
 @router.get("/workspace/activity", response={200: dict})
 def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50):
-    from config.pagination import paginate_list
+    from config.pagination import paginate_queryset
     from accounts.models import ActivityLog
     logs = ActivityLog.objects.filter(
         user__organization=request.auth.organization
     ).select_related('user').order_by('-created_at')
+    # Only the page asked for is read and built. The whole log used to be loaded
+    # on every request, which is fine for a few hundred rows and not for the
+    # thousands this will hold now that every change is recorded.
+    paged = paginate_queryset(logs, page, page_size)
     data = []
-    for log in logs:
+    for log in paged['items']:
         meta = log.metadata if isinstance(log.metadata, dict) else {}
         data.append({
             'id': str(log.id),
@@ -710,7 +714,7 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
             'user_agent': (log.user_agent or '')[:200],
             'created_at': log.created_at.isoformat(),
         })
-    return 200, paginate_list(data, page, page_size)
+    return 200, {**paged, 'items': data}
 
 
 # ── Active Sessions ───────────────────────────────────────────────────────────
