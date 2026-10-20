@@ -133,9 +133,11 @@ class Carrier(models.Model):
     single_use = models.BooleanField(default=False)
     # Hours a number stays usable from the moment it is taken on. 0 = no limit.
     lifetime_hours = models.IntegerField(default=0)
-    # The owner's Oct 15 rule, mirroring the carrier's own: a number that has
-    # taken this many ANSWERED calls is suspended at the nightly 1:30 AM
-    # Eastern sweep - suspended overnight, never killed mid-day. 0 = off.
+    # The threshold matrix (Sir, 20 Oct): a number that took MORE than this
+    # many ANSWERED calls on one Eastern calendar day is retired at the
+    # nightly 1:30 AM Eastern sweep - never mid-day. This many or fewer keeps
+    # it live, and days are never added together. While it is set the
+    # lifetime_hours clock does not apply. 0 = off.
     max_answered_calls = models.IntegerField(default=0)
     # What the Risk column shows for this carrier's numbers. Empty = work it
     # out from the retirement rules above (CH-135). "high" or "low" overrides

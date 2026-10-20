@@ -429,11 +429,6 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.charge_portal_fees',
         'schedule': 86400.0,  # daily; each account charged on its own 30-day cycle
     },
-    'retire-expired-numbers': {
-        'task': 'tasks.retire_expired_numbers',
-        'schedule': 300.0,  # every 5 minutes; a 24h number should not outlive
-                            # its window by most of a day
-    },
     'nightly-answered-sweep': {
         'task': 'tasks.nightly_answered_sweep',
         'schedule': 600.0,  # every 10 min; acts once per Eastern day at 1:30 AM

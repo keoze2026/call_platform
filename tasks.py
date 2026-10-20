@@ -626,18 +626,25 @@ def send_telegram(self, bot_token, chat_id, message, thread_id=None):
 
 @app.task(name='tasks.nightly_answered_sweep')
 def nightly_answered_sweep():
-    """The owner's Oct 15 rule: a TFN with N answered calls is suspended at
-    1:30 AM Eastern, every day - overnight, never mid-day.
+    """The threshold matrix (Sir, 20 Oct): a TFN is retired only if it took
+    MORE than its limit of answered calls on one Eastern calendar day, and only
+    here, at 1:30 AM Eastern. It never vanishes in the middle of a shift.
+
+    The sweep counts the day that just ended. A number with the limit or fewer
+    stays live and keeps the whole next day; days are never added together.
+    Numbers whose carrier hands them over for a fixed window (lifetime hours,
+    no daily threshold) are retired here too once their time is up, so nothing
+    is taken out of service mid-day.
 
     Beat fires this every ten minutes; it acts only once per Eastern day,
     and only at or after 01:30 local. zoneinfo handles EST/EDT itself.
     """
+    from datetime import timedelta
     from zoneinfo import ZoneInfo
     from django.core.cache import cache
-    from django.db.models import Count, Q
     from django.utils import timezone as djtz
     from phone_numbers.models import PhoneNumber
-    from phone_numbers.lifecycle import retire, answered_calls
+    from phone_numbers.lifecycle import retire, retire_expired, answered_calls_on
 
     ny = djtz.now().astimezone(ZoneInfo('America/New_York'))
     if (ny.hour, ny.minute) < (1, 30):
@@ -647,19 +654,21 @@ def nightly_answered_sweep():
         return
     cache.set(marker, True, 26 * 3600)
 
+    day = ny.date() - timedelta(days=1)
     numbers = (PhoneNumber.objects
                .filter(status__in=['active', 'pending', 'available'],
                        carrier__isnull=False, carrier__max_answered_calls__gt=0)
                .select_related('carrier'))
     swept = 0
     for n in numbers:
-        # Same count the call-end check uses: answered calls inside the
-        # carrier's window, not every call the number ever took.
-        answered = answered_calls(n)
-        if answered >= n.carrier.max_answered_calls:
-            if retire(n, f'{answered} answered calls, nightly 1:30 AM rule'):
+        limit = n.carrier.max_answered_calls
+        answered = answered_calls_on(n, day)
+        # More than the limit: ten calls is still inside it.
+        if answered > limit:
+            if retire(n, f'{answered} answered calls on {day}, over the limit of {limit}, nightly 1:30 AM rule'):
                 swept += 1
-    print(f'nightly answered sweep: {swept} numbers suspended')
+    expired = retire_expired()
+    print(f'nightly answered sweep: {swept} numbers over the limit on {day}, {expired} expired')
 
 
 @app.task(name='tasks.retire_used_number')
@@ -684,10 +693,9 @@ def retire_used_number(called_number, call_log_id):
 def retire_expired_numbers():
     """Retire numbers whose time with us is up.
 
-    A carrier hands a number over for a fixed window - 24 hours for these -
-    and after it the number is theirs again. Runs every five minutes, so a
-    number goes within five minutes of its deadline rather than at the end of
-    the day.
+    No longer on a timer: a number is never taken out of service mid-shift, so
+    the nightly 1:30 AM Eastern sweep calls this. It stays as a task so it can
+    still be run by hand.
     """
     from phone_numbers.lifecycle import retire_expired
     n = retire_expired()

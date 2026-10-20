@@ -14,6 +14,8 @@ interface while the calls that came in on it keep their history. Deleting the
 row would take the number out of the call log too.
 """
 import logging
+from datetime import datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from django.utils import timezone
 
@@ -40,6 +42,11 @@ def stamp_lifetime(number: PhoneNumber) -> None:
     carrier = number.carrier
     if not carrier or not carrier.lifetime_hours:
         return
+    # A carrier with a daily threshold has no 24-hour clock: its numbers live
+    # until a day goes over the limit (Sir, 20 Oct: 10 or fewer calls keeps it
+    # for the whole next day, and it is only ever deleted at 1:30 AM Eastern).
+    if carrier.max_answered_calls:
+        return
     if number.expires_at or not number.used_at:
         return
     number.expires_at = number.used_at + timezone.timedelta(hours=carrier.lifetime_hours)
@@ -63,21 +70,34 @@ def _notify(number: PhoneNumber, why: str) -> None:
         logger.exception('could not announce the retirement of %s', number.number)
 
 
-def answered_calls(number: PhoneNumber) -> int:
-    """Answered calls this number has taken inside its carrier's window.
+EASTERN = ZoneInfo('America/New_York')
 
-    The window is the carrier's lifetime (24 hours for KMQ and H24), counted
-    back from now: "10 answered calls within 24 hours". A carrier with no
-    lifetime has no window, so every answered call counts.
+
+def eastern_day_bounds(day):
+    """Start and end (UTC-aware) of one Eastern calendar day.
+
+    Built from the local midnight on each side, so a 23 or 25 hour day on the
+    clock change still counts as one day.
+    """
+    start = datetime.combine(day, time.min, tzinfo=EASTERN)
+    end = datetime.combine(day + timedelta(days=1), time.min, tzinfo=EASTERN)
+    return start, end
+
+
+def answered_calls_on(number: PhoneNumber, day) -> int:
+    """Answered calls this number took on one Eastern calendar day.
+
+    Days are never combined: ten answered calls on Monday and ten on Tuesday
+    is ten and ten, not twenty (Sir's threshold matrix, 20 Oct).
     """
     from routing.models import CallLog
 
     digits = ''.join(c for c in number.number if c.isdigit())[-10:]
-    calls = CallLog.objects.filter(called_number__endswith=digits, status='completed')
-    hours = number.carrier.lifetime_hours if number.carrier_id else 0
-    if hours:
-        calls = calls.filter(created_at__gte=timezone.now() - timezone.timedelta(hours=hours))
-    return calls.count()
+    start, end = eastern_day_bounds(day)
+    return CallLog.objects.filter(
+        called_number__endswith=digits, status='completed',
+        created_at__gte=start, created_at__lt=end,
+    ).count()
 
 
 def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
@@ -132,15 +152,10 @@ def retire_if_single_use(called_number: str, call_id: str = '') -> bool:
     if number.carrier.single_use:
         return retire(number, 'used', call_id)
 
-    # The owner's rule: the number takes its allowance of answered calls and is
-    # gone, so the call after the last one finds it deleted. Done here, at the
-    # call that reaches the limit, rather than waiting for the 1:30 AM sweep.
-    limit = number.carrier.max_answered_calls
-    if limit:
-        taken = answered_calls(number)
-        if taken >= limit:
-            return retire(number, f'{taken} answered calls, limit {limit}', call_id)
-
+    # The daily threshold (carrier.max_answered_calls) is NOT applied here. A
+    # number is never taken out of service in the middle of a shift: the
+    # nightly 1:30 AM Eastern sweep counts the day that just ended and retires
+    # a number only if it went over the limit (tasks.nightly_answered_sweep).
     if number.carrier.lifetime_hours and not number.expires_at:
         stamp_lifetime(number)
         if number.expires_at:
@@ -155,6 +170,8 @@ def retire_expired() -> int:
         PhoneNumber.objects
         .select_related('carrier', 'organization')
         .filter(status=PhoneNumber.Status.ACTIVE, expires_at__lte=now)
+        # A carrier with a daily threshold has no 24-hour clock.
+        .exclude(carrier__max_answered_calls__gt=0)
     )
     n = 0
     for number in due:
