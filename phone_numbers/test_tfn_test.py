@@ -191,6 +191,40 @@ class RunTests(Base):
         fake.originate.assert_called_once_with('PJSIP/18774893792@carrier', TEST_CID)
 
     @override_settings(ASTERISK_AMI_HOST='10.0.0.1', ASTERISK_AMI_SECRET='x')
+    def test_a_call_the_carrier_refuses_is_not_a_dead_number(self):
+        t = self.make()
+        fake = mock.MagicMock()
+        fake.__enter__.return_value = fake
+        fake.originate.return_value = 'a1'
+        fake.wait_event.return_value = {'Response': 'Failure', 'Reason': '0'}
+        with mock.patch.object(ami, 'AMIClient', return_value=fake), \
+                mock.patch.object(tfn_test, 'REFUSED_GRACE', 0), \
+                mock.patch.object(RoutingEngine, 'route_call', return_value=OK):
+            tfn_test.run(t.pk)
+        t.refresh_from_db()
+        self.assertEqual((t.status, t.mode), ('passed', 'platform_check'))
+        self.assertIn('Real call not placed', t.reason)
+        self.assertIn('refused the test call', t.reason)
+
+    @override_settings(ASTERISK_AMI_HOST='10.0.0.1', ASTERISK_AMI_SECRET='x')
+    def test_a_refusal_after_our_inbound_leg_closed_the_test_changes_nothing(self):
+        t = self.make()
+        fake = mock.MagicMock()
+        fake.__enter__.return_value = fake
+        fake.originate.return_value = 'a1'
+
+        def inbound_then_failure(*a, **k):
+            with mock.patch.object(RoutingEngine, 'route_call', return_value=OK):
+                tfn_test.handle_inbound('+18774893792', TEST_CID)
+            return {'Response': 'Failure', 'Reason': '0'}
+        fake.wait_event.side_effect = inbound_then_failure
+        with mock.patch.object(ami, 'AMIClient', return_value=fake), \
+                mock.patch.object(tfn_test, 'REFUSED_GRACE', 0):
+            tfn_test.run(t.pk)
+        t.refresh_from_db()
+        self.assertEqual((t.status, t.mode), ('passed', 'real_call'))
+
+    @override_settings(ASTERISK_AMI_HOST='10.0.0.1', ASTERISK_AMI_SECRET='x')
     def test_real_call_succeeds_when_the_inbound_leg_closes_it(self):
         t = self.make()
         fake = mock.MagicMock()

@@ -20,6 +20,9 @@ WAIT_SECONDS = 30
 # An inbound call counts as the test's own only this long after it started.
 PENDING_SECONDS = 60
 PER_NUMBER_PER_DAY = 10
+# After the carrier answers a test call with a failure, how long the inbound
+# leg has to close the test before the failure is read as a refusal.
+REFUSED_GRACE = 1.5
 
 _REASON_TEXT = {
     '1': 'the carrier reported the line busy or unavailable',
@@ -176,6 +179,16 @@ def _real_call(test, phone):
                 msg = client.wait_event('OriginateResponse', action_id, 1.0)
                 if msg and response is None:
                     response = msg
+                    if msg.get('Response') == 'Failure' and msg.get('Reason') == '0':
+                        # The carrier refused the test call before it rang
+                        # (a SIP 4xx/5xx). That says nothing about the number.
+                        # Our own inbound leg ends the call too, but it closes
+                        # the test first, so give it a moment before deciding.
+                        time.sleep(REFUSED_GRACE)
+                        if not TfnTest.objects.filter(pk=test.pk, status=TfnTest.Status.RUNNING).exists():
+                            return None
+                        return ('the carrier refused the test call before it rang, '
+                                'so it says nothing about this number')
             if not TfnTest.objects.filter(pk=test.pk, status=TfnTest.Status.RUNNING).exists():
                 return None
     except ami.AMIError as e:

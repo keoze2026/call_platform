@@ -54,3 +54,9 @@ The carrier sends it back to us as an inbound call to that number. The AGI
 route request arrives with the test caller ID, the platform checks the number,
 campaign and routing, records the result and answers `hangup`. No CallLog row,
 no fee, no buyer is rung.
+
+Carrier limits seen on 20 Oct: the SBC answers 500 for a call from our trunk
+to our own TFN, and the Kamailio in front of it answers 403 for a caller ID it
+does not know. When the carrier refuses the test call, the test falls back to
+the platform check and the reason says "Real call not placed (the carrier
+refused the test call ...)". The carrier has to allow it for real calls to work.
