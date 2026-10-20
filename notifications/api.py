@@ -127,6 +127,36 @@ def update_preferences(request: HttpRequest):
         return 400, {"detail": str(e)}
 
 
+@router.get("/deleted-tfns", response={200: dict})
+def deleted_tfns(request: HttpRequest):
+    """TFNs the platform retired since this user last clicked Seen (CH-179)."""
+    from notifications.deleted_tfns import unseen_for
+    return 200, unseen_for(request.auth)
+
+
+@router.post("/deleted-tfns/seen", response={200: dict, 400: dict})
+def deleted_tfns_seen(request: HttpRequest):
+    """Acknowledge the "TFNs deleted" notice. Body: {"up_to": iso time} - the
+    newest retirement the user was shown; omit it to acknowledge everything."""
+    import json as _json
+    from django.utils.dateparse import parse_datetime
+    from notifications.deleted_tfns import mark_seen
+
+    try:
+        body = _json.loads(request.body or b'{}')
+    except Exception:
+        return 400, {"detail": "Invalid JSON"}
+    up_to = None
+    if body.get('up_to'):
+        up_to = parse_datetime(str(body['up_to']))
+        if up_to is None:
+            return 400, {"detail": "up_to must be an ISO date-time"}
+        if up_to.tzinfo is None:
+            from datetime import timezone as _tz
+            up_to = up_to.replace(tzinfo=_tz.utc)
+    return 200, mark_seen(request.auth, up_to)
+
+
 @router.post("/test", response={200: dict, 400: dict})
 def test_notification(request: HttpRequest):
     require(request.auth, Capability.CREATE)

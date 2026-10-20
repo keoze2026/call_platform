@@ -110,6 +110,10 @@ class NotificationPreference(models.Model):
         help_text='Event types that surface as a pop-up. Empty means none.'
     )
     sound_enabled = models.BooleanField(default=False)
+    # The newest TFN retirement this user has acknowledged (CH-179). The
+    # "TFNs deleted" notice lists retirements after it and stays until the
+    # user clicks Seen, on every device. Null = never acknowledged.
+    deleted_tfns_seen_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

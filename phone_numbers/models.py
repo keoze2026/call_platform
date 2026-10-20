@@ -97,6 +97,11 @@ class PhoneNumber(models.Model):
     # strength of this, and it is the record of which call consumed it.
     used_at = models.DateTimeField(null=True, blank=True)
     used_by_call_id = models.CharField(max_length=64, blank=True, default='')
+    # Why the platform retired the number (CH-179): 'used' (single use),
+    # 'expired' (its lifetime ran out) or the nightly answered-calls rule.
+    # Empty for a number somebody deleted by hand - that is how the "TFNs
+    # deleted" notice tells the platform's retirements from a person's.
+    retired_reason = models.CharField(max_length=255, blank=True, default='')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

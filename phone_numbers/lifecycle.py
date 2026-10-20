@@ -106,8 +106,11 @@ def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
         return False
 
     now = timezone.now()
-    fields = ['status', 'campaign', 'publisher', 'updated_at', 'released_at']
+    fields = ['status', 'campaign', 'publisher', 'updated_at', 'released_at', 'retired_reason']
     number.status = PhoneNumber.Status.RELEASED
+    # Recorded so the "TFNs deleted" notice can list it (CH-179). Nothing
+    # about when or whether a number is retired depends on this field.
+    number.retired_reason = (why or 'retired')[:255]
     number.released_at = number.released_at or now
     number.campaign = None
     number.publisher = None
