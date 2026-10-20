@@ -426,3 +426,79 @@ class NotConnectedLabelTests(Base):
             'Caller Abandoned', 'Not Connected')(apps, None)
         old.refresh_from_db()
         self.assertEqual(old.block_reason, 'Not Connected')
+
+
+class MissedCallRecordingTests(Base):
+    """A call nobody answered has no recording link (Sir, 20 Oct)."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch('tasks.retire_used_number')
+        p.start()
+        self.addCleanup(p.stop)
+
+    def end(self, row, **kw):
+        payload = {'call_log_id': str(row.id), 'duration': 0, 'answered': False,
+                   'dialed_seconds': 0, 'dial_status': 'CANCEL',
+                   'recording_url': f'https://avortyx.test/recordings/{row.id}.wav'}
+        payload.update(kw)
+        self.post(ENDED, payload)
+        row.refresh_from_db()
+        return row
+
+    def test_a_missed_call_stores_no_recording_link(self):
+        row = self.end(self.call('a'))
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+        self.assertEqual(row.recording_url, '')
+
+    def test_a_rejected_call_stores_no_recording_link(self):
+        row = self.end(self.call('a'), dial_status='CONGESTION', dialed_seconds=0)
+        self.assertEqual(row.recording_url, '')
+
+    def test_an_answered_call_keeps_its_recording_link(self):
+        row = self.end(self.call('a'), answered=True, duration=61, dialed_seconds=70,
+                       dial_status='ANSWER')
+        self.assertEqual(row.status, CallLog.Status.COMPLETED)
+        self.assertEqual(row.recording_url, f'https://avortyx.test/recordings/{row.id}.wav')
+
+    def test_a_blind_hangup_left_unanswered_gets_no_rebuilt_link(self):
+        row = self.call('t', age=600)
+        with override_settings(BLIND_HANGUP_ASSUMES_ANSWERED=False):
+            self.post(ENDED, {'call_log_id': '', 'duration': 0, 'answered': False,
+                              'recording_url': 'recordings/.wav', 'caller': '+15551234567',
+                              'dialed_seconds': 0, 'dial_status': ''})
+        row.refresh_from_db()
+        self.assertEqual(row.recording_url, '')
+
+    def test_the_cleanup_clears_missed_calls_and_their_mirror_only(self):
+        import importlib
+        from django.apps import apps as live_apps
+        from analytics.models import CallRecord
+        mod = importlib.import_module('routing.migrations.0016_clear_missed_recordings')
+        url = 'https://avortyx.test/recordings/x.wav'
+        missed = self.call('m', status=CallLog.Status.NO_ANSWER, recording_url=url)
+        failed = self.call('f', status=CallLog.Status.FAILED, recording_url=url)
+        done = self.call('d', status=CallLog.Status.COMPLETED, recording_url=url, duration=30)
+        for row in (missed, failed, done):
+            CallRecord.objects.filter(pk=row.pk).update(recording_url=url)
+        mod.clear_missed_recordings(live_apps, None)
+        for row, expected in ((missed, ''), (failed, ''), (done, url)):
+            row.refresh_from_db()
+            self.assertEqual(row.recording_url, expected)
+            rec = CallRecord.objects.filter(pk=row.pk).first()
+            if rec is not None:
+                self.assertEqual(rec.recording_url, expected)
+
+    def test_repair_never_puts_a_link_back_on_a_missed_call(self):
+        import tempfile
+        from django.core.management import call_command
+        from io import StringIO
+        missed = self.call('m', status=CallLog.Status.NO_ANSWER)
+        done = self.call('d', status=CallLog.Status.COMPLETED, duration=30)
+        with tempfile.NamedTemporaryFile('w', suffix='.txt', delete=False) as fh:
+            fh.write(f'{missed.id}.wav\n{done.id}.wav\n')
+        call_command('repair_recordings', from_list=fh.name, stdout=StringIO())
+        missed.refresh_from_db()
+        done.refresh_from_db()
+        self.assertEqual(missed.recording_url, '')
+        self.assertTrue(done.recording_url.endswith(f'{done.id}.wav'))

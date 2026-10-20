@@ -78,9 +78,18 @@ class Command(BaseCommand):
         }
         self.stdout.write(f'{len(on_disk)} recording files found')
 
-        fixed = cleared = kept = missing = 0
-        for call in CallLog.objects.exclude(recording_url='').only('id', 'recording_url').iterator(chunk_size=500):
+        fixed = cleared = kept = missing = unanswered = 0
+        for call in CallLog.objects.exclude(recording_url='').only('id', 'recording_url', 'status').iterator(chunk_size=500):
             current = call.recording_url or ''
+            # Only an answered call has audio. A missed call that carries a link
+            # was given one for a file that never existed, so it is cleared
+            # here, and the recovery below never puts one back.
+            if call.status != CallLog.Status.COMPLETED:
+                if not o['dry_run']:
+                    CallLog.objects.filter(pk=call.pk).update(recording_url='')
+                    CallRecord.objects.filter(pk=call.pk).update(recording_url='')
+                unanswered += 1
+                continue
             if is_recording_link(current):
                 kept += 1
                 # The call log is fine but the mirror may still carry the old
@@ -128,7 +137,7 @@ class Command(BaseCommand):
         for i in range(0, len(ids), 500):
             chunk = ids[i:i + 500]
             blanks = CallLog.objects.filter(
-                pk__in=chunk, recording_url='',
+                pk__in=chunk, recording_url='', status=CallLog.Status.COMPLETED,
             ).values_list('pk', flat=True)
             for pk in blanks:
                 new = f'{base}/{on_disk[str(pk)]}'
@@ -162,6 +171,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'{recovered} {verb} recovered (link was dropped, file on disk)'))
         self.stdout.write(f'{kept} already had a usable link')
+        self.stdout.write(f'{unanswered} {verb} cleared (call was never answered)')
         self.stdout.write(f'{stale} stale mirror rows {verb} reconciled')
         if o['dry_run']:
             self.stdout.write(self.style.WARNING('dry run - nothing was written'))

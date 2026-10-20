@@ -600,6 +600,14 @@ def call_ended(request):
             from routing.recordings import rebuilt_recording_url as _rebuild
             recording_url = _rebuild(call_log_id)
 
+    # A recording exists only for a call a buyer answered. The dialplan posts a
+    # link at the end of EVERY call, and the blind-hangup path rebuilds one from
+    # the call id, so a call nobody answered was stored with a link to a file
+    # that was never made, and the log showed it a play button (Sir, 20 Oct:
+    # "if the call is missed, how does a recording URL generate?").
+    if not answered:
+        recording_url = ''
+
     if recording_url:
         # Asterisk was sending `https` - the URL truncated at the first colon by
         # the shell that posts it - and it was stored as-is, then joined onto
