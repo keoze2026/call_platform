@@ -114,9 +114,10 @@ class RoutingEngine:
     @staticmethod
     def block_label(caller_number: str, organization_id: str, campaign_id: str = None) -> str:
         from spam_protection.models import Blacklist
+        from spam_protection.numbers import variants
         entry = Blacklist.objects.filter(
             organization_id=organization_id,
-            phone_number=caller_number,
+            phone_number__in=variants(caller_number),
             is_active=True,
         ).order_by('campaign_id').first()
         if not entry:
@@ -780,11 +781,12 @@ class RoutingEngine:
         # step, exactly as they always did.
         if caller_number:
             from spam_protection.models import Blacklist as _BL
+            from spam_protection.numbers import variants as _variants
             _now = timezone.now()
             _blocked = set(
                 str(b) for b in _BL.objects.filter(
                     organization_id=campaign.organization_id,
-                    phone_number=caller_number,
+                    phone_number__in=_variants(caller_number),
                     is_active=True,
                     buyer__isnull=False,
                 ).filter(

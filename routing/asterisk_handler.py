@@ -24,6 +24,43 @@ from routing.engine import RoutingEngine
 logger = logging.getLogger(__name__)
 
 
+NO_DESTINATION_LABEL = 'No Destination'
+
+
+def _destination_keeps_missing(call_log) -> bool:
+    """True when this caller has already rung this same buyer or line, inside
+    the duplicate window, and was never answered by it.
+
+    The first unanswered call can honestly be the caller giving up. A caller
+    who comes back again and again to a destination that has not once answered
+    them is being missed by that destination (it may have blocked the number),
+    so the row says "No Destination" and not "Caller Abandoned". A caller the
+    destination has answered even once stays Caller Abandoned: that line does
+    pick this caller up.
+    """
+    from datetime import timedelta
+    campaign = call_log.campaign
+    hours = (getattr(campaign, 'duplicate_call_block_hours', 0) or 24) if campaign else 24
+    since = timezone.now() - timedelta(hours=max(hours, 24))
+    same_line = CallLog.objects.filter(
+        organization_id=call_log.organization_id,
+        caller_number=call_log.caller_number,
+        created_at__gte=since,
+        created_at__lt=call_log.created_at,
+    )
+    if call_log.buyer_id:
+        same_line = same_line.filter(buyer_id=call_log.buyer_id)
+    elif call_log.destination_number:
+        same_line = same_line.filter(destination_number=call_log.destination_number)
+    else:
+        return False
+    missed = same_line.filter(status__in=[CallLog.Status.NO_ANSWER, CallLog.Status.BUSY]).exists()
+    answered = same_line.filter(
+        status__in=[CallLog.Status.COMPLETED, CallLog.Status.IN_PROGRESS]
+    ).exists()
+    return missed and not answered
+
+
 def _check_secret(request):
     secret = request.headers.get('X-Asterisk-Secret', '')
     expected = getattr(settings, 'ASTERISK_SHARED_SECRET', '')
@@ -193,7 +230,12 @@ def route_incoming_call(request):
                 call_log.buyer = refused_buyer
         else:
             call_log.status = CallLog.Status.FAILED
-        call_log.block_reason = reason[:100]
+        # Sir's wording for any call the destination side could not take:
+        # "No Destination", in two words. Which line and why (buyer paused,
+        # TFN off, cap full, CC full) stays in the routing trace on the call.
+        call_log.block_reason = (
+            NO_DESTINATION_LABEL if reason.startswith('Destination missed') else reason[:100]
+        )
         call_log.ended_at = timezone.now()
         call_log.routing_trace = trace.as_dict(selected=None)
         call_log.save(update_fields=[
@@ -569,11 +611,15 @@ def call_ended(request):
         call_log.block_reason = {
             'BUSY': 'Destination busy',
             'NOANSWER': 'Destination no answer',
-            # The owner's wording, verbatim from his test review.
-            'CONGESTION': 'Destination Missed',
-            'CHANUNAVAIL': 'Destination Missed',
+            # Sir: never "Destination Missed"; the destination did not take it.
+            'CONGESTION': NO_DESTINATION_LABEL,
+            'CHANUNAVAIL': NO_DESTINATION_LABEL,
             'CANCEL': 'Caller Abandoned',
         }.get(dial_status, call_log.block_reason)
+        # A caller who rings again and again and is never answered is not
+        # abandoning anything: the destination is not picking this caller up.
+        if call_log.block_reason == 'Caller Abandoned' and _destination_keeps_missing(call_log):
+            call_log.block_reason = NO_DESTINATION_LABEL
 
     if matched_blind:
         # The path the dialplan posted was built from the id it no longer had

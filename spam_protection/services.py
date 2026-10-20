@@ -1,5 +1,6 @@
 from django.utils import timezone
 from .models import Blacklist, Whitelist, AnonymousCallBlock, SpamReport
+from .numbers import variants
 
 
 class SpamProtectionService:
@@ -20,7 +21,7 @@ class SpamProtectionService:
 
         qs = Whitelist.objects.filter(
             organization_id=organization_id,
-            phone_number=phone_number,
+            phone_number__in=variants(phone_number),
             is_active=True
         )
 
@@ -45,7 +46,7 @@ class SpamProtectionService:
 
         base_qs = Blacklist.objects.filter(
             organization_id=organization_id,
-            phone_number=phone_number,
+            phone_number__in=variants(phone_number),
             is_active=True,
             # Buyer-scoped rows never refuse the call - they only take that
             # one buyer out of the running, inside the routing engine.

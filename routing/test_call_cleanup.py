@@ -302,7 +302,7 @@ class UnansweredRingTimeTests(Base):
     def test_instant_decline_is_about_zero(self):
         row = self.call('a', age=1)
         self.end(row, dial_status='CONGESTION')
-        self.assertEqual(row.block_reason, 'Destination Missed')
+        self.assertEqual(row.block_reason, 'No Destination')
         self.assertLessEqual(row.ring_seconds, 3)
 
     def test_call_that_never_dialed_stays_unknown(self):
@@ -375,3 +375,62 @@ class NumberClockLifecycleTests(TestCase):
         self.number.refresh_from_db()
         self.assertIsNone(self.number.used_at)
         self.assertIsNone(self.number.expires_at)
+
+
+class NoDestinationLabelTests(Base):
+    """A caller who keeps ringing a destination that never answers them is
+    missed by that destination, not abandoning the call (Sir, 20 Oct)."""
+
+    def setUp(self):
+        super().setUp()
+        p = mock.patch('tasks.retire_used_number')
+        p.start()
+        self.addCleanup(p.stop)
+        from buyers.models import Buyer
+        self.buyer = Buyer.objects.create(organization=self.org, name='ADST')
+        self.other = Buyer.objects.create(organization=self.org, name='Other')
+
+    def ring(self, sid, status=CallLog.Status.NO_ANSWER, buyer=None, age=600, **kw):
+        return self.call(sid, caller='16283585660', age=age, status=status,
+                         buyer=buyer or self.buyer, **kw)
+
+    def abandon(self, row):
+        self.post(ENDED, {'call_log_id': str(row.id), 'duration': 0, 'answered': False,
+                          'dialed_seconds': 0, 'dial_status': 'CANCEL'})
+        row.refresh_from_db()
+        return row.block_reason
+
+    def test_first_unanswered_call_is_still_caller_abandoned(self):
+        row = self.ring('now', status=CallLog.Status.IN_PROGRESS, age=24)
+        self.assertEqual(self.abandon(row), 'Caller Abandoned')
+
+    def test_repeat_caller_the_destination_never_answered_is_no_destination(self):
+        self.ring('before-1', age=120)
+        self.ring('before-2', age=60)
+        row = self.ring('now', status=CallLog.Status.IN_PROGRESS, age=24)
+        self.assertEqual(self.abandon(row), 'No Destination')
+
+    def test_a_destination_that_answered_this_caller_before_stays_abandoned(self):
+        self.ring('answered', status=CallLog.Status.COMPLETED, age=300)
+        self.ring('missed', age=120)
+        row = self.ring('now', status=CallLog.Status.IN_PROGRESS, age=24)
+        self.assertEqual(self.abandon(row), 'Caller Abandoned')
+
+    def test_earlier_misses_on_another_buyer_do_not_count(self):
+        self.ring('elsewhere', buyer=self.other, age=120)
+        row = self.ring('now', status=CallLog.Status.IN_PROGRESS, age=24)
+        self.assertEqual(self.abandon(row), 'Caller Abandoned')
+
+    def test_a_blocked_or_duplicate_refusal_is_not_a_miss_by_the_destination(self):
+        # Refusals carry no buyer, so they are never counted against one.
+        self.call('refused', caller='16283585660', age=90, status=CallLog.Status.NO_ANSWER,
+                  destination='', block_reason='Callerid Blocked')
+        row = self.ring('now', status=CallLog.Status.IN_PROGRESS, age=24)
+        self.assertEqual(self.abandon(row), 'Caller Abandoned')
+
+    def test_busy_and_no_answer_wording_is_unchanged(self):
+        row = self.ring('a', status=CallLog.Status.IN_PROGRESS, age=10)
+        self.post(ENDED, {'call_log_id': str(row.id), 'duration': 0, 'answered': False,
+                          'dialed_seconds': 0, 'dial_status': 'BUSY'})
+        row.refresh_from_db()
+        self.assertEqual(row.block_reason, 'Destination busy')

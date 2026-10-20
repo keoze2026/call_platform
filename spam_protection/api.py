@@ -1,4 +1,5 @@
 from accounts.permissions import require, Capability
+from .numbers import canonical, variants
 from accounts.api import JWTAuth
 import uuid
 from typing import List
@@ -103,7 +104,7 @@ def create_blacklist(request, payload: BlacklistCreateSchema):
         require(request.auth, Capability.CREATE)
     entry = Blacklist.objects.create(
         organization_id=request.auth.organization_id,
-        phone_number=payload.phone_number or payload.number,
+        phone_number=canonical(payload.phone_number or payload.number),
         reason=payload.reason,
         notes=payload.notes,
         campaign_id=None if is_member else payload.campaign_id,
@@ -217,7 +218,7 @@ def create_whitelist(request, payload: WhitelistCreateSchema):
     require(request.auth, Capability.CREATE)
     entry = Whitelist.objects.create(
         organization_id=request.auth.organization_id,
-        phone_number=payload.phone_number or payload.number,
+        phone_number=canonical(payload.phone_number or payload.number),
         notes=payload.notes,
         campaign_id=payload.campaign_id,
         added_by=request.auth,
@@ -376,8 +377,8 @@ def check_number(request, phone_number: str = ''):
     # relation to filter on and Django raised FieldError - this endpoint
     # returned 500 for every number it was ever asked about.
     org_id = request.auth.organization_id
-    is_blocked = Blacklist.objects.filter(organization_id=org_id, phone_number=number, is_active=True).exists()
-    is_whitelisted = Whitelist.objects.filter(organization_id=org_id, phone_number=number, is_active=True).exists()
+    is_blocked = Blacklist.objects.filter(organization_id=org_id, phone_number__in=variants(number), is_active=True).exists()
+    is_whitelisted = Whitelist.objects.filter(organization_id=org_id, phone_number__in=variants(number), is_active=True).exists()
     return 200, {"number": number, "is_blocked": is_blocked, "is_whitelisted": is_whitelisted, "is_spam": is_blocked, "allowed": not is_blocked, "confidence": None, "reason": "blacklisted" if is_blocked else None}
 
 
