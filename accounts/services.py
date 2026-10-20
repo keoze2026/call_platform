@@ -81,10 +81,17 @@ class AuthService:
     @staticmethod
     def login(email: str, password: str, ip_address: str = None, user_agent: str = None):
         from accounts.models import User as UserModel
-        try:
-            u = UserModel.objects.get(email=email)
+        # Email is matched ignoring capitals. It was an exact match, so a member
+        # stored as xypheria@... could not sign in as Xypheria@... and was told
+        # the password was wrong. Older rows may differ only by case, so each
+        # match is tried in turn rather than assuming there is one.
+        email = (email or '').strip()
+        user = None
+        for u in UserModel.objects.filter(email__iexact=email).order_by('date_joined'):
             user = authenticate(username=u.username, password=password)
-        except UserModel.DoesNotExist:
+            if user:
+                break
+        if user is None:
             user = authenticate(username=email, password=password)
 
         if not user:
@@ -378,9 +385,10 @@ class PasswordResetService:
         """Send password reset email (silent on non-existent email)"""
         from django.utils import timezone
         
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
+        # Same capital-letter rule as login: Xypheria@... finds xypheria@...
+        user = (User.objects.filter(email__iexact=(email or '').strip())
+                .order_by('date_joined').first())
+        if user is None:
             # Silent fail for security - don't reveal if email exists
             return
         
