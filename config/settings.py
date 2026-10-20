@@ -295,6 +295,9 @@ CHARGE_COMPLETED_CALLS = config('CHARGE_COMPLETED_CALLS', default=True, cast=boo
 # A call still 'in_progress' after this many minutes never got an end-of-call
 # webhook from Asterisk and is closed as no_answer by tasks.close_stale_calls.
 STALE_CALL_MINUTES = config('STALE_CALL_MINUTES', default=60, cast=int)
+# The same, when the Asterisk channel sync has not reported for ten minutes.
+# Without it a long call and an orphan look alike, so wait far longer (CH-178).
+STALE_CALL_MINUTES_NO_SYNC = config('STALE_CALL_MINUTES_NO_SYNC', default=240, cast=int)
 
 # A live row younger than this is never closed by the Asterisk channel sync: a
 # call can exist here a moment before Asterisk reports its channel.

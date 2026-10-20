@@ -38,6 +38,16 @@ def _check_secret(request):
 _LIVE_STATUSES = (CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS)
 _MISS_KEY = 'asterisk_sync_miss:%s'
 _MISS_TTL = 600
+# Set for every live row Asterisk still has a channel for, on each channel-sync
+# report. tasks.close_stale_calls never closes a call carrying it: a call that
+# Asterisk says is up is up, however long it has been talking. The TTL outlasts
+# two runs of that task, so one missed report cannot expose a real call.
+SEEN_LIVE_KEY = 'asterisk_seen_live:%s'
+SEEN_LIVE_TTL = 1800
+# When the channel sync last reported. Without a recent report the stale sweep
+# cannot tell a long call from an orphan and waits much longer before closing.
+SYNC_LAST_KEY = 'asterisk_sync_last'
+SYNC_LAST_TTL = 600
 
 
 def _caller_key(value):
@@ -69,6 +79,21 @@ def _count_misses(call_ids):
         except Exception:
             logger.warning('asterisk sync: miss counter unavailable; not closing %s', cid)
     return due
+
+
+def _mark_seen_live(rows, active_ids, active_callers):
+    """Note which live rows Asterisk still has, and that the sync is running."""
+    try:
+        seen = [
+            c.id for c in rows
+            if c.twilio_call_sid in active_ids
+            or _caller_key(c.caller_number) in active_callers
+        ]
+        if seen:
+            cache.set_many({SEEN_LIVE_KEY % cid: 1 for cid in seen}, SEEN_LIVE_TTL)
+        cache.set(SYNC_LAST_KEY, timezone.now().isoformat(), SYNC_LAST_TTL)
+    except Exception:
+        logger.warning('asterisk sync: could not record live channels')
 
 
 def _clear_misses(call_ids):
@@ -339,6 +364,13 @@ def active_channels(request):
         created_at__lt=cutoff,
     )
 
+    # Mark what Asterisk still carries before deciding anything else, so the
+    # stale sweep can see it even when this report closes nothing (CH-178).
+    # Before this, a call talking for 61 minutes was closed by the sweep as
+    # no_answer with zero duration while Asterisk still had it up.
+    if active_count:
+        _mark_seen_live(live, active_ids, active_callers)
+
     still_up = []
     if active_count == 0:
         missing = list(live)
@@ -497,6 +529,15 @@ def call_ended(request):
                         .order_by('-created_at')
                         .first()
                     )
+                if call_log is None:
+                    # Or the stale sweep closed it while it was still talking
+                    # (CH-178). That can be hours before the hangup, so the
+                    # window is the six hours `base` already allows.
+                    call_log = (
+                        base.filter(block_reason='stale_timeout')
+                        .order_by('-created_at')
+                        .first()
+                    )
                 if call_log:
                     matched_blind = True
                     call_log_id = str(call_log.id)
@@ -545,7 +586,7 @@ def call_ended(request):
     call_log.duration = duration
     call_log.status = CallLog.Status.COMPLETED if answered else CallLog.Status.NO_ANSWER
     call_log.ended_at = ended_at
-    if answered and matched_blind and call_log.block_reason == 'asterisk_gone':
+    if answered and call_log.block_reason in ('asterisk_gone', 'stale_timeout'):
         # No longer an orphan: it was a real call.
         call_log.block_reason = ''
     if answered and not call_log.answered_at:

@@ -296,19 +296,39 @@ def close_stale_calls():
 
     Asterisk does not always fire the h extension, so a call can sit in
     in_progress forever - inflating live counts and never reaching the analytics
-    mirror. Anything older than STALE_CALL_MINUTES with no terminal status is
-    closed as no_answer with zero duration, so it is never charged and never
-    counts as revenue.
+    mirror. Such a row is closed as no_answer with zero duration, so it is
+    never charged and never counts as revenue.
 
-    The threshold sits well past any real call length: a genuine long call is
-    still in Asterisk's channel list and will report its own hangup.
+    What this must never do is close a call that is still talking (CH-178). It
+    used to close everything older than STALE_CALL_MINUTES (60), on the belief
+    that a long call would report its own hangup - but it closed the row first,
+    so a buyer's 1h40m call vanished from Live and was written down as no
+    answer. Now:
+
+      * a call the Asterisk channel sync saw on a live channel in the last
+        half hour is left alone, however old it is
+      * while the sync is reporting, anything else older than
+        STALE_CALL_MINUTES is a genuine orphan and is closed as before
+      * when the sync is not reporting there is no way to tell a long call
+        from an orphan, so it waits STALE_CALL_MINUTES_NO_SYNC (4 hours)
+      * a closed row is marked stale_timeout, so a hangup that arrives later
+        without its call id can still find and finish it
     """
     from datetime import timedelta
     from django.conf import settings
+    from django.core.cache import cache
     from django.utils import timezone
+    from routing.asterisk_handler import SEEN_LIVE_KEY, SYNC_LAST_KEY
     from routing.models import CallLog
 
-    minutes = getattr(settings, 'STALE_CALL_MINUTES', 60)
+    try:
+        sync_running = bool(cache.get(SYNC_LAST_KEY))
+    except Exception:
+        sync_running = False
+    if sync_running:
+        minutes = getattr(settings, 'STALE_CALL_MINUTES', 60)
+    else:
+        minutes = getattr(settings, 'STALE_CALL_MINUTES_NO_SYNC', 240)
     cutoff = timezone.now() - timedelta(minutes=minutes)
 
     stale = CallLog.objects.filter(
@@ -316,9 +336,19 @@ def close_stale_calls():
         created_at__lt=cutoff,
     )
 
-    rows = list(stale.values_list('id', 'caller_number', 'created_at')[:50])
+    rows = list(stale.values_list('id', 'caller_number', 'created_at')[:200])
     if not rows:
         return "No stale calls"
+
+    try:
+        seen = cache.get_many([SEEN_LIVE_KEY % r[0] for r in rows])
+    except Exception:
+        # Cannot tell which are still up: closing a live call is the worse
+        # failure, so close nothing this round.
+        return "Cache unavailable, nothing closed"
+    rows = [r for r in rows if (SEEN_LIVE_KEY % r[0]) not in seen][:50]
+    if not rows:
+        return "Every old call is still up in Asterisk"
 
     for _id, caller, created in rows:
         print(f'closing stale call {_id} from {caller} started {created:%Y-%m-%d %H:%M}')
@@ -327,9 +357,13 @@ def close_stale_calls():
     # the analytics mirror; a queryset update() would skip signals entirely.
     closed = 0
     for call in CallLog.objects.filter(id__in=[r[0] for r in rows]):
+        call.refresh_from_db(fields=['status'])
+        if call.status not in (CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS):
+            continue
         call.status = CallLog.Status.NO_ANSWER
         call.ended_at = timezone.now()
-        call.save(update_fields=['status', 'ended_at', 'updated_at'])
+        call.block_reason = 'stale_timeout'
+        call.save(update_fields=['status', 'ended_at', 'block_reason', 'updated_at'])
         closed += 1
 
     return f"Closed {closed} stale calls"
