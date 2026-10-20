@@ -200,6 +200,8 @@ def route_incoming_call(request):
         # Carries the tracking number's own payout_per_call into the balance
         # check, so per-number pricing is honoured over the campaign default.
         'phone_number': phone,
+        # Lets a block set on this publisher refuse the caller here only.
+        'publisher_id': str(phone.publisher_id) if phone.publisher_id else None,
         # Passive recorder: the engine writes its reasoning here and the trace
         # never influences a decision.
         'trace': trace,

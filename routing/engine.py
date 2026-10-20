@@ -97,6 +97,28 @@ class RoutingEngine:
         )
         return not result['allowed']
 
+    @staticmethod
+    def is_publisher_blocked(caller_number: str, organization_id: str, publisher_id) -> bool:
+        """True when this caller is blocked on this publisher's numbers.
+
+        Set from the publisher's own settings page (or by a publisher login
+        with Block Numbers on). Only that publisher's calls are refused; the
+        same caller on any other publisher routes as usual.
+        """
+        if not caller_number or not publisher_id:
+            return False
+        from spam_protection.models import Blacklist
+        from spam_protection.numbers import variants
+        now = timezone.now()
+        return Blacklist.objects.filter(
+            organization_id=organization_id,
+            publisher_id=publisher_id,
+            phone_number__in=variants(caller_number),
+            is_active=True,
+        ).filter(
+            models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now)
+        ).exists()
+
     # Every refusal from the spam checks was reported as "Caller is
     # blacklisted", whatever had actually put the number there. Most of these
     # are the TCPA check adding a do-not-call hit automatically after a
@@ -690,6 +712,15 @@ class RoutingEngine:
             if trace: trace.step('blacklist', False, label.lower())
             return {'destination': None, 'rule': None, 'error': label}
         if trace: trace.step('blacklist', True)
+
+        # A caller the team blocked on this publisher only: refused here as a
+        # missed call with the same "Callerid Blocked" comment, while the same
+        # caller on another publisher's numbers goes through.
+        if RoutingEngine.is_publisher_blocked(
+            caller_number, str(campaign.organization_id), call_data.get('publisher_id')
+        ):
+            if trace: trace.step('publisher_block', False, 'caller blocked on this publisher')
+            return {'destination': None, 'rule': None, 'error': RoutingEngine.BLOCKED_CALLER_LABEL}
 
         if campaign.duplicate_call_block:
             if RoutingEngine.is_duplicate(caller_number, str(campaign.id), campaign.duplicate_call_block_hours):

@@ -12,6 +12,9 @@ class BlacklistCreateSchema(Schema):
     reason: str = 'manual'
     notes: str = ''
     campaign_id: Optional[uuid.UUID] = None
+    # Block this caller on one publisher's numbers only (an admin sets it; a
+    # publisher login is always pinned to its own publisher).
+    publisher_id: Optional[uuid.UUID] = None
     expires_at: Optional[datetime] = None
 
     @property
@@ -37,6 +40,8 @@ class BlacklistOutSchema(Schema):
     # Which buyer this block belongs to; null = organization-wide. Declared or
     # Ninja drops it and a member cannot tell their rows from anything.
     buyer_id: Optional[uuid.UUID] = None
+    # Same for the publisher a block belongs to; null = not publisher-scoped.
+    publisher_id: Optional[uuid.UUID] = None
     expires_at: Optional[datetime]
     created_at: datetime
 

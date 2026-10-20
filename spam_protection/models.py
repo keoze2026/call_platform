@@ -38,6 +38,15 @@ class Blacklist(models.Model):
         help_text='Set = this buyer alone stops taking the number; null = the whole organization refuses it.',
     )
 
+    # A publisher-scoped block: calls from this caller are refused only when
+    # they arrive on this publisher's tracking numbers. Every other publisher
+    # still takes the caller. Null = not publisher-scoped.
+    publisher = models.ForeignKey(
+        'publishers.Publisher', null=True, blank=True,
+        on_delete=models.CASCADE, related_name='blocked_numbers',
+        help_text='Set = refused only on this publisher\'s numbers; null = not publisher-scoped.',
+    )
+
     phone_number = models.CharField(max_length=20, db_index=True)
     reason       = models.CharField(max_length=20, choices=Reason.choices, default=Reason.MANUAL)
     notes        = models.TextField(blank=True, default='')

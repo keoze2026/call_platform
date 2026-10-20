@@ -51,6 +51,9 @@ class SpamProtectionService:
             # Buyer-scoped rows never refuse the call - they only take that
             # one buyer out of the running, inside the routing engine.
             buyer__isnull=True,
+            # Publisher-scoped rows are enforced by the routing engine for
+            # that publisher's numbers only, never as an organization block.
+            publisher__isnull=True,
         ).filter(
             # Either no expiry or expiry in the future
             models_expires_filter(now)

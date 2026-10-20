@@ -31,6 +31,17 @@ def _buyer_member_gate(user):
     return True, getattr(user, 'buyer', None)
 
 
+def _publisher_member_gate(user):
+    """The same gate for a publisher login: (is_publisher_member, publisher).
+
+    A publisher with the Block Numbers switch on blocks callers on its own
+    numbers only. Before this, only a buyer login could use the switch.
+    """
+    if getattr(user, 'role', '') != 'publisher':
+        return False, None
+    return True, getattr(user, 'publisher', None)
+
+
 def _member_may_block(user) -> bool:
     from accounts.permissions import has, Capability
     return has(user, Capability.BLOCK_NUMBERS)
@@ -41,7 +52,7 @@ def _member_may_block(user) -> bool:
 
 
 @router.get('/blacklist', response={200: dict})
-def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = False, page: int = 1, page_size: int = 500):
+def list_blacklist(request, campaign_id: uuid.UUID = None, publisher_id: uuid.UUID = None, active_only: bool = False, page: int = 1, page_size: int = 500):
     """
     List blacklisted numbers for the authenticated user's organisation.
     """
@@ -55,6 +66,17 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
         # is the workspace's business, not a client login's.
         qs = qs.filter(buyer=member_buyer) if member_buyer else qs.none()
 
+    is_pub_member, member_publisher = _publisher_member_gate(request.auth)
+    if is_pub_member:
+        # A publisher login sees its own publisher's blocks and nothing else.
+        qs = qs.filter(publisher=member_publisher) if member_publisher else qs.none()
+    elif publisher_id:
+        qs = qs.filter(publisher_id=publisher_id)
+    else:
+        # The workspace list stays what it was: publisher-scoped rows live on
+        # that publisher's own settings page.
+        qs = qs.filter(publisher__isnull=True)
+
     if campaign_id:
         qs = qs.filter(campaign_id=campaign_id)
     if active_only:
@@ -65,11 +87,12 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, active_only: bool = F
     start = (page - 1) * page_size
     end = start + page_size
     items = list(qs[start:end].values(
-        'id', 'phone_number', 'reason', 'notes', 'is_active', 'campaign_id', 'expires_at', 'created_at'
+        'id', 'phone_number', 'reason', 'notes', 'is_active', 'campaign_id', 'publisher_id', 'expires_at', 'created_at'
     ))
     for item in items:
         item['id'] = str(item['id'])
         item['campaign_id'] = str(item['campaign_id']) if item['campaign_id'] else None
+        item['publisher_id'] = str(item['publisher_id']) if item['publisher_id'] else None
         item['expires_at'] = item['expires_at'].isoformat() if item['expires_at'] else None
         item['created_at'] = item['created_at'].isoformat() if item['created_at'] else None
 
@@ -100,15 +123,30 @@ def create_blacklist(request, payload: BlacklistCreateSchema):
         # A member blocks for their own buyer alone, whatever the payload
         # says - routing then skips this buyer, never the whole call.
         scoped_buyer = member_buyer
-    else:
+    is_pub_member, member_publisher = _publisher_member_gate(request.auth)
+    scoped_publisher = None
+    if is_pub_member:
+        if not (member_publisher and _member_may_block(request.auth)):
+            from ninja.errors import HttpError
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        # A publisher blocks on its own numbers alone, whatever the payload says.
+        scoped_publisher = member_publisher
+    elif not is_member:
         require(request.auth, Capability.CREATE)
+        if payload.publisher_id:
+            from publishers.models import Publisher
+            scoped_publisher = get_object_or_404(
+                Publisher, id=payload.publisher_id,
+                organization_id=request.auth.organization_id,
+            )
     entry = Blacklist.objects.create(
         organization_id=request.auth.organization_id,
         phone_number=canonical(payload.phone_number or payload.number),
         reason=payload.reason,
         notes=payload.notes,
-        campaign_id=None if is_member else payload.campaign_id,
+        campaign_id=None if (is_member or scoped_publisher) else payload.campaign_id,
         buyer=scoped_buyer,
+        publisher=scoped_publisher,
         expires_at=payload.expires_at,
         added_by=request.auth,
     )
@@ -129,7 +167,7 @@ def get_blacklist_entry(request, entry_id: uuid.UUID):
 def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdateSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'blocked-numbers', 'edit')
-    if getattr(request.auth, 'role', '') != 'buyer':
+    if getattr(request.auth, 'role', '') not in ('buyer', 'publisher'):
         require(request.auth, Capability.EDIT)
     if payload.phone_number is not None:
         return 400, {"detail": "phone_number is immutable after creation. Delete and recreate to change the number."}
@@ -143,6 +181,13 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
             raise HttpError(403, "Your account is not allowed to block numbers")
         if entry.buyer_id != member_buyer.id:
             raise HttpError(403, "Not your buyer's entry")
+    is_pub_member, member_publisher = _publisher_member_gate(request.auth)
+    if is_pub_member:
+        from ninja.errors import HttpError
+        if not (member_publisher and _member_may_block(request.auth)):
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        if entry.publisher_id != member_publisher.id:
+            raise HttpError(403, "Not your publisher's entry")
     for field, value in payload.dict(exclude_none=True).items():
         if field != 'phone_number':
             setattr(entry, field, value)
@@ -154,7 +199,7 @@ def update_blacklist_entry(request, entry_id: uuid.UUID, payload: BlacklistUpdat
 def delete_blacklist_entry(request, entry_id: uuid.UUID):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'blocked-numbers', 'delete')
-    if getattr(request.auth, 'role', '') != 'buyer':
+    if getattr(request.auth, 'role', '') not in ('buyer', 'publisher'):
         require(request.auth, Capability.DELETE)
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
@@ -166,6 +211,13 @@ def delete_blacklist_entry(request, entry_id: uuid.UUID):
             raise HttpError(403, "Your account is not allowed to block numbers")
         if entry.buyer_id != member_buyer.id:
             raise HttpError(403, "Not your buyer's entry")
+    is_pub_member, member_publisher = _publisher_member_gate(request.auth)
+    if is_pub_member:
+        from ninja.errors import HttpError
+        if not (member_publisher and _member_may_block(request.auth)):
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        if entry.publisher_id != member_publisher.id:
+            raise HttpError(403, "Not your publisher's entry")
     entry.delete()
     return {'message': 'Blacklist entry deleted'}
 
@@ -175,7 +227,7 @@ def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
     """Soft-disable a blacklist entry without deleting it."""
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'blocked-numbers', 'edit')
-    if getattr(request.auth, 'role', '') != 'buyer':
+    if getattr(request.auth, 'role', '') not in ('buyer', 'publisher'):
         require(request.auth, Capability.CREATE)
     entry = get_object_or_404(
         Blacklist, id=entry_id, organization_id=request.auth.organization_id
@@ -187,6 +239,13 @@ def deactivate_blacklist_entry(request, entry_id: uuid.UUID):
             raise HttpError(403, "Your account is not allowed to block numbers")
         if entry.buyer_id != member_buyer.id:
             raise HttpError(403, "Not your buyer's entry")
+    is_pub_member, member_publisher = _publisher_member_gate(request.auth)
+    if is_pub_member:
+        from ninja.errors import HttpError
+        if not (member_publisher and _member_may_block(request.auth)):
+            raise HttpError(403, "Your account is not allowed to block numbers")
+        if entry.publisher_id != member_publisher.id:
+            raise HttpError(403, "Not your publisher's entry")
     entry.is_active = False
     entry.save()
     return entry
