@@ -25,40 +25,8 @@ logger = logging.getLogger(__name__)
 
 
 NO_DESTINATION_LABEL = 'No Destination'
-
-
-def _destination_keeps_missing(call_log) -> bool:
-    """True when this caller has already rung this same buyer or line, inside
-    the duplicate window, and was never answered by it.
-
-    The first unanswered call can honestly be the caller giving up. A caller
-    who comes back again and again to a destination that has not once answered
-    them is being missed by that destination (it may have blocked the number),
-    so the row says "No Destination" and not "Caller Abandoned". A caller the
-    destination has answered even once stays Caller Abandoned: that line does
-    pick this caller up.
-    """
-    from datetime import timedelta
-    campaign = call_log.campaign
-    hours = (getattr(campaign, 'duplicate_call_block_hours', 0) or 24) if campaign else 24
-    since = timezone.now() - timedelta(hours=max(hours, 24))
-    same_line = CallLog.objects.filter(
-        organization_id=call_log.organization_id,
-        caller_number=call_log.caller_number,
-        created_at__gte=since,
-        created_at__lt=call_log.created_at,
-    )
-    if call_log.buyer_id:
-        same_line = same_line.filter(buyer_id=call_log.buyer_id)
-    elif call_log.destination_number:
-        same_line = same_line.filter(destination_number=call_log.destination_number)
-    else:
-        return False
-    missed = same_line.filter(status__in=[CallLog.Status.NO_ANSWER, CallLog.Status.BUSY]).exists()
-    answered = same_line.filter(
-        status__in=[CallLog.Status.COMPLETED, CallLog.Status.IN_PROGRESS]
-    ).exists()
-    return missed and not answered
+# The caller hung up before the buyer answered (Sir, 20 Oct: was "Caller Abandoned").
+NOT_CONNECTED_LABEL = 'Not Connected'
 
 
 def _check_secret(request):
@@ -616,12 +584,12 @@ def call_ended(request):
             # Sir: never "Destination Missed"; the destination did not take it.
             'CONGESTION': NO_DESTINATION_LABEL,
             'CHANUNAVAIL': NO_DESTINATION_LABEL,
-            'CANCEL': 'Caller Abandoned',
+            'CANCEL': NOT_CONNECTED_LABEL,
         }.get(dial_status, call_log.block_reason)
-        # A caller who rings again and again and is never answered is not
-        # abandoning anything: the destination is not picking this caller up.
-        if call_log.block_reason == 'Caller Abandoned' and _destination_keeps_missing(call_log):
-            call_log.block_reason = NO_DESTINATION_LABEL
+        # Each call is judged on its own. A caller who was missed before is not
+        # marked missed for good: the next call is tried again, and answered if
+        # the buyer has room (Sir, 20 Oct: no hard rule that once missed is
+        # always missed).
 
     if matched_blind:
         # The path the dialplan posted was built from the id it no longer had
