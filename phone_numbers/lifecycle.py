@@ -86,8 +86,9 @@ def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
         return False
 
     now = timezone.now()
-    fields = ['status', 'campaign', 'publisher', 'updated_at']
+    fields = ['status', 'campaign', 'publisher', 'updated_at', 'released_at']
     number.status = PhoneNumber.Status.RELEASED
+    number.released_at = number.released_at or now
     number.campaign = None
     number.publisher = None
     if why == 'used' and not number.used_at:

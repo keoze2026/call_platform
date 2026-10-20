@@ -55,6 +55,9 @@ class PhoneNumber(models.Model):
     traffic_source_enabled = models.BooleanField(default=False)
     traffic_source_id = models.CharField(max_length=255, blank=True, null=True, default=None)
     renews_at = models.DateTimeField(null=True, blank=True)
+    # When the number was deleted (released). The user stops seeing it, but the
+    # row stays so the owner can check the carrier's bill against it (CH-154).
+    released_at = models.DateTimeField(null=True, blank=True)
 
     # Assignment
     campaign = models.ForeignKey(
@@ -143,6 +146,13 @@ class Carrier(models.Model):
         max_length=4, blank=True, default='',
         choices=[('', 'Auto'), ('high', 'High'), ('low', 'Low')],
     )
+    # What this carrier charges US (owner-only, never shown to workspaces):
+    # a monthly fee per number, a flat monthly portal fee for the carrier, and
+    # a cost per connected minute. Used by the Owner > Carrier Costs page to
+    # check the carrier's invoice (CH-154).
+    number_monthly_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    portal_monthly_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    per_minute_cost = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True, default='')
 

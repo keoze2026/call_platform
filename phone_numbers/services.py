@@ -284,6 +284,7 @@ class PhoneNumberService:
                 # Log but don't block release if Twilio fails
                 print(f"Twilio release warning: {str(e)}")
         phone_number.status = PhoneNumber.Status.RELEASED
+        phone_number.released_at = phone_number.released_at or timezone.now()
         phone_number.campaign = None
         phone_number.publisher = None
         phone_number.save()

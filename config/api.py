@@ -7,6 +7,7 @@ from publishers.api import router as publishers_router
 from phone_numbers.api import router as phone_numbers_router
 from phone_numbers.api import carriers_router
 from accounts.owner_api import owner_router
+import phone_numbers.owner_costs  # noqa: F401  (adds the Carrier Costs routes to owner_router)
 from routing.api import router as routing_router
 from ivr.api import router as ivr_router
 from rtb.api import router as rtb_router
