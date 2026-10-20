@@ -458,7 +458,9 @@ class RoutingEngine:
         cache_key = f"round_robin_{rule.id}"
         current_index = cache.get(cache_key, 0)
         destination = destinations[current_index % len(destinations)]
-        cache.set(cache_key, (current_index + 1) % len(destinations), timeout=86400)
+        # A TFN test (CH-175) looks at where a call would go without taking its turn.
+        if not (call_data or {}).get('is_test'):
+            cache.set(cache_key, (current_index + 1) % len(destinations), timeout=86400)
         return destination
 
     @staticmethod

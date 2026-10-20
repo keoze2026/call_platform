@@ -89,6 +89,9 @@ RULES = [
     # Attaching a number to a campaign is "Edit Tracking Numbers" on the campaign.
     _rule(r'^/numbers/[^/]+/assign$', 'tracking-numbers',
           extra={'POST': [('campaigns', 'edit-numbers')]}),
+    # Testing a number (CH-175) is a question, not a change: anyone who may see
+    # the number may ask whether it is alive. Rate-limited in the handler.
+    _rule(r'^/numbers/[^/]+/test$', 'tracking-numbers', verbs={'POST': 'view'}),
     _rule(r'^/numbers(/.*)?$', 'tracking-numbers'),
     _rule(r'^/dni/(?!snippet|assign)(.*)$', 'number-pools'),
 

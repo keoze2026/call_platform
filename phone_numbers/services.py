@@ -421,4 +421,5 @@ class PhoneNumberService:
             'created_at': phone_number.created_at.isoformat(),
             'updated_at': phone_number.updated_at.isoformat(),
             'trunk_warning': getattr(phone_number, 'trunk_warning', None),
+            'daily_test_enabled': phone_number.daily_test_enabled,
         }

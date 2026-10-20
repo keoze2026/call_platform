@@ -98,6 +98,15 @@ def route_incoming_call(request):
     if not caller or not called:
         return JsonResponse({"error": "Missing fields"}, status=400)
 
+    # Our own TFN test call coming back in (CH-175). Checked against the
+    # platform and closed here: no CallLog, no fee, no buyer is rung.
+    try:
+        from phone_numbers import tfn_test
+        if tfn_test.handle_inbound(called, caller):
+            return JsonResponse({"action": "hangup", "reason": "tfn_test"})
+    except Exception:
+        logger.exception('tfn_test inbound check failed')
+
     try:
         phone = PhoneNumber.objects.select_related('campaign', 'publisher').get(
             number=called, status='active'

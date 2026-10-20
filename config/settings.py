@@ -433,6 +433,10 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.nightly_answered_sweep',
         'schedule': 600.0,  # every 10 min; acts once per Eastern day at 1:30 AM
     },
+    'morning-tfn-tests': {
+        'task': 'tasks.morning_tfn_tests',
+        'schedule': 600.0,  # every 10 min; acts once per Eastern day at 7:00 AM
+    },
     'close-stale-calls': {
         'task': 'tasks.close_stale_calls',
         'schedule': 900.0,  # every 15 minutes
@@ -512,6 +516,19 @@ CAPITALIST_SECRET = config('CAPITALIST_SECRET', default='')
 
 
 ASTERISK_SHARED_SECRET = config('ASTERISK_SHARED_SECRET', default='')
+
+# TFN test call (CH-175). The manager link lets the platform place one outbound
+# call from our own Asterisk to a tracking number. Empty host = switched off,
+# and the test falls back to checking the platform side only.
+ASTERISK_AMI_HOST = config('ASTERISK_AMI_HOST', default='')
+ASTERISK_AMI_PORT = config('ASTERISK_AMI_PORT', default=5038, cast=int)
+ASTERISK_AMI_USER = config('ASTERISK_AMI_USER', default='avortyx')
+ASTERISK_AMI_SECRET = config('ASTERISK_AMI_SECRET', default='')
+# The caller ID shown on the test call. Must be a number the carrier accepts
+# as ours. The inbound leg is recognised by it, so it must not be a real caller.
+TFN_TEST_CALLER_ID = config('TFN_TEST_CALLER_ID', default='')
+# The PJSIP endpoint name the live dialplan dials through.
+TFN_TEST_TRUNK = config('TFN_TEST_TRUNK', default='carrier')
 
 # The console's own base path. Every sidebar link below used to hardcode
 # /admin/, so moving the console to the secret path made each click a 404 -

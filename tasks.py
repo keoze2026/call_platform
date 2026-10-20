@@ -671,6 +671,43 @@ def nightly_answered_sweep():
     print(f'nightly answered sweep: {swept} numbers over the limit on {day}, {expired} expired')
 
 
+@app.task(name='tasks.run_tfn_test')
+def run_tfn_test(test_id):
+    """One TFN test call (CH-175). The inbound leg closes the test itself."""
+    from phone_numbers import tfn_test
+    tfn_test.run(test_id)
+
+
+@app.task(name='tasks.morning_tfn_tests')
+def morning_tfn_tests():
+    """Tests every number that opted in, once per Eastern day at or after 7:00 AM.
+
+    Spaced a minute apart so one worker is never holding many calls at once.
+    """
+    from zoneinfo import ZoneInfo
+    from django.core.cache import cache
+    from django.utils import timezone as djtz
+    from phone_numbers import tfn_test
+    from phone_numbers.models import PhoneNumber, TfnTest
+
+    ny = djtz.now().astimezone(ZoneInfo('America/New_York'))
+    if ny.hour < 7:
+        return
+    marker = f'morning_tfn_tests_done:{ny.date().isoformat()}'
+    if cache.get(marker):
+        return
+    cache.set(marker, True, 26 * 3600)
+
+    numbers = (PhoneNumber.objects.filter(status='active', daily_test_enabled=True)
+               .select_related('organization').order_by('number'))
+    queued = 0
+    for i, n in enumerate(numbers):
+        test = tfn_test.create_test(n, trigger=TfnTest.Trigger.MORNING)
+        run_tfn_test.apply_async(args=[str(test.id)], countdown=i * 60)
+        queued += 1
+    print(f'morning tfn tests: {queued} queued')
+
+
 @app.task(name='tasks.retire_used_number')
 def retire_used_number(called_number, call_log_id):
     """Take a single-use number out of service after its call.

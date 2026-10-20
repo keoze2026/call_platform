@@ -117,6 +117,7 @@ class PhoneNumberOutSchema(Schema):
     updated_at: str
     # Set only on purchase, when the number was bought but not attached to the SIP trunk
     trunk_warning: Optional[str] = None
+    daily_test_enabled: bool = False
 
 
 class PhoneNumberListSchema(Schema):
@@ -198,3 +199,20 @@ class CarrierOutSchema(Schema):
     risk: str = 'low'
     numbers_count: int = 0
     created_at: str
+
+
+class TfnTestOutSchema(Schema):
+    id: str
+    number_id: str
+    number: str
+    status: str
+    mode: str
+    trigger: str
+    reason: str = ''
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    created_at: str
+
+
+class DailyTestSchema(Schema):
+    enabled: bool

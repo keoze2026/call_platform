@@ -8,6 +8,7 @@ from .schemas import (
     AvailableNumberSchema, PhoneNumberOutSchema,
     PhoneNumberListSchema, MessageResponseSchema,
     CarrierInSchema, CarrierUpdateSchema, CarrierOutSchema,
+    TfnTestOutSchema, DailyTestSchema,
 )
 from .services import PhoneNumberService
 from accounts.api import JWTAuth
@@ -123,6 +124,96 @@ def list_numbers(request: HttpRequest, page: int = 1, page_size: int = 50):
         d['acl_seconds'] = int(c.get('tcl', 0) / connected) if connected else 0
         data.append(d)
     return 200, paginate_list(data, page, page_size)
+
+
+# ── TFN test call (CH-175) ───────────────────────────────────────────────────
+# "Is my number alive?" Anyone who can see a number can test it; the slice of
+# numbers a partner sees is the same one PhoneNumberService.get_number applies.
+# Declared before /{number_id} so "tests" is never read as an id.
+
+def _test_out(t) -> dict:
+    return {
+        'id': str(t.id),
+        'number_id': str(t.phone_number_id),
+        'number': t.number,
+        'status': t.status,
+        'mode': t.mode,
+        'trigger': t.trigger,
+        'reason': t.reason,
+        'started_at': t.started_at.isoformat() if t.started_at else None,
+        'finished_at': t.finished_at.isoformat() if t.finished_at else None,
+        'created_at': t.created_at.isoformat(),
+    }
+
+
+@router.get("/tests/recent", response={200: List[TfnTestOutSchema]})
+def recent_tests(request: HttpRequest, failed_only: bool = False, limit: int = 100):
+    from accounts.workspace_permissions import require_perm
+    from .models import TfnTest
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    ids = PhoneNumberService.list_numbers(request.auth).values_list('id', flat=True)
+    qs = TfnTest.objects.filter(phone_number_id__in=list(ids))
+    if failed_only:
+        qs = qs.filter(status=TfnTest.Status.FAILED)
+    return 200, [_test_out(t) for t in qs.order_by('-created_at')[:max(1, min(limit, 500))]]
+
+
+@router.get("/tests/{test_id}", response={200: TfnTestOutSchema, 404: dict})
+def get_test(request: HttpRequest, test_id: str):
+    from accounts.workspace_permissions import require_perm
+    from .models import TfnTest
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    from django.core.exceptions import ValidationError
+    try:
+        t = TfnTest.objects.get(id=test_id, organization=request.auth.organization)
+        PhoneNumberService.get_number(str(t.phone_number_id), request.auth)
+    except (TfnTest.DoesNotExist, ValueError, ValidationError):
+        return 404, {"detail": "Test not found"}
+    return 200, _test_out(t)
+
+
+@router.post("/{number_id}/test", response={202: TfnTestOutSchema, 400: dict, 404: dict, 429: dict})
+def start_test(request: HttpRequest, number_id: str):
+    from accounts.workspace_permissions import require_perm
+    from . import tfn_test
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    try:
+        phone = PhoneNumberService.get_number(number_id, request.auth)
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+    if tfn_test.has_running(phone):
+        return 400, {"detail": "A test for this number is already running"}
+    if tfn_test.daily_count(phone) >= tfn_test.PER_NUMBER_PER_DAY:
+        return 429, {"detail": f"At most {tfn_test.PER_NUMBER_PER_DAY} tests per number in 24 hours"}
+    test = tfn_test.create_test(phone, request.auth)
+    from tasks import run_tfn_test
+    run_tfn_test.delay(str(test.id))
+    return 202, _test_out(test)
+
+
+@router.get("/{number_id}/tests", response={200: List[TfnTestOutSchema], 404: dict})
+def number_tests(request: HttpRequest, number_id: str, limit: int = 30):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    try:
+        phone = PhoneNumberService.get_number(number_id, request.auth)
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+    return 200, [_test_out(t) for t in phone.tests.all()[:max(1, min(limit, 200))]]
+
+
+@router.put("/{number_id}/daily-test", response={200: PhoneNumberOutSchema, 404: dict})
+def set_daily_test(request: HttpRequest, number_id: str, data: DailyTestSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'tracking-numbers', 'edit')
+    require(request.auth, Capability.EDIT)
+    try:
+        phone = PhoneNumberService.get_number(number_id, request.auth)
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+    phone.daily_test_enabled = data.enabled
+    phone.save(update_fields=['daily_test_enabled', 'updated_at'])
+    return 200, PhoneNumberService.format_number(phone)
 
 
 @router.get("/{number_id}", response={200: PhoneNumberOutSchema, 404: dict})

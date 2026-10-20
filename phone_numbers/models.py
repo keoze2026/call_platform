@@ -58,6 +58,8 @@ class PhoneNumber(models.Model):
     # When the number was deleted (released). The user stops seeing it, but the
     # row stays so the owner can check the carrier's bill against it (CH-154).
     released_at = models.DateTimeField(null=True, blank=True)
+    # Opted in to the automatic morning test call (CH-175).
+    daily_test_enabled = models.BooleanField(default=False)
 
     # Assignment
     campaign = models.ForeignKey(
@@ -186,3 +188,47 @@ class Carrier(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.code})'
+
+
+
+class TfnTest(models.Model):
+    """One check that a tracking number is alive (CH-175).
+
+    A real test places a call from our own Asterisk out to the number through
+    the carrier. If the carrier hands it back to us, the number is live at the
+    carrier, and the platform then checks that the number, its campaign and its
+    routing would take the call. No CallLog row, no billing, no buyer is rung.
+    Where the Asterisk manager link is not configured, only the platform half
+    runs and the row says so (mode = platform_check).
+    """
+
+    class Status(models.TextChoices):
+        QUEUED = 'queued', 'Queued'
+        RUNNING = 'running', 'Running'
+        PASSED = 'passed', 'Passed'
+        FAILED = 'failed', 'Failed'
+
+    class Mode(models.TextChoices):
+        REAL_CALL = 'real_call', 'Real call'
+        PLATFORM_CHECK = 'platform_check', 'Platform check'
+
+    class Trigger(models.TextChoices):
+        MANUAL = 'manual', 'Manual'
+        MORNING = 'morning', 'Morning'
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='tfn_tests')
+    phone_number = models.ForeignKey(PhoneNumber, on_delete=models.CASCADE, related_name='tests')
+    number = models.CharField(max_length=20, db_index=True)
+    status = models.CharField(max_length=10, choices=Status.choices, default=Status.QUEUED)
+    mode = models.CharField(max_length=16, choices=Mode.choices, default=Mode.PLATFORM_CHECK)
+    trigger = models.CharField(max_length=10, choices=Trigger.choices, default=Trigger.MANUAL)
+    reason = models.CharField(max_length=255, blank=True, default='')
+    requested_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['phone_number', '-created_at'])]
