@@ -51,7 +51,7 @@ class Campaign(models.Model):
 
     duplicate_handling = models.CharField(
         max_length=12, choices=DuplicateHandling.choices,
-        default=DuplicateHandling.NORMAL,
+        default=DuplicateHandling.ORIGINAL,
     )
     duplicate_direction = models.CharField(
         max_length=12, choices=DuplicateDirection.choices,

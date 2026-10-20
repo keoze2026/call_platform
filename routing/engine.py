@@ -12,6 +12,10 @@ logger = logging.getLogger(__name__)
 
 
 
+# How far back Original looks for the destination that took a caller's first call.
+ORIGINAL_MEMORY_HOURS = 24 * 365
+
+
 class RoutingEngine:
     @staticmethod
     def get_caller_state(area_code: str) -> str:
@@ -751,6 +755,11 @@ class RoutingEngine:
         if dup_mode in ('original', 'different') and caller_number:
             from datetime import timedelta
             hours = campaign.duplicate_call_block_hours or 24
+            if dup_mode == 'original':
+                # Original means the same destination every time this caller
+                # rings, however long ago the first call was (Sir, 20 Oct).
+                # The duplicate window only limits Different and blocking.
+                hours = ORIGINAL_MEMORY_HOURS
             cutoff = timezone.now() - timedelta(hours=hours)
             # The calls that REACHED somewhere: a refused call reached nobody
             # and excludes nothing.

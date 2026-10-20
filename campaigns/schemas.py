@@ -44,7 +44,7 @@ class CreateCampaignSchema(Schema):
     min_call_duration: int = 0
     duplicate_call_block: bool = False
     duplicate_call_block_hours: int = 24
-    duplicate_handling: str = 'normal'
+    duplicate_handling: str = 'original'
     duplicate_direction: str = 'destination'
     duplicate_strict: bool = False
     bid_floor: Decimal = Decimal('0')
@@ -176,7 +176,7 @@ class CampaignOutSchema(Schema):
     min_call_duration: int
     duplicate_call_block: bool
     duplicate_call_block_hours: int
-    duplicate_handling: str = 'normal'
+    duplicate_handling: str = 'original'
     duplicate_direction: str = 'destination'
     duplicate_strict: bool = False
     bid_floor: str

@@ -29,7 +29,7 @@ class CampaignService:
             min_call_duration=data.min_call_duration,
             duplicate_call_block=data.duplicate_call_block,
             duplicate_call_block_hours=data.duplicate_call_block_hours,
-            duplicate_handling=getattr(data, 'duplicate_handling', 'normal') or 'normal',
+            duplicate_handling=getattr(data, 'duplicate_handling', 'original') or 'original',
             duplicate_direction=getattr(data, 'duplicate_direction', 'destination') or 'destination',
             duplicate_strict=bool(getattr(data, 'duplicate_strict', False)),
             greeting_enabled=data.greeting_enabled,
