@@ -235,9 +235,15 @@ class PhoneNumberService:
 
     @staticmethod
     def list_numbers(user: User):
+        # Every number except a deleted (released) one. Paused numbers were
+        # left out because the list named the statuses it kept, so pausing a
+        # campaign's TFNs made them vanish from the campaign and the Numbers
+        # page although they were still there (Sir, 21 Oct, CH-194). Paused
+        # numbers take no calls: routing only uses active ones.
         qs = PhoneNumber.objects.filter(
             organization=user.organization,
-            status__in=['active', 'pending', 'available']
+        ).exclude(
+            status=PhoneNumber.Status.RELEASED,
         ).select_related('campaign', 'publisher', 'carrier').order_by('-created_at')
         # Partner logins see their own slice, not the workspace inventory. A
         # buyer login saw all 21 tracking numbers on the billing usage card -
