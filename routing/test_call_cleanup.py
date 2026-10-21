@@ -305,10 +305,27 @@ class UnansweredRingTimeTests(Base):
         self.assertEqual(row.block_reason, 'No Destination')
         self.assertLessEqual(row.ring_seconds, 3)
 
-    def test_call_that_never_dialed_stays_unknown(self):
-        row = self.call('a', age=44)
+    def test_call_refused_before_dialing_stays_unknown(self):
+        # Routing refused it: closed as No Destination before any dial.
+        row = self.call('a', age=44, status=CallLog.Status.NO_ANSWER, block_reason='No Destination')
         self.end(row, dial_status='')
         self.assertIsNone(row.ring_seconds)
+
+    def test_caller_gone_before_dial_started_has_ttc_and_a_reason(self):
+        # CH-188: routed, then the caller hung up in the same second, before
+        # Dial() ran - no DIALSTATUS. Was a dash for TTC and fail reason.
+        row = self.call('a', age=0)
+        self.end(row, dial_status='')
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+        self.assertEqual(row.block_reason, 'Not Connected')
+        self.assertIsNotNone(row.ring_seconds)
+        self.assertLessEqual(row.ring_seconds, 2)
+
+    def test_a_call_with_no_destination_is_not_given_a_ttc(self):
+        row = self.call('a', age=5, destination='')
+        self.end(row, dial_status='')
+        self.assertIsNone(row.ring_seconds)
+        self.assertEqual(row.block_reason, '')
 
     def test_answered_call_ring_time_is_unchanged(self):
         row = self.call('a', age=90)
@@ -502,3 +519,32 @@ class MissedCallRecordingTests(Base):
         done.refresh_from_db()
         self.assertEqual(missed.recording_url, '')
         self.assertTrue(done.recording_url.endswith(f'{done.id}.wav'))
+
+
+class MissingTtcBackfillTests(Base):
+    """CH-188: fix_missing_ttc fills past rows left with a dash."""
+
+    def run_fix(self, *flags):
+        from datetime import timedelta as _td
+        from io import StringIO
+        from zoneinfo import ZoneInfo
+        from django.core.management import call_command
+        today = timezone.now().astimezone(ZoneInfo('America/New_York')).date()
+        out = StringIO()
+        call_command('fix_missing_ttc', '--start', str(today - _td(days=1)),
+                     '--end', str(today), *flags, stdout=out)
+        return out.getvalue()
+
+    def test_fills_the_dash_and_leaves_others(self):
+        dash = self.call('a', age=60, status=CallLog.Status.NO_ANSWER)
+        CallLog.objects.filter(pk=dash.pk).update(ended_at=dash.created_at)
+        refused = self.call('b', age=60, status=CallLog.Status.NO_ANSWER,
+                            block_reason='No Destination', caller='+15550001111')
+        self.assertIn('1 calls with no TTC', self.run_fix())
+        dash.refresh_from_db()
+        self.assertIsNone(dash.ring_seconds)  # dry run
+        self.run_fix('--apply')
+        dash.refresh_from_db()
+        refused.refresh_from_db()
+        self.assertEqual((dash.ring_seconds, dash.block_reason), (0, 'Not Connected'))
+        self.assertIsNone(refused.ring_seconds)

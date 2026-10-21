@@ -583,8 +583,30 @@ def call_ended(request):
                 'answered, %ss since it was created', call_log.id, elapsed,
             )
 
+    # Routing handed this call to the dialplan to dial a destination, and it was
+    # still open when the hangup arrived. Read before the status changes below.
+    handed_to_dial = (
+        call_log.status in _LIVE_STATUSES and bool(call_log.destination_number)
+    )
+
+    # Answered with 0 seconds of talk: the buyer picked up in the same instant
+    # the caller hung up. The upstream Revo counts that as not connected, and
+    # counting it as connected is what put ADST at 955 against Revo's 935 for
+    # 20 Oct (Sir, 21 Oct: "make sure everything matches with revo").
+    zero_second_answer = (
+        answered and duration <= 0
+        and getattr(settings, 'ZERO_SECOND_ANSWER_IS_NOT_CONNECTED', True)
+    )
+    if zero_second_answer:
+        answered = False
+        duration = 0
+
     call_log.duration = duration
     call_log.status = CallLog.Status.COMPLETED if answered else CallLog.Status.NO_ANSWER
+    if zero_second_answer and call_log.destination_number and call_log.block_reason in (
+        '', 'asterisk_gone', 'stale_timeout',
+    ):
+        call_log.block_reason = NOT_CONNECTED_LABEL
     call_log.ended_at = ended_at
     if answered and call_log.block_reason in ('asterisk_gone', 'stale_timeout'):
         # No longer an orphan: it was a real call.
@@ -600,7 +622,13 @@ def call_ended(request):
         dialed_seconds = 0
     if answered and dialed_seconds >= duration > 0:
         call_log.ring_seconds = dialed_seconds - duration
-    elif not answered and (dialed_seconds > 0 or str(data.get('dial_status') or '').strip()):
+    elif not answered and (
+        dialed_seconds > 0 or str(data.get('dial_status') or '').strip() or handed_to_dial
+    ):
+        # handed_to_dial (CH-188): the caller hung up in the same second the
+        # call was routed, before Dial() started, so there is no DIALSTATUS.
+        # The call still waited (0 seconds), and the log showed a dash for TTC
+        # and for the fail reason (Sir, 21 Oct: "TTC missing").
         # Nobody answered, so the whole dial WAS the wait: how long it rang
         # before the caller gave up or the line failed. The field charges
         # for missed calls too and needs this on the row ("they need TTC to
@@ -636,6 +664,10 @@ def call_ended(request):
             'CHANUNAVAIL': NO_DESTINATION_LABEL,
             'CANCEL': NOT_CONNECTED_LABEL,
         }.get(dial_status, call_log.block_reason)
+        if not call_log.block_reason and handed_to_dial and not dial_status:
+            # No dial result: the caller left before the destination could
+            # even ring, which is a caller-side hang-up like CANCEL.
+            call_log.block_reason = NOT_CONNECTED_LABEL
         # Each call is judged on its own. A caller who was missed before is not
         # marked missed for good: the next call is tried again, and answered if
         # the buyer has room (Sir, 20 Oct: no hard rule that once missed is
