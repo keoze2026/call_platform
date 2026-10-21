@@ -12,19 +12,20 @@ are exact seconds / 60, so it is an estimate to compare with the invoice, not
 the invoice itself.
 """
 import calendar
-from datetime import datetime, timezone as dt_timezone
+from datetime import date, datetime, time, timedelta, timezone as dt_timezone
+from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
 from typing import List, Optional
 
 from django.db.models import Count, Q, Sum
-from django.db.models.functions import Coalesce
+from django.db.models.functions import Coalesce, TruncDate
 from django.http import HttpRequest
 from django.utils import timezone
 from ninja import Schema
 from ninja.errors import HttpError
 
 from accounts.owner_api import owner_router, require_owner
-from phone_numbers.models import Carrier, PhoneNumber
+from phone_numbers.models import Carrier, PhoneNumber, RoutingRate
 from routing.models import CallLog
 
 CONNECTED = Q(status__in=['completed', 'in_progress'])
@@ -256,3 +257,123 @@ def assign_carrier(request: HttpRequest, data: AssignCarrierSchema):
         id__in=ids, organization_id=carrier.organization_id,
     ).update(carrier=carrier)
     return 200, {'updated': updated, 'skipped': len(ids) - updated}
+
+
+# --------------------------------------------------------------------------
+# Routing cost (CH-186): what the termination carrier charges to route our
+# calls on to buyers. Sir, 21 Oct: "set routing cost so we can see how much
+# cost from yesterday". Counted from our own call records, per Eastern day:
+# every call we forwarded to a buyer, and the connected seconds of the ones
+# that connected (the outbound leg is what the carrier bills). Exact seconds
+# x the per-minute rate - an estimate to check the carrier's invoice against.
+# --------------------------------------------------------------------------
+
+EASTERN = ZoneInfo('America/New_York')
+FORWARDED_CONNECTED = Q(status='completed')
+MAX_DAYS = 93
+
+
+class RoutingRateUpdateSchema(Schema):
+    name: Optional[str] = None
+    per_minute_cost: Optional[str] = None
+    monthly_fee: Optional[str] = None
+
+
+def _routing_rate() -> RoutingRate:
+    rate, _ = RoutingRate.objects.get_or_create(key='termination')
+    return rate
+
+
+def _rate_out(rate: RoutingRate) -> dict:
+    return {
+        'name': rate.name,
+        'per_minute_cost': str(rate.per_minute_cost),
+        'monthly_fee': _money(rate.monthly_fee),
+    }
+
+
+def _day(value: str, field: str) -> date:
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError:
+        raise HttpError(400, f"{field} must look like 2026-10-20.")
+
+
+@owner_router.get("/routing-cost", response={200: dict})
+def routing_cost(request: HttpRequest, start: Optional[str] = None, end: Optional[str] = None):
+    """Routing cost per Eastern day, `start` to `end` inclusive (YYYY-MM-DD).
+    Without dates: yesterday."""
+    require_owner(request)
+    today = timezone.now().astimezone(EASTERN).date()
+    first = _day(start, 'start') if start else today - timedelta(days=1)
+    last = _day(end, 'end') if end else first
+    if last < first:
+        raise HttpError(400, "end must not be before start.")
+    if (last - first).days >= MAX_DAYS:
+        raise HttpError(400, f"Pick at most {MAX_DAYS} days.")
+
+    lo = datetime.combine(first, time.min, tzinfo=EASTERN)
+    hi = datetime.combine(last + timedelta(days=1), time.min, tzinfo=EASTERN)
+    rate = _routing_rate()
+    per_second = rate.per_minute_cost / Decimal(60)
+
+    grouped = (
+        CallLog.objects
+        .filter(created_at__gte=lo, created_at__lt=hi)
+        .exclude(destination_number='')
+        .annotate(day=TruncDate('created_at', tzinfo=EASTERN))
+        .values('day')
+        .annotate(
+            forwarded=Count('id'),
+            connected=Count('id', filter=FORWARDED_CONNECTED),
+            seconds=Coalesce(Sum('duration', filter=FORWARDED_CONNECTED), 0),
+        )
+    )
+    by_day = {r['day']: r for r in grouped}
+
+    days = []
+    tot = {'forwarded': 0, 'connected': 0, 'seconds': 0}
+    d = first
+    while d <= last:
+        r = by_day.get(d, {'forwarded': 0, 'connected': 0, 'seconds': 0})
+        cost = Decimal(r['seconds']) * per_second
+        days.append({
+            'date': d.isoformat(),
+            'forwarded': r['forwarded'],
+            'connected': r['connected'],
+            'seconds': r['seconds'],
+            'minutes': str((Decimal(r['seconds']) / Decimal(60)).quantize(CENT)),
+            'cost': _money(cost),
+            'cost_exact': str(cost.quantize(Decimal('0.0001'))),
+        })
+        for k in tot:
+            tot[k] += r[k]
+        d += timedelta(days=1)
+
+    total_cost = Decimal(tot['seconds']) * per_second
+    return 200, {
+        **_rate_out(rate),
+        'start': first.isoformat(),
+        'end': last.isoformat(),
+        'days': days,
+        'totals': {
+            **tot,
+            'minutes': str((Decimal(tot['seconds']) / Decimal(60)).quantize(CENT)),
+            'cost': _money(total_cost),
+            'cost_exact': str(total_cost.quantize(Decimal('0.0001'))),
+        },
+    }
+
+
+@owner_router.patch("/routing-cost/rate", response={200: dict})
+def update_routing_rate(request: HttpRequest, data: RoutingRateUpdateSchema):
+    require_owner(request)
+    rate = _routing_rate()
+    if data.name is not None and data.name.strip():
+        rate.name = data.name.strip()[:100]
+    if data.per_minute_cost is not None:
+        rate.per_minute_cost = _decimal(data.per_minute_cost, 'per_minute_cost', '0.0001')
+    if data.monthly_fee is not None:
+        rate.monthly_fee = _decimal(data.monthly_fee, 'monthly_fee', '0.01')
+    rate.save()
+    return 200, _rate_out(rate)

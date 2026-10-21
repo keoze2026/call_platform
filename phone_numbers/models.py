@@ -237,3 +237,22 @@ class TfnTest(models.Model):
     class Meta:
         ordering = ['-created_at']
         indexes = [models.Index(fields=['phone_number', '-created_at'])]
+
+
+class RoutingRate(models.Model):
+    """What we pay to route a call on to a buyer (CH-186).
+
+    Every call forwarded to a buyer leaves through the termination carrier
+    (XOLO, Sir 21 Oct: "this charge is for TFN termination", $0.004 a minute
+    plus $350 a month). That cost has nothing to do with which carrier the
+    tracking number came from, so it is not a Carrier field: it is one
+    platform-wide rate, kept here and edited on Owner > Carrier Costs.
+    """
+    key = models.CharField(max_length=32, unique=True, default='termination')
+    name = models.CharField(max_length=100, default='XOLO TFN termination')
+    per_minute_cost = models.DecimalField(max_digits=8, decimal_places=4, default=0)
+    monthly_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f'{self.name}: {self.per_minute_cost}/min + {self.monthly_fee}/month'
