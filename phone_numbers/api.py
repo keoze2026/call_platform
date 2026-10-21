@@ -243,6 +243,11 @@ def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema
             data._detach_campaign = True
         else:
             data._detach_campaign = False
+        # The same for the publisher (CH-192): null clears it. It was ignored,
+        # so once a publisher's name was on a number nobody could take it off.
+        data._clear_publisher = (
+            isinstance(body, dict) and 'publisher_id' in body and body['publisher_id'] in (None, '')
+        )
         phone_number = PhoneNumberService.update_number(number_id, data, request.auth)
         return 200, PhoneNumberService.format_number(phone_number)
     except ValueError as e:

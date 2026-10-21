@@ -333,8 +333,13 @@ class PhoneNumberService:
                       'dupe_revenue_days', 'traffic_source_enabled', 'traffic_source_id',
                       'publisher_id', 'status']:
             val = getattr(data, field, None)
+            if field == 'publisher_id' and val == '':
+                continue  # an empty id means "none", handled below
             if val is not None:
                 setattr(phone_number, field, val)
+        # Publisher sent as null (or empty): take it off the number (CH-192).
+        if getattr(data, '_clear_publisher', False):
+            phone_number.publisher = None
         # Handle campaign_id - detach if explicitly null, assign if uuid
         if getattr(data, '_detach_campaign', False):
             phone_number.campaign = None
