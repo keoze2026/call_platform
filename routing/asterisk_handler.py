@@ -27,6 +27,12 @@ logger = logging.getLogger(__name__)
 NO_DESTINATION_LABEL = 'No Destination'
 # The caller hung up before the buyer answered (Sir, 20 Oct: was "Caller Abandoned").
 NOT_CONNECTED_LABEL = 'Not Connected'
+# The call was sent to the destination and it did not connect: refused at once
+# (congestion, channel unavailable) or rang out. Revo's wording for the same
+# thing (Sir, 21 Oct: "No Destination" on a call that reached TBLA's line is
+# the wrong reason). "No Destination" stays for calls that were never sent
+# anywhere because no line could take them.
+NO_ANSWER_LABEL = 'No Answer'
 
 
 def _check_secret(request):
@@ -658,10 +664,11 @@ def call_ended(request):
         dial_status = str(data.get('dial_status') or '').upper()
         call_log.block_reason = {
             'BUSY': 'Destination busy',
-            'NOANSWER': 'Destination no answer',
-            # Sir: never "Destination Missed"; the destination did not take it.
-            'CONGESTION': NO_DESTINATION_LABEL,
-            'CHANUNAVAIL': NO_DESTINATION_LABEL,
+            'NOANSWER': NO_ANSWER_LABEL,
+            # The call reached the line and the line refused it: No Answer, as
+            # Revo shows it. (It read "No Destination" although it had one.)
+            'CONGESTION': NO_ANSWER_LABEL,
+            'CHANUNAVAIL': NO_ANSWER_LABEL,
             'CANCEL': NOT_CONNECTED_LABEL,
         }.get(dial_status, call_log.block_reason)
         if not call_log.block_reason and handed_to_dial and not dial_status:

@@ -302,7 +302,7 @@ class UnansweredRingTimeTests(Base):
     def test_instant_decline_is_about_zero(self):
         row = self.call('a', age=1)
         self.end(row, dial_status='CONGESTION')
-        self.assertEqual(row.block_reason, 'No Destination')
+        self.assertEqual(row.block_reason, 'No Answer')
         self.assertLessEqual(row.ring_seconds, 3)
 
     def test_call_refused_before_dialing_stays_unknown(self):
@@ -426,10 +426,30 @@ class NotConnectedLabelTests(Base):
         row = self.ring('now', status=CallLog.Status.IN_PROGRESS, age=24)
         self.assertEqual(self.end(row, 'CANCEL'), 'Not Connected')
 
-    def test_a_line_that_could_not_take_the_call_reads_no_destination(self):
-        for status in ('CONGESTION', 'CHANUNAVAIL'):
+    def test_a_line_that_refused_or_rang_out_reads_no_answer(self):
+        # CH-193: the call reached the line, so it had a destination. Revo
+        # calls this No Answer (Sir, 21 Oct, 14503668132).
+        for status in ('CONGESTION', 'CHANUNAVAIL', 'NOANSWER'):
             row = self.ring('l-' + status, status=CallLog.Status.IN_PROGRESS, age=10)
-            self.assertEqual(self.end(row, status), 'No Destination')
+            self.assertEqual(self.end(row, status), 'No Answer')
+
+    def test_a_call_refused_before_dialing_keeps_no_destination(self):
+        row = self.ring('pre', status=CallLog.Status.NO_ANSWER, age=10,
+                        block_reason='No Destination')
+        self.assertEqual(self.end(row, ''), 'No Destination')
+
+    def test_past_rows_that_were_dialed_are_renamed(self):
+        from importlib import import_module
+        from django.apps import apps
+        dialed = self.ring('d', block_reason='No Destination',
+                           routing_trace={'selected': {'destination': '+15557654321'}})
+        refused = self.ring('r', block_reason='No Destination', routing_trace={'selected': None})
+        old_na = self.ring('n', block_reason='Destination no answer')
+        import_module('routing.migrations.0017_no_answer_label').rename_dialed(apps, None)
+        for row in (dialed, refused, old_na):
+            row.refresh_from_db()
+        self.assertEqual((dialed.block_reason, refused.block_reason, old_na.block_reason),
+                         ('No Answer', 'No Destination', 'No Answer'))
 
     def test_busy_and_no_answer_wording_is_unchanged(self):
         row = self.ring('a', status=CallLog.Status.IN_PROGRESS, age=10)
