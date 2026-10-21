@@ -111,8 +111,6 @@ def _clear_misses(call_ids):
         logger.warning('asterisk sync: could not clear miss counters')
 
 
-@csrf_exempt
-@require_http_methods(["POST"])
 def normalize_caller(raw):
     """A caller number every table can store, without refusing the call (CH-196).
 
@@ -135,6 +133,8 @@ def normalize_caller(raw):
     return raw[:20]
 
 
+@csrf_exempt
+@require_http_methods(["POST"])
 def route_incoming_call(request):
     if not _check_secret(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
