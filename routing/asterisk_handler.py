@@ -113,6 +113,28 @@ def _clear_misses(call_ids):
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def normalize_caller(raw):
+    """A caller number every table can store, without refusing the call (CH-196).
+
+    The switch sometimes sends two numbers run together as the caller ID, e.g.
+    "+120794287412079428749" (22 characters). The call log keeps 20, so saving
+    the call failed, routing errored and our server hung up on a call Revo and
+    XOLO had passed along: dropped on our own portal before it went out.
+    A number of normal length is returned unchanged. A longer one keeps the
+    first complete number: +1 and ten digits for a North American number,
+    otherwise the first fifteen digits (the longest a phone number can be).
+    """
+    raw = (raw or '').strip()
+    digits = ''.join(c for c in raw if c.isdigit())
+    if len(raw) <= 20 and len(digits) <= 15:
+        return raw
+    if digits.startswith('1') and len(digits) >= 11:
+        return '+' + digits[:11]
+    if digits:
+        return '+' + digits[:15]
+    return raw[:20]
+
+
 def route_incoming_call(request):
     if not _check_secret(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
@@ -122,7 +144,10 @@ def route_incoming_call(request):
     except Exception:
         return JsonResponse({"error": "Bad JSON"}, status=400)
 
-    caller = data.get('caller_number', '')
+    raw_caller = data.get('caller_number', '')
+    caller = normalize_caller(raw_caller)
+    if caller != raw_caller:
+        logger.warning('caller id %r stored as %s so the call is not dropped', raw_caller, caller)
     called = data.get('called_number', '')
     asterisk_call_id = data.get('asterisk_call_id', '')
 
