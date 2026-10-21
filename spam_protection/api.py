@@ -51,6 +51,34 @@ def _member_may_block(user) -> bool:
 # BLACKLIST
 
 
+def _blocked_by(entry):
+    """Who blocked this number: ('main' | 'publisher' | 'buyer', name).
+
+    Read from the login that added it. Rows from before `added_by` was kept
+    fall back to the row's own scope (CH-185)."""
+    u = entry.added_by
+    role = getattr(u, 'role', '') if u else ''
+    if role == 'publisher' or (u is None and entry.publisher_id):
+        pub = entry.publisher if entry.publisher_id else getattr(u, 'publisher', None)
+        return 'publisher', pub.name if pub else ''
+    if role == 'buyer' or (u is None and entry.buyer_id):
+        buyer = entry.buyer if entry.buyer_id else getattr(u, 'buyer', None)
+        return 'buyer', buyer.name if buyer else ''
+    if u is None:
+        return 'main', ''
+    return 'main', (u.get_full_name() or '').strip() or u.email
+
+
+def _applies_to(entry) -> str:
+    if entry.publisher_id:
+        return f'Publisher {entry.publisher.name} only'
+    if entry.buyer_id:
+        return f'Buyer {entry.buyer.name} only'
+    if entry.campaign_id:
+        return f'Campaign {entry.campaign.name} only'
+    return 'All calls'
+
+
 @router.get('/blacklist', response={200: dict})
 def list_blacklist(request, campaign_id: uuid.UUID = None, publisher_id: uuid.UUID = None, active_only: bool = False, page: int = 1, page_size: int = 500):
     """
@@ -72,29 +100,39 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, publisher_id: uuid.UU
         qs = qs.filter(publisher=member_publisher) if member_publisher else qs.none()
     elif publisher_id:
         qs = qs.filter(publisher_id=publisher_id)
-    else:
-        # The workspace list stays what it was: publisher-scoped rows live on
-        # that publisher's own settings page.
-        qs = qs.filter(publisher__isnull=True)
+    # The workspace (main account) list holds every block - its own, and the
+    # ones publishers and buyers made - each saying who blocked it (Sir,
+    # 21 Oct, CH-185). Publisher rows used to be left out, so a caller a
+    # publisher blocked was invisible to the main account.
 
     if campaign_id:
         qs = qs.filter(campaign_id=campaign_id)
     if active_only:
         qs = qs.filter(is_active=True)
 
-    qs = qs.order_by('-created_at')
+    qs = qs.select_related('added_by', 'added_by__publisher', 'added_by__buyer',
+                           'publisher', 'buyer', 'campaign').order_by('-created_at')
     total = qs.count()
     start = (page - 1) * page_size
     end = start + page_size
-    items = list(qs[start:end].values(
-        'id', 'phone_number', 'reason', 'notes', 'is_active', 'campaign_id', 'publisher_id', 'expires_at', 'created_at'
-    ))
-    for item in items:
-        item['id'] = str(item['id'])
-        item['campaign_id'] = str(item['campaign_id']) if item['campaign_id'] else None
-        item['publisher_id'] = str(item['publisher_id']) if item['publisher_id'] else None
-        item['expires_at'] = item['expires_at'].isoformat() if item['expires_at'] else None
-        item['created_at'] = item['created_at'].isoformat() if item['created_at'] else None
+    items = []
+    for e in qs[start:end]:
+        by_type, by_name = _blocked_by(e)
+        items.append({
+            'id': str(e.id),
+            'phone_number': e.phone_number,
+            'reason': e.reason,
+            'notes': e.notes,
+            'is_active': e.is_active,
+            'campaign_id': str(e.campaign_id) if e.campaign_id else None,
+            'publisher_id': str(e.publisher_id) if e.publisher_id else None,
+            'buyer_id': str(e.buyer_id) if e.buyer_id else None,
+            'expires_at': e.expires_at.isoformat() if e.expires_at else None,
+            'created_at': e.created_at.isoformat() if e.created_at else None,
+            'blocked_by_type': by_type,
+            'blocked_by_name': by_name,
+            'applies_to': _applies_to(e),
+        })
 
     import math
     return 200, {
@@ -104,6 +142,26 @@ def list_blacklist(request, campaign_id: uuid.UUID = None, publisher_id: uuid.UU
         'page_size': page_size,
         'pages': math.ceil(total / page_size) if page_size else 1
     }
+
+
+@router.get('/blocked-callers', response={200: dict})
+def blocked_callers(request):
+    """Every active blocked number in the workspace, for colouring callers red
+    in the call log (Sir, 21 Oct, CH-185): a blocked caller is red in every
+    account - main, publisher and buyer logins - whoever blocked it. Numbers
+    and their campaign scope only; who blocked it and why stay on the main
+    account's Blocked Numbers page."""
+    from django.db.models import Q
+    now = timezone.now()
+    rows = (Blacklist.objects
+            .filter(organization_id=request.auth.organization_id, is_active=True)
+            .filter(Q(expires_at__isnull=True) | Q(expires_at__gt=now))
+            .values('phone_number', 'reason', 'campaign_id')[:5000])
+    return 200, {'items': [
+        {'phone_number': r['phone_number'], 'reason': r['reason'],
+         'campaign_id': str(r['campaign_id']) if r['campaign_id'] else None}
+        for r in rows
+    ]}
 
 
 @router.post('/blacklist', response={201: BlacklistOutSchema})

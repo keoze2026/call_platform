@@ -130,10 +130,11 @@ class PublisherBlockApiTests(TestCase):
         self.assertEqual(r.status_code, 404)
         self.assertEqual(Blacklist.objects.count(), 0)
 
-    def test_the_workspace_list_leaves_publisher_rows_out(self):
+    def test_the_workspace_list_shows_publisher_rows_too(self):
+        # Sir, 21 Oct (CH-185): the main account sees every block, whoever made it.
         Blacklist.objects.create(organization_id=self.org.id, phone_number='111', publisher=self.pub_a)
         Blacklist.objects.create(organization_id=self.org.id, phone_number='222')
-        self.assertEqual([i['phone_number'] for i in self.get(self.admin_client)], ['222'])
+        self.assertEqual(sorted(i['phone_number'] for i in self.get(self.admin_client)), ['111', '222'])
 
     def test_one_publishers_list_shows_only_its_own(self):
         Blacklist.objects.create(organization_id=self.org.id, phone_number='111', publisher=self.pub_a)

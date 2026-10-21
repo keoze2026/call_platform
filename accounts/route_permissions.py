@@ -120,6 +120,9 @@ RULES = [
     # ── block lists ──────────────────────────────────────────────────────────
     # Shields are decided per type (VoIP or TCPA) inside the handler.
     _rule(r'^/spam/shields(/.*)?$', None),
+    # Which callers are blocked, to colour them red in any call log (CH-185).
+    # Every login that can see a call log needs it; it says nothing else.
+    _rule(r'^/spam/blocked-callers$', None),
     _rule(r'^/spam(/.*)?$', 'blocked-numbers'),
 
     # ── billing ──────────────────────────────────────────────────────────────
