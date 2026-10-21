@@ -37,19 +37,19 @@ class BlockedEverywhereTests(TestCase):
         self.buyer_user = User.objects.create(username='buy', email='buy@x.io', organization=self.org,
                                               role='buyer', buyer=self.buyer, is_active=True)
 
-    def client(self, user):
+    def api(self, user):
         return Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(user)}')
 
     def block(self, number, by, **scope):
         return Blacklist.objects.create(organization_id=self.org.id, phone_number=number, added_by=by, **scope)
 
     def red(self, user):
-        r = self.client(user).get('/api/spam/blocked-callers')
+        r = self.api(user).get('/api/spam/blocked-callers')
         self.assertEqual(r.status_code, 200, r.content)
         return sorted(i['phone_number'] for i in r.json()['items'])
 
     def main_list(self):
-        r = self.client(self.admin).get('/api/spam/blacklist')
+        r = self.api(self.admin).get('/api/spam/blacklist')
         self.assertEqual(r.status_code, 200, r.content)
         return {i['phone_number']: i for i in r.json()['items']}
 
@@ -70,7 +70,7 @@ class BlockedEverywhereTests(TestCase):
 
     def test_a_campaign_block_keeps_its_campaign(self):
         self.block('1111111111', self.admin, campaign=self.campaign)
-        r = self.client(self.pub_user).get('/api/spam/blocked-callers').json()['items'][0]
+        r = self.api(self.pub_user).get('/api/spam/blocked-callers').json()['items'][0]
         self.assertEqual(r['campaign_id'], str(self.campaign.id))
 
     def test_another_workspace_never_shows(self):
@@ -109,11 +109,11 @@ class BlockedEverywhereTests(TestCase):
 
     def test_main_account_can_unblock_a_publisher_block(self):
         e = self.block('2222222222', self.pub_user, publisher=self.pub)
-        self.assertEqual(self.client(self.admin).delete(f'/api/spam/blacklist/{e.id}').status_code, 200)
+        self.assertEqual(self.api(self.admin).delete(f'/api/spam/blacklist/{e.id}').status_code, 200)
         self.assertFalse(Blacklist.objects.filter(pk=e.pk).exists())
 
     def test_partner_lists_stay_their_own(self):
         self.block('1111111111', self.admin)
         self.block('2222222222', self.pub_user, publisher=self.pub)
-        r = self.client(self.pub_user).get('/api/spam/blacklist').json()['items']
+        r = self.api(self.pub_user).get('/api/spam/blacklist').json()['items']
         self.assertEqual([i['phone_number'] for i in r], ['2222222222'])
