@@ -145,7 +145,12 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
     def number_row(n, carrier):
         s = stats.get((n.organization_id, _last10(n.number)), {'calls': 0, 'connected': 0, 'tcl': 0})
         minutes = Decimal(s['tcl']) / Decimal(60)
-        fee = carrier.number_monthly_cost if carrier else Decimal('0')
+        # The price the number was added at (CH-189); the carrier's current
+        # price only for a number that has none of its own.
+        if n.tfn_price is not None:
+            fee = n.tfn_price
+        else:
+            fee = carrier.number_monthly_cost if carrier else Decimal('0')
         minute_cost = (minutes * carrier.per_minute_cost) if carrier else Decimal('0')
         return {
             'id': str(n.id),
@@ -255,7 +260,11 @@ def assign_carrier(request: HttpRequest, data: AssignCarrierSchema):
     ids = [i for i in data.numbers if i][:500]
     updated = PhoneNumber.objects.filter(
         id__in=ids, organization_id=carrier.organization_id,
-    ).update(carrier=carrier)
+    ).update(
+        carrier=carrier,
+        # A number moved onto a carrier takes that carrier's TFN price (CH-189).
+        tfn_price=carrier.number_monthly_cost or None,
+    )
     return 200, {'updated': updated, 'skipped': len(ids) - updated}
 
 

@@ -102,6 +102,14 @@ class PhoneNumber(models.Model):
     # Empty for a number somebody deleted by hand - that is how the "TFNs
     # deleted" notice tells the platform's retirements from a person's.
     retired_reason = models.CharField(max_length=255, blank=True, default='')
+    # What the carrier charges for this TFN (CH-189). Sir, 21 Oct: "as soon as
+    # someone adds TFNs with code, the system automatically adds the price as
+    # well". Copied from the carrier's TFN price the moment the number gets a
+    # carrier, however it was added, and kept: a later change of the carrier's
+    # price applies to numbers added after it, never rewrites past bills.
+    # Null = the carrier had no price yet; it is filled once one is set.
+    # Owner-only, like every carrier cost.
+    tfn_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -112,6 +120,20 @@ class PhoneNumber(models.Model):
 
     def __str__(self):
         return f"{self.number} ({self.status})"
+
+    def save(self, *args, **kwargs):
+        # Price the number from its carrier when it has none yet (CH-189).
+        if self.carrier_id and self.tfn_price is None:
+            price = (
+                Carrier.objects.filter(pk=self.carrier_id)
+                .values_list('number_monthly_cost', flat=True).first()
+            )
+            if price:
+                self.tfn_price = price
+                fields = kwargs.get('update_fields')
+                if fields is not None and 'tfn_price' not in fields:
+                    kwargs['update_fields'] = list(fields) + ['tfn_price']
+        super().save(*args, **kwargs)
 
 
 class Carrier(models.Model):
@@ -193,6 +215,22 @@ class Carrier(models.Model):
 
     def __str__(self):
         return f'{self.name} ({self.code})'
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Numbers taken on while this carrier had no TFN price get it now
+        # (CH-189). Numbers already priced keep the price they were added at.
+        price_unpriced_numbers(self)
+
+
+def price_unpriced_numbers(carrier) -> int:
+    """Give every number of `carrier` that has no TFN price the carrier's
+    current one. Returns how many were priced. Nothing when it has no price."""
+    if not carrier.number_monthly_cost:
+        return 0
+    return PhoneNumber.objects.filter(carrier=carrier, tfn_price__isnull=True).update(
+        tfn_price=carrier.number_monthly_cost,
+    )
 
 
 

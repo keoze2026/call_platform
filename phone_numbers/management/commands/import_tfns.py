@@ -80,6 +80,13 @@ class Command(BaseCommand):
             f'{len(numbers)} numbers -> {carrier.name} ({carrier.code}), '
             f'single use: {"yes" if carrier.single_use else "no"}, '
             f'lifetime: {carrier.lifetime_hours or "no limit"}h')
+        # Each number takes the carrier's TFN price automatically (CH-189).
+        if carrier.number_monthly_cost:
+            self.stdout.write(f'TFN price: ${carrier.number_monthly_cost} per number, added automatically')
+        else:
+            self.stdout.write(self.style.WARNING(
+                f'{carrier.code} has no TFN price set, so these numbers are added without one. '
+                f'They get it automatically as soon as the price is set on Owner > Carrier Costs.'))
         self.stdout.write('')
 
         added = existing = 0
