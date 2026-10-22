@@ -100,6 +100,33 @@ def answered_calls_on(number: PhoneNumber, day) -> int:
     ).count()
 
 
+def sweep_over_limit(day, apply: bool = True) -> list:
+    """Numbers that took MORE than their carrier's daily limit of answered calls
+    on one Eastern day, retired when `apply` is set. Returns (number, answered,
+    limit) for each one.
+
+    Every number that is not already deleted is counted, paused ones included
+    (CH-197). The sweep looked at active numbers only, so when Sir paused the
+    PDSO TFNs after a busy day they were never retired and no "TFN Deleted"
+    message went out. A paused number that went over the limit is just as used.
+    """
+    numbers = (PhoneNumber.objects
+               .exclude(status=PhoneNumber.Status.RELEASED)
+               .filter(carrier__isnull=False, carrier__max_answered_calls__gt=0)
+               .select_related('carrier', 'organization')
+               .order_by('number'))
+    hits = []
+    for n in numbers:
+        limit = n.carrier.max_answered_calls
+        answered = answered_calls_on(n, day)
+        # More than the limit: ten calls is still inside it.
+        if answered > limit:
+            hits.append((n, answered, limit))
+            if apply:
+                retire(n, f'{answered} answered calls on {day}, over the limit of {limit}, nightly 1:30 AM rule')
+    return hits
+
+
 def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
     """Take a number out of service. Returns False if it already was."""
     if number.status == PhoneNumber.Status.RELEASED:
@@ -172,7 +199,9 @@ def retire_expired() -> int:
     due = (
         PhoneNumber.objects
         .select_related('carrier', 'organization')
-        .filter(status=PhoneNumber.Status.ACTIVE, expires_at__lte=now)
+        # Paused numbers too (CH-197): pausing does not stop the clock.
+        .exclude(status=PhoneNumber.Status.RELEASED)
+        .filter(expires_at__lte=now)
         # A carrier with a daily threshold has no 24-hour clock.
         .exclude(carrier__max_answered_calls__gt=0)
     )

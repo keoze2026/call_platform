@@ -677,8 +677,7 @@ def nightly_answered_sweep():
     from zoneinfo import ZoneInfo
     from django.core.cache import cache
     from django.utils import timezone as djtz
-    from phone_numbers.models import PhoneNumber
-    from phone_numbers.lifecycle import retire, retire_expired, answered_calls_on
+    from phone_numbers.lifecycle import retire_expired, sweep_over_limit
 
     ny = djtz.now().astimezone(ZoneInfo('America/New_York'))
     if (ny.hour, ny.minute) < (1, 30):
@@ -689,18 +688,7 @@ def nightly_answered_sweep():
     cache.set(marker, True, 26 * 3600)
 
     day = ny.date() - timedelta(days=1)
-    numbers = (PhoneNumber.objects
-               .filter(status__in=['active', 'pending', 'available'],
-                       carrier__isnull=False, carrier__max_answered_calls__gt=0)
-               .select_related('carrier'))
-    swept = 0
-    for n in numbers:
-        limit = n.carrier.max_answered_calls
-        answered = answered_calls_on(n, day)
-        # More than the limit: ten calls is still inside it.
-        if answered > limit:
-            if retire(n, f'{answered} answered calls on {day}, over the limit of {limit}, nightly 1:30 AM rule'):
-                swept += 1
+    swept = len(sweep_over_limit(day))
     expired = retire_expired()
     print(f'nightly answered sweep: {swept} numbers over the limit on {day}, {expired} expired')
 
