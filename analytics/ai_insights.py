@@ -106,8 +106,8 @@ class AIInsightsService:
             if change < -50:
                 anomalies.append({
                     'type': 'critical',
-                    'title': 'Significant drop in call volume',
-                    'message': f'Calls dropped by {abs(change):.0f}% compared to yesterday.',
+                    'title': 'Reduced Call Activity',
+                    'message': f'Call volume is {abs(change):.0f}% lower than yesterday.',
                     'metric': 'call_volume',
                     'value': float(today_calls),
                     'previous': float(yesterday_calls),
@@ -116,10 +116,11 @@ class AIInsightsService:
             elif change > 100:
                 # Sir: more calls is good news, not a concern. Sent as
                 # 'success' so the portal shows it in green, never as Critical.
+                # Wording is Sir's (CH-209): formal, no "Good news".
                 anomalies.append({
                     'type': 'success',
-                    'title': 'Call volume up',
-                    'message': f'Good news: calls are up {change:.0f}% compared to yesterday.',
+                    'title': 'Elevated Call Activity',
+                    'message': f'Call volume is {change:.0f}% higher than yesterday.',
                     'metric': 'call_volume',
                     'value': float(today_calls),
                     'previous': float(yesterday_calls),
@@ -134,8 +135,8 @@ class AIInsightsService:
             if rev_change < -40:
                 anomalies.append({
                     'type': 'critical',
-                    'title': 'Revenue drop detected',
-                    'message': f'Revenue dropped by {abs(rev_change):.0f}% compared to yesterday.',
+                    'title': 'Revenue Decline',
+                    'message': f'Revenue is {abs(rev_change):.0f}% lower than yesterday.',
                     'metric': 'revenue',
                     'value': float(today_revenue),
                     'previous': float(yesterday_revenue),
@@ -148,8 +149,8 @@ class AIInsightsService:
             if last_hour_calls == 0 and today_calls > 0:
                 anomalies.append({
                     'type': 'warning',
-                    'title': 'No calls in the last hour',
-                    'message': 'No calls received in the last hour during business hours.',
+                    'title': 'No Recent Call Activity',
+                    'message': 'No calls have been received in the past hour during business hours.',
                     'metric': 'live_activity',
                     'value': 0.0,
                     'previous': None,

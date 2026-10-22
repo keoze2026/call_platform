@@ -1,4 +1,5 @@
-"""CH-207: more calls than yesterday is good news, not a Critical anomaly.
+"""CH-207/CH-209: more calls than yesterday is good news, not a Critical anomaly,
+worded formally ("Elevated Call Activity").
 
 Run:  python manage.py test analytics.test_volume_spike
 """
@@ -37,12 +38,13 @@ class VolumeSpikeTests(TestCase):
         self.calls(5, days_ago=0)
         [a] = self.volume()
         self.assertEqual(a['type'], 'success')
-        self.assertEqual(a['title'], 'Call volume up')
-        self.assertEqual(a['message'], 'Good news: calls are up 150% compared to yesterday.')
+        self.assertEqual(a['title'], 'Elevated Call Activity')
+        self.assertEqual(a['message'], 'Call volume is 150% higher than yesterday.')
 
     def test_a_drop_is_still_critical(self):
         self.calls(10, days_ago=1)
         self.calls(2, days_ago=0)
         [a] = self.volume()
         self.assertEqual(a['type'], 'critical')
-        self.assertEqual(a['title'], 'Significant drop in call volume')
+        self.assertEqual(a['title'], 'Reduced Call Activity')
+        self.assertEqual(a['message'], 'Call volume is 80% lower than yesterday.')
