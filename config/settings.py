@@ -387,7 +387,7 @@ DEFAULT_NOTIFICATION_EVENTS = [
         'DEFAULT_NOTIFICATION_EVENTS',
         default='low.balance,campaign.cap_reached,buyer.cap_reached,'
                 'destination.cap_reached,buyer.missed,aht.low,number.deleted,'
-                'autopilot.alert',
+                'autopilot.alert,number.not_working',
     ).split(',') if e.strip()
 ]
 
@@ -439,6 +439,10 @@ CELERY_BEAT_SCHEDULE = {
     'morning-tfn-tests': {
         'task': 'tasks.morning_tfn_tests',
         'schedule': 600.0,  # every 10 min; acts once per Eastern day at 7:00 AM
+    },
+    'auto-tfn-tests': {
+        'task': 'tasks.auto_tfn_tests',
+        'schedule': 1800.0,  # every 30 min; does nothing until TFN_AUTO_TEST_ENABLED
     },
     'close-stale-calls': {
         'task': 'tasks.close_stale_calls',
@@ -532,6 +536,12 @@ ASTERISK_AMI_SECRET = config('ASTERISK_AMI_SECRET', default='')
 TFN_TEST_CALLER_ID = config('TFN_TEST_CALLER_ID', default='')
 # The PJSIP endpoint name the live dialplan dials through.
 TFN_TEST_TRUNK = config('TFN_TEST_TRUNK', default='carrier')
+# Automatic tests of quiet numbers (CH-213). Off by default: switch on once the
+# carrier accepts the test caller ID. A number with no call and no test for
+# TFN_AUTO_TEST_HOURS is tested, at most TFN_AUTO_TEST_MAX numbers a run.
+TFN_AUTO_TEST_ENABLED = config('TFN_AUTO_TEST_ENABLED', default=False, cast=bool)
+TFN_AUTO_TEST_HOURS = config('TFN_AUTO_TEST_HOURS', default=3, cast=int)
+TFN_AUTO_TEST_MAX = config('TFN_AUTO_TEST_MAX', default=20, cast=int)
 
 # The console's own base path. Every sidebar link below used to hardcode
 # /admin/, so moving the console to the secret path made each click a 404 -

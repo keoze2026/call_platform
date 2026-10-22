@@ -308,12 +308,13 @@ class NotificationService:
             'autopilot.alert': f"Autopilot{suffix}",
             # Sir's short wording (CH-199): "2 TFNs Expired".
             'number.deleted': data.get('title') or 'TFNs Expired',
+            'number.not_working': data.get('title') or 'TFN Not Working',
         }
         return subjects.get(event, f"Platform Alert - {event}")
 
     @staticmethod
     def _build_body(event: str, data: dict) -> str:
-        if event == 'number.deleted' and data.get('message'):
+        if event in ('number.deleted', 'number.not_working') and data.get('message'):
             # The numbers and what to do, nothing else: carrier codes and the
             # rule that retired them stay in our backend (CH-199).
             return data['message']

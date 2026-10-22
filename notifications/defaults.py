@@ -47,6 +47,9 @@ DEFAULT_EVENTS = getattr(settings, 'DEFAULT_NOTIFICATION_EVENTS', None) or [
 # overrides the list above, so this one is always added.
 if 'autopilot.alert' not in DEFAULT_EVENTS:
     DEFAULT_EVENTS = list(DEFAULT_EVENTS) + ['autopilot.alert']
+# A TFN the carrier stopped delivering (CH-213) is as urgent as one retired.
+if 'number.not_working' not in DEFAULT_EVENTS:
+    DEFAULT_EVENTS = list(DEFAULT_EVENTS) + ['number.not_working']
 
 NAMES = {
     'autopilot.alert': 'Autopilot alert',
@@ -57,6 +60,7 @@ NAMES = {
     'buyer.missed': 'Buyer missing calls',
     'aht.low': 'Average handle time dropped',
     'number.deleted': 'TFN Deleted',
+    'number.not_working': 'TFN Not Working',
     'campaign.paused': 'Campaign paused',
     'daily.summary': 'Daily summary',
 }

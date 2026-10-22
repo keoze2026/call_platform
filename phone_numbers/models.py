@@ -258,6 +258,8 @@ class TfnTest(models.Model):
     class Trigger(models.TextChoices):
         MANUAL = 'manual', 'Manual'
         MORNING = 'morning', 'Morning'
+        # A number with no recent calls, tested by the scheduled sweep (CH-213).
+        AUTO = 'auto', 'Automatic'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='tfn_tests')
@@ -275,6 +277,36 @@ class TfnTest(models.Model):
     class Meta:
         ordering = ['-created_at']
         indexes = [models.Index(fields=['phone_number', '-created_at'])]
+
+
+class TfnCheckLink(models.Model):
+    """A private link to the TFN Check page (CH-213), like XOLO's number lookup.
+
+    Whoever holds the link can paste numbers and see whether each one is
+    working, without logging in. The token is the only key, so it is long and
+    random, and a link can be cancelled at any time. A link made for a
+    publisher answers only for that publisher's numbers; every other number
+    reads "Not Found", exactly as if it were not ours.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='tfn_check_links')
+    name = models.CharField(max_length=100)
+    token = models.CharField(max_length=64, unique=True)
+    # Deleting the publisher deletes its links: a link must never widen to the
+    # whole workspace because the record it was limited to went away.
+    publisher = models.ForeignKey('publishers.Publisher', on_delete=models.CASCADE,
+                                  null=True, blank=True, related_name='tfn_check_links')
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    last_used_at = models.DateTimeField(null=True, blank=True)
+    use_count = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.name} ({"revoked" if self.revoked_at else "active"})'
 
 
 class RoutingRate(models.Model):

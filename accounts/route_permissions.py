@@ -81,6 +81,9 @@ RULES = [
                  'PATCH': [('campaigns', 'edit-forward')],
                  'PUT': [('campaigns', 'edit-forward')],
                  'DELETE': [('campaigns', 'edit-forward')]}),
+    # The LIVE column on a campaign's Routed Destinations and Tracking Numbers
+    # (CH-211): anyone who may see the campaign may see its live counts.
+    _rule(r'^/routing/calls/live-counts$', 'campaigns', {'GET': 'view'}),
     _rule(r'^/routing(/.*)?$', 'call-flows'),
     _rule(r'^/ivr/(?!webhook)(.*)$', 'call-flows'),
     _rule(r'^/queue(/.*)?$', 'call-flows'),
@@ -92,6 +95,9 @@ RULES = [
     # Testing a number (CH-175) is a question, not a change: anyone who may see
     # the number may ask whether it is alive. Rate-limited in the handler.
     _rule(r'^/numbers/[^/]+/test$', 'tracking-numbers', verbs={'POST': 'view'}),
+    # TFN Check (CH-213): checking numbers is a question too. Making and
+    # cancelling share links are the usual Edit and Delete.
+    _rule(r'^/numbers/check$', 'tracking-numbers', verbs={'POST': 'view'}),
     _rule(r'^/numbers(/.*)?$', 'tracking-numbers'),
     _rule(r'^/dni/(?!snippet|assign)(.*)$', 'number-pools'),
 

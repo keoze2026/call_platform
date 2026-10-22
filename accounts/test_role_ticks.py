@@ -36,6 +36,8 @@ OPEN_BY_DESIGN = [
     r'^/accounts/workspace$',                 # basic workspace info for the header
     r'^/accounts/\{kind\}/',                  # partner settings: guarded in the handler (admin)
     r'^/notifications/(events|preferences)',  # a person's own alert preferences
+    r'^/notifications/deleted-tfns',          # a person's own TFN Deleted notice and its Seen marker (CH-179)
+    r'^/spam/blocked-callers$',               # which callers to colour red in any call log (CH-185)
     r'^/carriers',                            # list: Vendors View or Tracking Numbers View (handler)
     r'^/spam/shields',                        # decided per shield type in the handler
     r'^/(kyc|referrals|security|contact|support|owner)',

@@ -730,6 +730,43 @@ def morning_tfn_tests():
     print(f'morning tfn tests: {queued} queued')
 
 
+@app.task(name='tasks.auto_tfn_tests')
+def auto_tfn_tests():
+    """Test live numbers that have had no call for a while (CH-213).
+
+    A number that took a call recently has already proved itself, so only the
+    quiet ones are tested. Off until TFN_AUTO_TEST_ENABLED is set: a test call
+    needs a caller ID the carrier accepts (XOLO's 608 refusal, 22 Oct). Runs
+    7:30 AM - 9 PM Eastern only (Sir: no test calls before 7:30 AM EST), at
+    most TFN_AUTO_TEST_MAX numbers a run, spaced a minute apart.
+    """
+    from zoneinfo import ZoneInfo
+    from django.conf import settings
+    from django.utils import timezone as djtz
+    from phone_numbers import ami, tfn_check, tfn_test
+    from phone_numbers.models import TfnTest
+
+    if not getattr(settings, 'TFN_AUTO_TEST_ENABLED', False):
+        return 'off'
+    if not ami.configured() or not tfn_test.test_caller_id():
+        return 'test calls not configured'
+    ny = djtz.now().astimezone(ZoneInfo('America/New_York'))
+    minutes = ny.hour * 60 + ny.minute
+    if minutes < 7 * 60 + 30 or minutes >= 21 * 60:
+        return 'outside 7:30 AM - 9 PM Eastern'
+
+    hours = max(1, int(getattr(settings, 'TFN_AUTO_TEST_HOURS', 3)))
+    limit = max(1, int(getattr(settings, 'TFN_AUTO_TEST_MAX', 20)))
+    queued = 0
+    for n in tfn_check.idle_numbers(hours, limit):
+        if tfn_test.has_running(n) or tfn_test.daily_count(n) >= tfn_test.PER_NUMBER_PER_DAY:
+            continue
+        test = tfn_test.create_test(n, trigger=TfnTest.Trigger.AUTO)
+        run_tfn_test.apply_async(args=[str(test.id)], countdown=queued * 60)
+        queued += 1
+    return f'{queued} queued'
+
+
 @app.task(name='tasks.retire_used_number')
 def retire_used_number(called_number, call_log_id):
     """Take a single-use number out of service after its call.

@@ -24,6 +24,7 @@ class NotificationRule(models.Model):
         LOW_AHT = 'aht.low', 'Average Handle Time Dropped'
         NUMBER_DELETED = 'number.deleted', 'TFN Deleted'
         AUTOPILOT_ALERT = 'autopilot.alert', 'Autopilot Alert'
+        NUMBER_NOT_WORKING = 'number.not_working', 'TFN Not Working'
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='notification_rules')

@@ -6,6 +6,7 @@ from buyers.api import router as buyers_router
 from publishers.api import router as publishers_router
 from phone_numbers.api import router as phone_numbers_router
 from phone_numbers.api import carriers_router
+from phone_numbers.check_api import router as tfn_check_router, public_router as tfn_check_public_router
 from accounts.owner_api import owner_router
 import phone_numbers.owner_costs  # noqa: F401  (adds the Carrier Costs routes to owner_router)
 from routing.api import router as routing_router
@@ -78,6 +79,9 @@ api.add_router("/buyers/", buyers_router)
 api.add_router("/publishers/", publishers_router)
 api.add_router("/owner/", owner_router)
 api.add_router("/carriers/", carriers_router)
+# TFN Check (CH-213) first: the numbers router would read "check" as a number id.
+api.add_router("/numbers/check/", tfn_check_router)
+api.add_router("/public/tfn-check/", tfn_check_public_router)
 api.add_router("/numbers/", phone_numbers_router)
 api.add_router("/routing/", routing_router)
 api.add_router("/ivr/", ivr_router)

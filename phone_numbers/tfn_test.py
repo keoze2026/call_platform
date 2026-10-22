@@ -113,6 +113,17 @@ def handle_inbound(called: str, caller: str) -> bool:
     return True
 
 
+def _after_real_call(test_id) -> None:
+    """A scheduled test the carrier did not deliver tells the team (CH-213).
+    A manual test is already in front of whoever ran it."""
+    t = TfnTest.objects.filter(pk=test_id).select_related('organization').first()
+    if (t is not None and t.status == TfnTest.Status.FAILED
+            and t.trigger != TfnTest.Trigger.MANUAL
+            and (t.reason or '').startswith('No call reached')):
+        from phone_numbers.tfn_check import alert_not_working
+        alert_not_working(t)
+
+
 def daily_count(phone) -> int:
     return TfnTest.objects.filter(
         phone_number=phone, created_at__gte=timezone.now() - timedelta(hours=24)).count()
@@ -147,6 +158,7 @@ def run(test_id) -> None:
         if test.mode == TfnTest.Mode.REAL_CALL:
             note = _real_call(test, phone)
             if note is None:
+                _after_real_call(test.pk)
                 return
             # The call could not be placed at all: fall back, and say so.
             TfnTest.objects.filter(pk=test.pk).update(mode=TfnTest.Mode.PLATFORM_CHECK)
