@@ -76,6 +76,7 @@ def _write(instance, action, extra=None):
         return
 
     target_type, name_field = tracked
+    extra = dict(extra or {})
 
     user = get_current_user()
     if user is None:
@@ -95,11 +96,8 @@ def _write(instance, action, extra=None):
             metadata={
                 'target_type': target_type,
                 'target_id': str(instance.pk),
-                'target_name': (
-                    str(instance) if name_field == '__str__'
-                    else str(getattr(instance, name_field, '') or '')
-                )[:200],
-                **(extra or {}),
+                'target_name': _target_name(instance, name_field)[:200],
+                **extra,
             },
         )
     except Exception:
@@ -108,6 +106,18 @@ def _write(instance, action, extra=None):
             'activity log write failed: action=%s target=%s id=%s',
             action, target_type, instance.pk,
         )
+
+
+def _target_name(instance, name_field) -> str:
+    name = (str(instance) if name_field == '__str__'
+            else str(getattr(instance, name_field, '') or ''))
+    # A buyer line is known by its number as much as its name (CH-200):
+    # "PDSO +18667404516", so the feed says which line was switched.
+    if _label(instance) == 'buyers.Destination':
+        tfn = str(getattr(instance, 'tfn', '') or '')
+        if tfn and tfn not in name:
+            name = f'{name} {tfn}'.strip()
+    return name
 
 
 def _client_ip(request):
@@ -214,6 +224,10 @@ def on_save(sender, instance, created, **kwargs):
             # nothing - which is exactly what was reported.
             return
         extra = {**(extra or {}), 'changes': changes}
+        if _label(instance) == 'buyers.Destination' and 'enabled' in changes:
+            # Switching a line off refuses every call routed to it, so the
+            # feed names it as its own action (CH-200).
+            extra['switched'] = 'on' if changes['enabled']['new'] == 'True' else 'off'
 
     _write(
         instance,

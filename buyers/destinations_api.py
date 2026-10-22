@@ -136,7 +136,7 @@ def gather_destination_counts(org, tfns, start_date=None, end_date=None, tz_name
     return out
 
 
-def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=None):
+def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=None, switches=None):
     """One destination row.
 
     `tz_name` is the IANA zone the caller reads these numbers in. Without it
@@ -249,6 +249,8 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
         'tfn': d.tfn,
         'forward_type': d.forward_type,
         'enabled': d.enabled,
+        # Who last switched this line on or off, and when (CH-200).
+        'last_switched': _last_switched(d, switches),
         'concurrency_cap': d.concurrency_cap,
         'hourly_cap': d.hourly_cap,
         'daily_cap': d.daily_cap,
@@ -280,6 +282,20 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
         'created_at': d.created_at.isoformat(),
         'updated_at': d.updated_at.isoformat(),
     }
+
+
+def _last_switched(d, switches=None):
+    """The latest on/off switch of this line, from the activity log. A page of
+    lines passes `switches` read in one query; a single line reads its own."""
+    try:
+        if switches is None:
+            from buyers.destination_switches import last_switches
+            switches = last_switches([d.id])
+        return switches.get(str(d.id))
+    except Exception:
+        # Showing who switched a line is never worth failing the page over.
+        logger.exception('could not read the last switch of destination %s', d.id)
+        return None
 
 
 @router.get("/", response={200: dict})
@@ -325,8 +341,10 @@ def list_destinations(
         request.auth.organization, [d.tfn for d in rows],
         start_date=val_from, end_date=val_to, tz_name=timezone,
     )
+    from buyers.destination_switches import last_switches
+    switches = last_switches([d.id for d in rows])
     data = [
-        format_destination(d, val_from, val_to, tz_name=timezone, counts=counts)
+        format_destination(d, val_from, val_to, tz_name=timezone, counts=counts, switches=switches)
         for d in rows
     ]
     return 200, paginate_list(data, page, page_size)
