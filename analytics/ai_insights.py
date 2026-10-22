@@ -114,10 +114,12 @@ class AIInsightsService:
                     'change_percent': round(change, 2),
                 })
             elif change > 100:
+                # Sir: more calls is good news, not a concern. Sent as
+                # 'success' so the portal shows it in green, never as Critical.
                 anomalies.append({
-                    'type': 'info',
-                    'title': 'Unusual spike in call volume',
-                    'message': f'Calls increased by {change:.0f}% compared to yesterday.',
+                    'type': 'success',
+                    'title': 'Call volume up',
+                    'message': f'Good news: calls are up {change:.0f}% compared to yesterday.',
                     'metric': 'call_volume',
                     'value': float(today_calls),
                     'previous': float(yesterday_calls),
