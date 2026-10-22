@@ -174,6 +174,20 @@ def route_incoming_call(request):
     if not campaign or campaign.status != 'active':
         return JsonResponse({"action": "hangup", "reason": "campaign_inactive"})
 
+    # Sir: once a caller ID is blocked it never shows on the portal - no red
+    # missed row, however many times it dials. Dropped here, before the call
+    # row exists, so nothing is written and nobody is rung (CH-206). If this
+    # check itself fails the call carries on and route_call refuses it as
+    # before, so a database hiccup cannot drop good callers.
+    try:
+        if RoutingEngine.is_blocked_caller(
+            caller, str(campaign.organization_id), phone.publisher_id
+        ):
+            logger.warning('blocked caller %s dropped on %s, no call row', caller, called)
+            return JsonResponse({"action": "hangup", "reason": RoutingEngine.BLOCKED_CALLER_LABEL})
+    except Exception:
+        logger.exception('blocked caller check failed for %s; routing decides', caller)
+
     call_sid = asterisk_call_id or f"asterisk-{uuid.uuid4()}"
 
     # Has this caller reached this campaign before, inside its window? Checked

@@ -4,9 +4,9 @@
     On server:   cd /opt/call_platform && docker compose exec -T web python scripts/blocked_caller_smoke.py
 
 What it proves, through the same endpoint Asterisk calls (/api/twilio/asterisk/route/):
-  1. A caller on Blocked Numbers (reason "manual") is MISSED (status no_answer)
-     and its reason reads "Callerid Blocked".
-  2. The rejected-call fee still applies to that call (billing unchanged).
+  1. A caller on Blocked Numbers is hung up with "Callerid Blocked" and leaves
+     NO call row - dialing again and again still leaves nothing (CH-206).
+  2. The same for a number saved by the Blocked Numbers page ("scope=number").
   3. A different refusal (caller flagged as spam) is still FAILED, unchanged.
 
 Safe on the live server: it builds its own throw-away organization, campaign
@@ -76,6 +76,7 @@ def ring(client, caller, called):
 
 tag = uuid.uuid4().hex[:8]
 blocked_caller = '+1555' + str(uuid.uuid4().int)[:7]
+page_caller = '+1557' + str(uuid.uuid4().int)[:7]
 spam_caller = '+1556' + str(uuid.uuid4().int)[:7]
 tfn = '+1888' + str(uuid.uuid4().int)[:7]
 
@@ -92,21 +93,22 @@ try:
         camp = Campaign.objects.create(organization=org, name=f'SMOKE {tag}', status='active')
         PhoneNumber.objects.create(organization=org, number=tfn, campaign=camp, status='active')
         Blacklist.objects.create(organization_id=org.id, phone_number=blocked_caller, reason='manual')
+        Blacklist.objects.create(organization_id=org.id, phone_number=page_caller, reason='scope=number')
         Blacklist.objects.create(organization_id=org.id, phone_number=spam_caller, reason='spam')
         c = Client()
 
-        # 1. Blocked caller rings: missed, "Callerid Blocked".
-        code, body = ring(c, blocked_caller, tfn)
+        # 1. Blocked caller rings five times: hung up, nothing on the portal.
+        for _ in range(5):
+            code, body = ring(c, blocked_caller, tfn)
         check('route answered                ', code, 200)
         check('call hung up (not forwarded)  ', body.get('action'), 'hangup')
-        check('reason sent to Asterisk       ', body.get('reason'), 'Callerid Blocked')
-        log = CallLog.objects.filter(caller_number=blocked_caller).first()
-        check('row status is missed          ', log and log.status, CallLog.Status.NO_ANSWER)
-        check('row comment                   ', log and log.block_reason, RoutingEngine.BLOCKED_CALLER_LABEL)
+        check('reason sent to Asterisk       ', body.get('reason'), RoutingEngine.BLOCKED_CALLER_LABEL)
+        check('no call row for blocked caller', CallLog.objects.filter(caller_number=blocked_caller).count(), 0)
 
-        # 2. The rejected-call fee still applies (stubbed - nothing is charged).
-        result = tasks.charge_rejected_call(str(log.id)) if log else None
-        check('fee still taken for blocked   ', result != 'not a refusal' and len(charged) >= 1, True)
+        # 2. A number saved by the Blocked Numbers page: same.
+        code, body = ring(c, page_caller, tfn)
+        check('page block hung up            ', body.get('action'), 'hangup')
+        check('no call row for page block    ', CallLog.objects.filter(caller_number=page_caller).count(), 0)
 
         # 3. Other refusals are untouched: spam stays failed.
         code, body = ring(c, spam_caller, tfn)

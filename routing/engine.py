@@ -119,6 +119,42 @@ class RoutingEngine:
             models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now)
         ).exists()
 
+    # Reasons the platform writes by itself (do-not-call hit, spam or fraud
+    # check). Those callers are still refused in route_call with a row the team
+    # can see, so an automatic block never makes a call vanish unnoticed.
+    AUTO_BLOCK_REASONS = ('auto_detected', 'spam', 'fraud')
+
+    @staticmethod
+    def is_blocked_caller(caller_number: str, organization_id: str, publisher_id=None) -> bool:
+        """True when the team blocked this caller ID (CH-206).
+
+        Sir: once a caller ID is blocked it never shows on the portal. Asked
+        before a call row exists, so the call is dropped with nothing written,
+        however many times the number dials. Covers the organization's Blocked
+        Numbers (active, not expired, whitelist still wins) and a block set on
+        this TFN's publisher. Not covered: a buyer-only block (the caller still
+        routes to every other buyer) and the automatic reasons above.
+        """
+        if not caller_number:
+            return False
+        if RoutingEngine.is_publisher_blocked(caller_number, organization_id, publisher_id):
+            return True
+        from spam_protection.models import Blacklist
+        from spam_protection.numbers import variants
+        from spam_protection.services import SpamProtectionService
+        now = timezone.now()
+        blocked = Blacklist.objects.filter(
+            organization_id=organization_id,
+            phone_number__in=variants(caller_number),
+            is_active=True,
+            campaign__isnull=True,
+            buyer__isnull=True,
+            publisher__isnull=True,
+        ).filter(
+            models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=now)
+        ).exclude(reason__in=RoutingEngine.AUTO_BLOCK_REASONS).exists()
+        return blocked and not SpamProtectionService.is_whitelisted(caller_number, organization_id)
+
     # Every refusal from the spam checks was reported as "Caller is
     # blacklisted", whatever had actually put the number there. Most of these
     # are the TCPA check adding a do-not-call hit automatically after a
@@ -145,12 +181,20 @@ class RoutingEngine:
             organization_id=organization_id,
             phone_number__in=variants(caller_number),
             is_active=True,
+            # Only the organization's own blocks refuse a call; a buyer's or a
+            # publisher's entry for the same number must not lend its reason.
+            buyer__isnull=True,
+            publisher__isnull=True,
         ).order_by('campaign_id').first()
         if not entry:
             # Refused by a check that is not the blacklist - today that is the
             # anonymous-caller block.
             return 'Anonymous caller blocked'
-        return RoutingEngine.BLOCK_LABELS.get(entry.reason, 'Caller is blacklisted')
+        # The Blocked Numbers page saves its own reason text ("scope=number"),
+        # which is none of the keys above, so every number the team blocked
+        # there read "Caller is blacklisted". Sir: a blocked caller ID is
+        # "Callerid Blocked", whatever the entry's reason says (CH-206).
+        return RoutingEngine.BLOCK_LABELS.get(entry.reason, RoutingEngine.BLOCKED_CALLER_LABEL)
 
     @staticmethod
     def is_duplicate(caller_number: str, campaign_id: str, block_hours: int) -> bool:
