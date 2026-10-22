@@ -306,11 +306,17 @@ class NotificationService:
             'daily.summary': "Daily Summary Report",
             'call.started': f"New Call{suffix}",
             'autopilot.alert': f"Autopilot{suffix}",
+            # Sir's short wording (CH-199): "2 TFNs Expired".
+            'number.deleted': data.get('title') or 'TFNs Expired',
         }
         return subjects.get(event, f"Platform Alert - {event}")
 
     @staticmethod
     def _build_body(event: str, data: dict) -> str:
+        if event == 'number.deleted' and data.get('message'):
+            # The numbers and what to do, nothing else: carrier codes and the
+            # rule that retired them stay in our backend (CH-199).
+            return data['message']
         body = f"Event: {event}\n\n"
         for key, value in data.items():
             body += f"{key}: {value}\n"

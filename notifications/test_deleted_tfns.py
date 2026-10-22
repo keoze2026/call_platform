@@ -70,7 +70,9 @@ class DeletedTfnNoticeTests(TestCase):
         self.retire_at(et(21, 1, 30), '12 answered calls on 2026-10-20, over the limit of 10, nightly 1:30 AM rule')
         data = self.notice(et(21, 11, 59))
         self.assertEqual(data['count'], 1)
-        self.assertIn('12 answered calls on 2026-10-20', data['numbers'][0]['reason'])
+        # CH-199: the rule and carrier code stay in the backend.
+        self.assertNotIn('reason', data['numbers'][0])
+        self.assertNotIn('carrier_code', data['numbers'][0])
         self.assertEqual(data['visible_until'], et(21, 12).isoformat())
 
     def test_it_drops_off_at_noon_eastern(self):
@@ -100,7 +102,6 @@ class DeletedTfnNoticeTests(TestCase):
         self.retire_at(et(21, 9), 'expired')
         data = self.notice(et(21, 9, 1))
         self.assertEqual((data['count'], data['unseen_count']), (2, 1))
-        self.assertEqual(data['numbers'][0]['reason'], 'Time limit reached')
         self.assertFalse(data['numbers'][0]['seen'])
 
     def test_seen_up_to_keeps_a_number_retired_after_the_notice_was_shown(self):

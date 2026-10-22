@@ -186,4 +186,5 @@ class TfnDeletedAlertTests(TestCase):
             retire(number, 'used')
         send.assert_called_once()
         self.assertEqual(send.call_args[0][0], 'number.deleted')
-        self.assertEqual(send.call_args[0][2]['message'], 'TFN Deleted +18005550001')
+        self.assertEqual(send.call_args[0][2]['message'],
+                         '1 TFN Expired\n+1 800-555-0001\nPlease add new TFNs to continue routing calls.')

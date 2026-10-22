@@ -52,22 +52,57 @@ def stamp_lifetime(number: PhoneNumber) -> None:
     number.expires_at = number.used_at + timezone.timedelta(hours=carrier.lifetime_hours)
 
 
-def _notify(number: PhoneNumber, why: str) -> None:
+def pretty(number: str) -> str:
+    """+18774893790 -> +1 877-489-3790, the way the alert shows a TFN."""
+    d = ''.join(c for c in (number or '') if c.isdigit())
+    if len(d) == 11 and d.startswith('1'):
+        return f'+1 {d[1:4]}-{d[4:7]}-{d[7:]}'
+    return number
+
+
+def expired_message(numbers) -> dict:
+    """Sir's short wording for the TFNs-expired alert (CH-199):
+
+        2 TFNs Expired
+        +1 877-489-3790
+        +1 877-489-3789
+        Please add new TFNs to continue routing calls.
+
+    Carrier codes and the rule that retired a number are for our backend only;
+    customers see just the numbers and what to do.
+    """
+    shown = [pretty(n) for n in numbers]
+    title = '1 TFN Expired' if len(shown) == 1 else f'{len(shown)} TFNs Expired'
+    return {
+        'title': title,
+        'numbers': shown,
+        'message': '\n'.join([title, *shown, 'Please add new TFNs to continue routing calls.']),
+    }
+
+
+def _notify_group(organization, numbers) -> None:
+    """One alert for every TFN retired together in a workspace."""
+    if not numbers:
+        return
     try:
         from notifications.services import NotificationService
-        NotificationService.dispatch(EVENT, number.organization, {
-            'number': number.number,
-            'name': number.friendly_name,
-            'carrier': number.carrier.name if number.carrier_id else '',
-            'carrier_code': number.carrier.code if number.carrier_id else '',
-            'reason': why,
-            # The owner: the notification must always say WHICH numbers.
-            'message': f'TFN Deleted {number.number}',
-        })
+        NotificationService.dispatch(EVENT, organization, expired_message(numbers))
     except Exception:
         # A number that could not be announced is still retired. Leaving it
         # live because a notification failed is the worse of the two.
-        logger.exception('could not announce the retirement of %s', number.number)
+        logger.exception('could not announce the retirement of %s', ', '.join(numbers))
+
+
+def _notify(number: PhoneNumber, why: str) -> None:
+    _notify_group(number.organization, [number.number])
+
+
+def _notify_batches(retired) -> None:
+    by_org = {}
+    for n in retired:
+        by_org.setdefault(n.organization_id, (n.organization, []))[1].append(n.number)
+    for org, numbers in by_org.values():
+        _notify_group(org, numbers)
 
 
 EASTERN = ZoneInfo('America/New_York')
@@ -115,19 +150,21 @@ def sweep_over_limit(day, apply: bool = True) -> list:
                .filter(carrier__isnull=False, carrier__max_answered_calls__gt=0)
                .select_related('carrier', 'organization')
                .order_by('number'))
-    hits = []
+    hits, retired = [], []
     for n in numbers:
         limit = n.carrier.max_answered_calls
         answered = answered_calls_on(n, day)
         # More than the limit: ten calls is still inside it.
         if answered > limit:
             hits.append((n, answered, limit))
-            if apply:
-                retire(n, f'{answered} answered calls on {day}, over the limit of {limit}, nightly 1:30 AM rule')
+            if apply and retire(n, f'{answered} answered calls on {day}, over the limit of {limit}, nightly 1:30 AM rule',
+                                notify=False):
+                retired.append(n)
+    _notify_batches(retired)
     return hits
 
 
-def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
+def retire(number: PhoneNumber, why: str, call_id: str = '', notify: bool = True) -> bool:
     """Take a number out of service. Returns False if it already was."""
     if number.status == PhoneNumber.Status.RELEASED:
         return False
@@ -148,7 +185,8 @@ def retire(number: PhoneNumber, why: str, call_id: str = '') -> bool:
     number.save(update_fields=fields)
 
     logger.info('retired %s (%s)', number.number, why)
-    _notify(number, why)
+    if notify:
+        _notify(number, why)
     return True
 
 
@@ -205,8 +243,6 @@ def retire_expired() -> int:
         # A carrier with a daily threshold has no 24-hour clock.
         .exclude(carrier__max_answered_calls__gt=0)
     )
-    n = 0
-    for number in due:
-        if retire(number, 'expired'):
-            n += 1
-    return n
+    retired = [number for number in due if retire(number, 'expired', notify=False)]
+    _notify_batches(retired)
+    return len(retired)

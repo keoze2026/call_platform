@@ -105,8 +105,6 @@ def unseen_for(user) -> dict:
                 'id': str(n.id),
                 'number': n.number,
                 'name': n.label or n.friendly_name or '',
-                'carrier_code': n.carrier.code if n.carrier_id else '',
-                'reason': reason_label(n.retired_reason),
                 'retired_at': n.released_at.isoformat(),
                 'seen': bool(seen_at and n.released_at <= seen_at),
             }
