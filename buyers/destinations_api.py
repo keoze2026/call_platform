@@ -529,6 +529,7 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
     from buyers.models import Buyer
     try:
         d = Destination.objects.get(id=destination_id, organization=request.auth.organization)
+        old_tfn = d.tfn
 
         fields = payload.dict(exclude_none=True)
 
@@ -554,14 +555,27 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
             return 400, {"detail": clash}
 
         d.save()
-        try:
-            from routing.models import RuleDestination
-            if d.buyer_id:
-                RuleDestination.objects.filter(buyer_id=d.buyer_id).update(destination=d.tfn)
-        except Exception:
-            # The destination was saved but the routing rules still point at the
-            # old number, so calls keep going to the previous one.
-            logger.exception('failed to sync routing rules to new destination: dest=%s', d.id)
+        # Only when the line's NUMBER changed, and only the routes that pointed
+        # at its old number (CH-201). This ran on every edit, a plain on/off
+        # switch included, and rewrote the number of EVERY routed destination of
+        # the buyer in EVERY campaign to this line's number - silently, with no
+        # activity entry. With two lines or a mis-assigned buyer, switching one
+        # line moved other campaigns' routing onto it (Sir, 22 Oct: "PDSO TFN
+        # active in Crug", lines "switching by themselves").
+        if old_tfn and d.tfn and d.tfn != old_tfn:
+            try:
+                from routing.models import RuleDestination
+                moved = RuleDestination.objects.filter(
+                    rule__organization=request.auth.organization, destination=old_tfn,
+                )
+                if d.buyer_id:
+                    moved = moved.filter(buyer_id=d.buyer_id)
+                n = moved.update(destination=d.tfn)
+                logger.info('destination %s number %s -> %s: %s routes moved', d.id, old_tfn, d.tfn, n)
+            except Exception:
+                # The destination was saved but the routing rules still point at
+                # the old number, so calls keep going to the previous one.
+                logger.exception('failed to sync routing rules to new destination: dest=%s', d.id)
         return 200, format_destination(d)
     except Destination.DoesNotExist:
         return 404, {"detail": "Destination not found"}
