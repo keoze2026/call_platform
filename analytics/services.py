@@ -1398,7 +1398,7 @@ class AnalyticsService:
         # export is the screen as a file, same rule as the money mask.
         col_headers = {
             'qualified': ('Qualified',), 'converted': ('Converted',),
-            'duplicate': ('Duplicate',), 'duration': ('Duration (s)',),
+            'duplicate': ('Repeated',), 'duration': ('Duration (s)',),
             'payout': ('Payout',), 'revenue': ('Revenue',),
             'cost': ('Cost', 'Billed Minutes'),
         }
@@ -1420,7 +1420,8 @@ class AnalyticsService:
             'Publisher',
             'Status', 'Fail Reason',
             'Duration (s)', 'TTC (s)',
-            'Qualified', 'Converted', 'Duplicate',
+            # "Repeated", Sir's word for a duplicate caller (CH-216).
+            'Qualified', 'Converted', 'Repeated',
             'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
         ]
         keep = [i for i, name in enumerate(header) if name not in drop]

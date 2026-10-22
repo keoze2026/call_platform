@@ -80,7 +80,7 @@ REPORT_COLUMNS = [
     {'key': 'connected',  'label': 'Connected',  'description': 'Calls that reached a destination.',  'default': True},
     {'key': 'qualified',  'label': 'Qualified',  'description': "Calls that met the buyer's quality criteria.", 'default': True},
     {'key': 'converted',  'label': 'Converted',  'description': 'Calls that converted into a paid event.', 'default': True},
-    {'key': 'duplicate',  'label': 'Duplicate',  'description': 'Repeat callers inside the duplicate window.', 'default': True},
+    {'key': 'duplicate',  'label': 'Repeated',  'description': 'Repeat callers inside the duplicate window.', 'default': True},
     {'key': 'duration',   'label': 'Duration',   'description': 'Time connected, excluding ring time.', 'default': True},
     {'key': 'not_connected', 'label': 'Not Connected', 'description': 'Calls that did not reach a destination.', 'default': True},
     {'key': 'tcl',        'label': 'TCL',        'description': 'Total connected call time in the window.', 'default': True},
