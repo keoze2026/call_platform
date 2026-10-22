@@ -178,6 +178,41 @@ def live_calls(request: HttpRequest):
 
     return 200, [RoutingService.format_call(c) for c in calls]
 
+
+@router.get("/calls/live-counts", response={200: dict})
+def live_counts(request: HttpRequest):
+    """Calls up right now, per tracking number and per destination (CH-211).
+
+    Sir: a LIVE column on the campaign's Routed Destinations and Tracking
+    Numbers, as Revo shows. One grouped query each, so the campaign page can
+    ask every few seconds without loading the whole call history. "Live" is
+    the Destinations page's own rule - ringing or connected, not ended, started
+    in the last 4 hours - so both pages always show the same figure. Keyed by
+    the number's last 10 digits, whichever way it was written.
+    """
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'campaigns', 'view')
+    from datetime import timedelta
+    from django.db.models import Count
+    from django.utils import timezone
+
+    live = scope_queryset(request.auth, CallLog.objects.filter(
+        organization=request.auth.organization,
+        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
+        ended_at__isnull=True,
+        created_at__gte=timezone.now() - timedelta(hours=4),
+    ))
+
+    def by(field):
+        out = {}
+        for row in live.exclude(**{field: ''}).values(field).annotate(n=Count('id')):
+            key = ''.join(ch for ch in row[field] if ch.isdigit())[-10:]
+            if key:
+                out[key] = out.get(key, 0) + row['n']
+        return out
+
+    return 200, {'tracking': by('called_number'), 'destinations': by('destination_number')}
+
 @router.get("/calls", response={200: dict})
 def list_calls(request: HttpRequest, campaign_id: Optional[str] = None, status: Optional[str] = None, page: int = 1, page_size: int = 50):
     from accounts.workspace_permissions import require_perm
