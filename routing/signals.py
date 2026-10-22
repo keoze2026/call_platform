@@ -79,6 +79,17 @@ def mirror_call_log(call_log_id) -> bool:
     if call.status not in TERMINAL_STATUSES:
         return False
 
+    # A try the sender retried is part of the next try's row (CH-215): it
+    # stays out of the reports, whatever saves it again later.
+    if call.retry_hidden:
+        CallRecord.objects.filter(id=call.id).delete()
+        return False
+
+    # A grouped call is dated from its first try and its wait counted from
+    # there, as Revo reports the same call.
+    from routing.retry_group import group_view
+    started_at, ring_seconds = group_view(call)
+
     CallRecord.objects.update_or_create(
         id=call.id,
         defaults={
@@ -109,7 +120,7 @@ def mirror_call_log(call_log_id) -> bool:
             'status': STATUS_MAP.get(call.status, CallRecord.Status.FAILED),
             'duration_seconds': call.duration or 0,
             # Switch-measured ring (CH-120); null until the dialplan sent it.
-            'ring_seconds': call.ring_seconds,
+            'ring_seconds': ring_seconds,
             'is_converted': _is_converted(call),
             # Qualified means an answered call from a new caller: answered, and
             # not a repeat inside the campaign's duplicate window. The Qualified
@@ -143,7 +154,7 @@ def mirror_call_log(call_log_id) -> bool:
             # into 12:00: the hourly chart read 9 and 97 where the call log had
             # 13 and 98. The daily total was right, which is why it went
             # unnoticed - only the shape of the day was wrong.
-            'started_at': call.created_at,
+            'started_at': started_at,
         },
     )
     return True

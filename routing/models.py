@@ -161,6 +161,16 @@ class CallLog(models.Model):
     # ANSWEREDTIME from the dialplan. Null = the call predates the measurement
     # or was never answered; display falls back to answered_at - started_at.
     ring_seconds = models.IntegerField(null=True, blank=True)
+    # Revo-style grouping (CH-215). A sending platform (Revo) holds the caller
+    # and retries us when our buyer does not answer in time - every 6-8 or 24
+    # seconds - and each retry reaches us as a brand-new call. Revo shows the
+    # whole thing as one call; we showed one red row per retry. A retry points
+    # at the first attempt of its call (retry_root), and every attempt but the
+    # latest is hidden from the reports (retry_hidden), so the portal shows one
+    # row per caller call, exactly as Revo does. Nothing is deleted here.
+    retry_root = models.ForeignKey('self', on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='retries')
+    retry_hidden = models.BooleanField(default=False, db_index=True)
     twilio_cost = models.DecimalField(max_digits=10, decimal_places=4, default=0.0000)
     # What this call actually cost the client, written when the charge succeeds.
     # Recomputing it from duration and the current rate meant the figure moved

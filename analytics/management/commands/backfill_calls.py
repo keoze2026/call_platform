@@ -10,7 +10,8 @@ class Command(BaseCommand):
         self.stdout.write("Starting backfill sync...")
         count = 0
         total_checked = 0
-        logs = CallLog.objects.exclude(status__in=['ringing', 'in_progress'])
+        # Tries grouped into a later one (CH-215) have no row of their own.
+        logs = CallLog.objects.exclude(status__in=['ringing', 'in_progress']).exclude(retry_hidden=True)
         
         for log in logs:
             total_checked += 1

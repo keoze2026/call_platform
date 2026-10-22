@@ -206,6 +206,17 @@ def route_incoming_call(request):
     area_code = digits[:3] if len(digits) == 10 else ''
     caller_state = RoutingEngine.get_caller_state(area_code) if area_code else ''
 
+    # Is this the sender retrying a call our buyer did not answer in time?
+    # Asked before the row exists so the new call is not compared with itself.
+    # Revo shows such a call once; so do we (CH-215). Never in the way of the
+    # call: if the check fails, the call is simply its own row.
+    retry_of = None
+    try:
+        from routing.retry_group import find_retry_of
+        retry_of = find_retry_of(campaign.organization_id, caller, called)
+    except Exception:
+        logger.exception('retry check failed for %s', caller)
+
     try:
         call_log = CallLog.objects.create(
             organization=campaign.organization,
@@ -226,6 +237,14 @@ def route_incoming_call(request):
         call_log = CallLog.objects.filter(twilio_call_sid=call_sid).first()
         if call_log is None:
             return JsonResponse({"action": "hangup", "reason": "duplicate_call"})
+        retry_of = None
+
+    if retry_of is not None and retry_of.pk != call_log.pk:
+        try:
+            from routing.retry_group import link
+            link(call_log, retry_of)
+        except Exception:
+            logger.exception('could not group %s with its previous try', caller)
 
     # Carrier lookup runs in a worker, not here. It is a blocking HTTP request
     # with a 5s timeout and nothing about routing depends on its result, so

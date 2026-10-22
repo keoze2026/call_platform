@@ -11,7 +11,7 @@ class RoutingService:
     def list_calls(user: User, campaign_id: str = None, status: str = None):
         qs = CallLog.objects.select_related(
             'campaign', 'buyer', 'publisher'
-        )
+        ).exclude(retry_hidden=True)  # one row per caller call (CH-215)
         if hasattr(user, 'organization') and user.organization:
             qs = qs.filter(organization=user.organization)
 

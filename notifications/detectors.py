@@ -278,6 +278,8 @@ def check_buyer_missed(organization, window_minutes=60, min_calls=3, miss_rate=0
     rows = (
         CallLog.objects
         .filter(organization=organization, created_at__gte=since, buyer__isnull=False)
+        # A sender's retries of one call are one call, not several misses (CH-215).
+        .exclude(retry_hidden=True)
         .select_related('buyer')
     )
 
