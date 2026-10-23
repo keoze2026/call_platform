@@ -100,13 +100,42 @@ class DifferentNeverSameTfnTests(TestCase):
                                block_reason='No Destination', destination_number=A)
         self.assertEqual(self.dial().destination_number, A)
 
-    def test_outside_the_window_he_is_new_again(self):
+    def test_long_after_the_window_he_still_never_goes_back(self):
+        # CH-242: "no matter what" - not only inside the 24-hour window.
         from datetime import timedelta
         from django.utils import timezone
         first = self.dial()
         self.end(first)
-        CallLog.objects.filter(pk=first.pk).update(created_at=timezone.now() - timedelta(hours=25))
-        self.assertIsNotNone(self.dial().destination_number)
+        CallLog.objects.filter(pk=first.pk).update(created_at=timezone.now() - timedelta(days=60))
+        self.assertNotEqual(self.dial().destination_number, first.destination_number)
+
+    def test_a_tfn_he_reached_through_another_campaign_is_avoided(self):
+        # CH-242: the same buyer TFN sits in several campaigns.
+        other = Campaign.objects.create(organization=self.org, name='C-02')
+        CallLog.objects.create(organization=self.org, campaign=other, caller_number=CALLER,
+                               called_number='+18888910000', twilio_call_sid='c02', status='completed',
+                               destination_number=A)
+        self.assertNotEqual(self.dial().destination_number, A)
+
+    def test_another_workspace_is_never_looked_at(self):
+        elsewhere = Organization.objects.create(name='Other', slug='other')
+        camp = Campaign.objects.create(organization=elsewhere, name='X')
+        CallLog.objects.create(organization=elsewhere, campaign=camp, caller_number=CALLER,
+                               called_number='+18888910000', twilio_call_sid='x', status='completed',
+                               destination_number=A)
+        self.assertEqual(self.dial().destination_number, A)
+
+    def test_a_second_call_waits_for_the_first_to_save_its_tfn(self):
+        from routing import asterisk_handler as h
+        key = h._dup_lock_key(self.org.id, CALLER)
+        cache.add(key, 1, 10)  # a first call is being routed right now
+        with mock.patch.object(h, 'DUP_LOCK_WAIT', 0.2):
+            call = self.dial()  # waits, then routes anyway rather than hang
+        self.assertTrue(call.destination_number)
+        self.assertIsNotNone(cache.get(key))  # it never released a lock it did not take
+        cache.delete(key)
+        self.dial()
+        self.assertIsNone(cache.get(key))  # its own lock is released once routed
 
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})

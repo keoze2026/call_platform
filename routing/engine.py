@@ -874,15 +874,23 @@ class RoutingEngine:
         dup_prior = []
         if dup_mode in ('original', 'different') and caller_number:
             from datetime import timedelta
-            hours = campaign.duplicate_call_block_hours or 24
+            # Original means the same destination every time this caller
+            # rings, however long ago the first call was (Sir, 20 Oct).
+            # Different means never the same one again, "no matter what"
+            # (Sir, 24 Oct, CH-242): the same long memory, no longer the
+            # campaign's duplicate window - after 24 hours a caller could be
+            # sent back to a TFN that already had him. The window still limits
+            # blocking and the Repeated column.
+            cutoff = timezone.now() - timedelta(hours=ORIGINAL_MEMORY_HOURS)
             if dup_mode == 'original':
-                # Original means the same destination every time this caller
-                # rings, however long ago the first call was (Sir, 20 Oct).
-                # The duplicate window only limits Different and blocking.
-                hours = ORIGINAL_MEMORY_HOURS
-            cutoff = timezone.now() - timedelta(hours=hours)
-            prior = CallLog.objects.filter(
-                campaign_id=campaign.id,
+                prior = CallLog.objects.filter(campaign_id=campaign.id)
+            else:
+                # Different looks across every campaign of the workspace: the
+                # same buyer TFN sits in several campaigns, and a caller who
+                # reached it through C-02 must not reach it again through C-03
+                # (Sir, 24 Oct, CH-242).
+                prior = CallLog.objects.filter(organization_id=campaign.organization_id)
+            prior = prior.filter(
                 caller_number=caller_number,
                 created_at__gte=cutoff,
             ).exclude(destination_number='')

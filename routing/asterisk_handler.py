@@ -133,9 +133,53 @@ def normalize_caller(raw):
     return raw[:20]
 
 
+# Two calls from one caller arriving together could both be routed before
+# either had saved its TFN, and on "Different" both could pick the same one
+# (CH-242). Routing a caller on a "Different" campaign is done one call at a
+# time: the second waits until the first has saved where it went. Never longer
+# than DUP_LOCK_WAIT - a stuck lock must not hold up calls.
+DUP_LOCK_SECONDS = 10
+DUP_LOCK_WAIT = 3.0
+
+
+def _dup_lock_key(organization_id, caller) -> str:
+    digits = ''.join(c for c in str(caller or '') if c.isdigit())[-10:]
+    return f'dup_route_lock:{organization_id}:{digits}'
+
+
+def _take_dup_lock(request, organization_id, caller) -> None:
+    import time as _time
+    key = _dup_lock_key(organization_id, caller)
+    deadline = _time.monotonic() + DUP_LOCK_WAIT
+    try:
+        while True:
+            if cache.add(key, 1, DUP_LOCK_SECONDS):
+                request._dup_lock_key = key
+                return
+            if _time.monotonic() >= deadline:
+                logger.warning('duplicate routing lock for %s still held after %ss; routing anyway',
+                               caller, DUP_LOCK_WAIT)
+                return
+            _time.sleep(0.05)
+    except Exception:
+        logger.exception('duplicate routing lock failed for %s; routing anyway', caller)
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def route_incoming_call(request):
+    try:
+        return _route_incoming_call(request)
+    finally:
+        key = getattr(request, '_dup_lock_key', None)
+        if key:
+            try:
+                cache.delete(key)
+            except Exception:
+                logger.exception('could not release %s', key)
+
+
+def _route_incoming_call(request):
     if not _check_secret(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
 
@@ -267,6 +311,9 @@ def route_incoming_call(request):
 
     from routing.trace import RouteTrace
     trace = RouteTrace()
+
+    if getattr(campaign, 'duplicate_handling', '') == 'different':
+        _take_dup_lock(request, campaign.organization_id, caller)
 
     decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,
