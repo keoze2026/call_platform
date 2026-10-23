@@ -343,7 +343,11 @@ def route_incoming_call(request):
         # TFN the buyer has (boss: a buyer can have multiple), cap-aware -
         # .first() here is what made a second live TFN silently dead.
         try:
-            live_dest = RoutingEngine.pick_live_destination(buyer)
+            live_dest = RoutingEngine.pick_live_destination(
+                buyer,
+                exclude=decision.get('dup_exclude_tfns') or (),
+                only=decision.get('dup_only_tfn'),
+            )
             if live_dest and live_dest.tfn:
                 dest_number = live_dest.tfn
         except Exception:

@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 ORIGINAL_MEMORY_HOURS = 24 * 365
 
 
+
+def _d10(number) -> str:
+    """A phone number by its last ten digits, so "+18667404516", "18667404516"
+    and "8667404516" are the same TFN when duplicates are compared (CH-241)."""
+    return ''.join(c for c in str(number or '') if c.isdigit())[-10:]
+
 class RoutingEngine:
     @staticmethod
     def get_caller_state(area_code: str) -> str:
@@ -344,7 +350,7 @@ class RoutingEngine:
         return True
 
     @staticmethod
-    def pick_live_destination(buyer):
+    def pick_live_destination(buyer, exclude=(), only=None):
         """The buyer's live TFN for THIS call - rotated, cap-aware.
 
         The hangup-side resolution used to take .first() of the buyer's live
@@ -367,6 +373,18 @@ class RoutingEngine:
             .only('id', 'tfn', 'concurrency_cap')
             .order_by('created_at')
         )
+        # Duplicate handling (CH-241). The rotation below chose among ALL the
+        # buyer's live TFNs, after routing had applied the campaign's duplicate
+        # rule to the routed rows - so a repeat caller on "Different" could be
+        # rotated straight back onto the TFN that already had him, and one on
+        # "Original" away from his original TFN. `only`: the TFN he must go
+        # back to; `exclude`: TFNs he must not reach again. None left: the
+        # caller keeps the number routing chose, which already obeys them.
+        if only:
+            pinned = [r for r in rows if _d10(r.tfn) == only]
+            return pinned[0] if pinned else None
+        if exclude:
+            rows = [r for r in rows if _d10(r.tfn) not in exclude]
         if not rows:
             return None
         if len(rows) == 1:
@@ -506,9 +524,9 @@ class RoutingEngine:
             return destinations
         kept = []
         for d in destinations:
-            if dup_only and d.destination != dup_only:
+            if dup_only and _d10(d.destination) != dup_only:
                 continue
-            if d.destination in excl_d:
+            if _d10(d.destination) in excl_d:
                 continue
             if d.buyer_id and str(d.buyer_id) in excl_b:
                 continue
@@ -603,9 +621,9 @@ class RoutingEngine:
             # Original: only the destination that took their first call.
             # Different: never one they have already reached.
             dup_only = call_data.get('dup_only_destination')
-            if dup_only and destination.destination != dup_only:
+            if dup_only and _d10(destination.destination) != dup_only:
                 reason = 'duplicate routes to its original destination'
-            elif destination.destination in call_data.get('dup_exclude_destinations', ()):
+            elif _d10(destination.destination) in call_data.get('dup_exclude_destinations', ()):
                 reason = 'already took this caller (duplicates: different)'
             elif destination.buyer_id and str(destination.buyer_id) in call_data.get('dup_exclude_buyers', ()):
                 reason = f'buyer already took this caller (duplicates: different)'
@@ -863,27 +881,36 @@ class RoutingEngine:
                 # The duplicate window only limits Different and blocking.
                 hours = ORIGINAL_MEMORY_HOURS
             cutoff = timezone.now() - timedelta(hours=hours)
-            # The calls that REACHED somewhere: a refused call reached nobody
-            # and excludes nothing.
+            prior = CallLog.objects.filter(
+                campaign_id=campaign.id,
+                caller_number=caller_number,
+                created_at__gte=cutoff,
+            ).exclude(destination_number='')
+            if dup_mode == 'original':
+                # Original pins the caller to the destination that ANSWERED
+                # them; a first call nobody answered does not pin them.
+                prior = prior.filter(status__in=['completed', 'in_progress'])
+            else:
+                # Different (Sir, 24 Oct): "in any case not a single call
+                # should be forwarded on the same TFN". Every call that was
+                # forwarded to a TFN counts - answered, unanswered, refused by
+                # the buyer's line, still ringing. Only "No Destination" rows
+                # are left out: we refused those ourselves and never dialled
+                # the TFN stamped on them. Counting answered calls only sent a
+                # caller whose first call rang out straight back to that TFN.
+                prior = prior.exclude(block_reason='No Destination')
             dup_prior = list(
-                CallLog.objects.filter(
-                    campaign_id=campaign.id,
-                    caller_number=caller_number,
-                    created_at__gte=cutoff,
-                    status__in=['completed', 'in_progress'],
-                ).exclude(destination_number='')
-                .order_by('-created_at')
-                .values_list('destination_number', 'buyer_id')
+                prior.order_by('-created_at').values_list('destination_number', 'buyer_id')
             )
         if dup_prior:
             if dup_mode == 'original':
-                call_data['dup_only_destination'] = dup_prior[0][0]
+                call_data['dup_only_destination'] = _d10(dup_prior[0][0])
                 if trace: trace.step('duplicate', True, f'repeat caller; held to their original destination {dup_prior[0][0]}')
             elif getattr(campaign, 'duplicate_direction', 'destination') == 'buyer':
                 call_data['dup_exclude_buyers'] = {str(b) for _, b in dup_prior if b}
                 if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_buyers"])} buyer(s) excluded')
             else:
-                call_data['dup_exclude_destinations'] = {d for d, _ in dup_prior if d}
+                call_data['dup_exclude_destinations'] = {_d10(d) for d, _ in dup_prior if d}
                 if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_destinations"])} destination(s) excluded')
 
         # Buyers who have personally blocked this caller: taken out of the
@@ -946,7 +973,11 @@ class RoutingEngine:
                 'destination_type': destination.destination_type,
                 'rule': matched_rule,
                 'buyer': destination.buyer,
-                'error': None
+                'error': None,
+                # The buyer's own TFN is chosen after this (pick_live_destination),
+                # and it must keep to the same duplicate rules (CH-241).
+                'dup_exclude_tfns': set(call_data.get('dup_exclude_destinations', ())),
+                'dup_only_tfn': call_data.get('dup_only_destination'),
             }
 
         refused = call_data.get('refused_destination')
