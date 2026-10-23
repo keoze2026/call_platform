@@ -209,6 +209,31 @@ class RoutingEngine:
             status__in=['completed', 'in_progress', 'ringing', 'initiated']
         ).exists()
     
+    @staticmethod
+    def is_repeat_caller(caller_number: str, campaign_id: str, window_hours: int) -> bool:
+        """Did this caller already call this campaign inside its window? (CH-230)
+
+        For the Repeated column, as Revo's Dupe: ANY earlier call counts,
+        answered or not. 15047156000, 23 Oct: missed at 3:02 PM, called again at
+        3:03 PM, and both rows read Repeated No because is_duplicate() above
+        only counts an earlier call that was answered or still live.
+
+        is_duplicate() is unchanged and still decides duplicate HANDLING in
+        routing, so a caller who was missed is never held back as a duplicate.
+        A sender's retry of the same call is not a repeat; the caller of
+        this function takes care of that (routing.retry_group).
+        """
+        from datetime import timedelta
+        if window_hours <= 0:
+            return False
+        cutoff = timezone.now() - timedelta(hours=window_hours)
+        return CallLog.objects.filter(
+            campaign_id=campaign_id,
+            caller_number=caller_number,
+            created_at__gte=cutoff,
+            retry_hidden=False,
+        ).exists()
+
     # @staticmethod
     # def mark_as_called(caller_number: str, campaign_id: str, block_hours: int):
     #     cache_key = f"duplicate_{campaign_id}_{caller_number}"

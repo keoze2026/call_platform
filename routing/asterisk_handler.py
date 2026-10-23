@@ -194,7 +194,10 @@ def route_incoming_call(request):
     # before the row is created so the new call is not counted against itself.
     # Recorded regardless of duplicate_call_block — that flag decides whether a
     # duplicate is blocked, not whether it is reported.
-    is_duplicate = RoutingEngine.is_duplicate(
+    # CH-230: the Repeated column counts ANY earlier call from this caller to
+    # this campaign inside the window, as Revo's Dupe does - not only answered
+    # ones. Routing's duplicate handling keeps its own check (route_call).
+    is_duplicate = RoutingEngine.is_repeat_caller(
         caller, str(campaign.id), campaign.duplicate_call_block_hours or 24
     )
 
@@ -216,6 +219,13 @@ def route_incoming_call(request):
         retry_of = find_retry_of(campaign.organization_id, caller, called)
     except Exception:
         logger.exception('retry check failed for %s', caller)
+    if retry_of is not None:
+        # The sender retrying the same call is not the caller calling again:
+        # the grouped row keeps the Repeated value of the call's first try.
+        root_id = retry_of.retry_root_id or retry_of.pk
+        is_duplicate = bool(
+            CallLog.objects.filter(pk=root_id).values_list('is_duplicate', flat=True).first()
+        )
 
     try:
         call_log = CallLog.objects.create(

@@ -6990,3 +6990,22 @@ separate call. group_call_retries --apply regroups a past day the same way.
 
 Commit: see `git log --grep CH-227`.
 Tests: `routing/test_retry_refused.py`.
+
+## CH-230 - Repeated counts any earlier call from the caller, as Revo's Dupe
+**2026-10-23 · Routing / Analytics**
+
+15047156000 (23 Oct): missed at 3:02:25 PM, called again at 3:03:41 PM, and
+both rows read Repeated No. A call was marked Repeated only when the caller's
+earlier call was answered or still live; Revo's Dupe counts any earlier call.
+
+- The Repeated column (`is_duplicate`) now counts ANY earlier call from the
+  caller to the campaign inside its duplicate window. A sender's retry of the
+  same call (CH-215) is not a repeat: the grouped row keeps its first try's value.
+- Routing is unchanged: duplicate handling (Original / Different) still uses
+  `RoutingEngine.is_duplicate`, so a caller who was missed is never held back.
+- Qualified is unchanged: an answered call from a caller not answered before
+  inside the window, now asked directly instead of reading `is_duplicate`.
+- `recompute_repeated --start --end [--apply]` rewrites past days the new way;
+  `backfill_duplicates` no longer counts hidden retry tries.
+
+Tests: `routing/test_repeated_any_call.py`.

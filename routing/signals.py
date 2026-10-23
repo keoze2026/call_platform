@@ -62,6 +62,27 @@ def _campaign_payout(call) -> Decimal:
     return Decimal(call.publisher_payout or 0)
 
 
+def _answered_before(call) -> bool:
+    """Was an earlier call from this caller to this campaign ANSWERED inside
+    the campaign's window? (CH-230)
+
+    Qualified is an answered call from a caller not answered before. It used to
+    read is_duplicate, and CH-230 widened is_duplicate (the Repeated column) to
+    any earlier call, answered or not. Asked here so Qualified counts exactly
+    what it counted before.
+    """
+    from datetime import timedelta
+    if not call.campaign_id or not call.caller_number:
+        return False
+    hours = getattr(call.campaign, 'duplicate_call_block_hours', 24) or 24
+    return (CallLog.objects
+            .filter(campaign_id=call.campaign_id, caller_number=call.caller_number,
+                    status=CallLog.Status.COMPLETED, retry_hidden=False,
+                    created_at__lt=call.created_at,
+                    created_at__gte=call.created_at - timedelta(hours=hours))
+            .exclude(pk=call.pk).exists())
+
+
 def mirror_call_log(call_log_id) -> bool:
     """Mirror one CallLog into CallRecord. Safe to call from a Celery worker.
 
@@ -127,7 +148,7 @@ def mirror_call_log(call_log_id) -> bool:
             # column counts exactly these, so the drill-down lists the same
             # calls the column reports.
             'is_qualified': (
-                call.status == CallLog.Status.COMPLETED and not call.is_duplicate
+                call.status == CallLog.Status.COMPLETED and not _answered_before(call)
             ),
             'billable_seconds': call.duration or 0,
             'is_duplicate': call.is_duplicate,

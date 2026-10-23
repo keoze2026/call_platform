@@ -30,6 +30,8 @@ class Command(BaseCommand):
 
         logs = list(
             CallLog.objects.select_related('campaign')
+            # A sender's retry hidden into its call (CH-215) is not a repeat.
+            .filter(retry_hidden=False)
             .order_by('campaign_id', 'caller_number', 'created_at')
         )
         self.stdout.write(f'CallLog rows: {len(logs)}')
