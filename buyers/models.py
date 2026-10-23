@@ -3,6 +3,14 @@ from django.db import models
 from accounts.models import User, Organization
 
 
+def _all_report_columns():
+    """CH-224: a new partner starts with every report column visible. Imported
+    here, when a record is created, not at load time, so the apps stay free of
+    an import cycle."""
+    from accounts.partner_permissions import all_report_columns
+    return all_report_columns()
+
+
 class Buyer(models.Model):
 
     class Status(models.TextChoices):
@@ -55,7 +63,7 @@ class Buyer(models.Model):
     # nobody has decided, and the defaults in
     # `accounts/partner_permissions.py` apply.
     permissions = models.JSONField(default=dict, blank=True)
-    visible_report_columns = models.JSONField(default=list, blank=True)
+    visible_report_columns = models.JSONField(default=_all_report_columns, blank=True)
 
     # Call settings
     min_call_duration = models.IntegerField(default=0)

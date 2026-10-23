@@ -85,10 +85,13 @@ REPORT_COLUMNS = [
     {'key': 'not_connected', 'label': 'Not Connected', 'description': 'Calls that did not reach a destination.', 'default': True},
     {'key': 'tcl',        'label': 'TCL',        'description': 'Total connected call time in the window.', 'default': True},
     {'key': 'acl',        'label': 'ACL',        'description': 'Average call length over connected calls.', 'default': True},
-    {'key': 'cost',       'label': 'Cost',       'description': 'Platform usage charges for the calls.',   'default': False},
+    {'key': 'cost',       'label': 'Cost',       'description': 'Platform usage charges for the calls.',   'default': True},
     {'key': 'payout',     'label': 'Payout',     'description': 'What this partner is paid.',         'default': True},
-    {'key': 'revenue',    'label': 'Revenue',    'description': 'What the call was sold for.',        'default': False},
+    {'key': 'revenue',    'label': 'Revenue',    'description': 'What the call was sold for.',        'default': True},
 ]
+# CH-224 (Sir, 23 Oct): a new buyer or publisher starts with every column
+# visible; the admin unticks what that partner should not see. A new partner
+# used to start with an empty list - 0 of 12 - and its login saw no columns.
 
 REPORT_COLUMN_KEYS = {c['key'] for c in REPORT_COLUMNS}
 
@@ -101,6 +104,11 @@ def default_permissions() -> dict:
 
 def default_report_columns() -> list:
     return [c['key'] for c in REPORT_COLUMNS if c['default']]
+
+
+def all_report_columns() -> list:
+    """Every column, in catalogue order: what a new buyer or publisher gets."""
+    return [c['key'] for c in REPORT_COLUMNS]
 
 
 def clean_permissions(raw) -> dict:
