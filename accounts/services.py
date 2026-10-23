@@ -176,6 +176,15 @@ class AuthService:
         )
 
 
+
+def _is_main_user(user) -> bool:
+    from accounts.main_user import is_main_user
+    try:
+        return is_main_user(user)
+    except Exception:
+        return False
+
+
 class ProfileService:
     """User profile management"""
     
@@ -190,6 +199,7 @@ class ProfileService:
             'role': user.role,
             'is_staff': bool(user.is_staff),
             'is_superuser': bool(user.is_superuser),
+            'is_main_user': _is_main_user(user),
             'phone_number': user.phone_number,
             'mfa_enabled': user.mfa_enabled,
             'is_email_verified': user.is_email_verified,

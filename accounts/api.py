@@ -390,6 +390,8 @@ def change_password(request: HttpRequest, data: ChangePasswordSchema):
 @router.get("/api-keys", response=list[APIKeyListSchema])
 def list_api_keys(request: HttpRequest):
     """List all API keys for the current user"""
+    from accounts.main_user import require_main_user
+    require_main_user(request.auth)  # CH-243: the main account only
     keys = APIKeyService.list_keys(request.auth)
     return [
         {
@@ -409,6 +411,8 @@ def list_api_keys(request: HttpRequest):
 def create_api_key(request: HttpRequest, data: APIKeyCreateSchema):
     """Create a new API key"""
     from datetime import datetime
+    from accounts.main_user import require_main_user
+    require_main_user(request.auth)  # CH-243
     
     expires_at = None
     if data.expires_at:
@@ -420,12 +424,28 @@ def create_api_key(request: HttpRequest, data: APIKeyCreateSchema):
 
 
 
-@router.delete("/api-keys/{key_id}", response=MessageResponseSchema)
+@router.delete("/api-keys/{key_id}", response={200: MessageResponseSchema, 404: MessageResponseSchema})
 def revoke_api_key(request: HttpRequest, key_id: str):
-    success = APIKeyService.revoke(key_id, request.auth)
-    if success:
-        return {"message": "API key revoked successfully", "success": True}
-    return 404, {"message": "API key not found", "success": False}
+    """CH-243: the main account revokes any key of the workspace - a buyer
+    bot's included. This route (which the Revoke button reaches) only looked at
+    the caller's own keys, and its missing 404 schema turned "not found" into a
+    500."""
+    from django.core.exceptions import ValidationError
+    from accounts.main_user import require_main_user
+    from accounts.models import APIKey
+    require_main_user(request.auth)
+    try:
+        key = APIKey.objects.get(id=key_id, organization=request.auth.organization)
+    except (APIKey.DoesNotExist, ValidationError, ValueError):
+        return 404, {"message": "API key not found", "success": False}
+    key.is_active = False
+    key.save(update_fields=['is_active'])
+    ActivityLog.objects.create(
+        user=request.auth,
+        action=ActivityLog.Action.API_KEY_REVOKED,
+        metadata={'api_key_name': key.name},
+    )
+    return 200, {"message": "API key revoked successfully", "success": True}
 
 @router.get("/activity", response=list[ActivityLogSchema])
 def get_activity(request: HttpRequest):

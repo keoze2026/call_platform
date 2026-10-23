@@ -13,7 +13,9 @@ class CreateAPIKeySchema(Schema):
 
 @router.get("/", response={200: dict})
 def list_api_keys(request: HttpRequest):
+    from accounts.main_user import require_main_user
     from accounts.models import APIKey
+    require_main_user(request.auth)  # CH-243
     keys = APIKey.objects.filter(organization=request.auth.organization, is_active=True)
     return 200, {
         "workspace_id": str(request.auth.organization.id),
@@ -33,7 +35,9 @@ def list_api_keys(request: HttpRequest):
 
 @router.post("/", response={201: dict})
 def create_api_key(request: HttpRequest, payload: CreateAPIKeySchema):
+    from accounts.main_user import require_main_user
     from accounts.models import APIKey
+    require_main_user(request.auth)  # CH-243
     raw_key = f"avx_{secrets.token_urlsafe(32)}"
     prefix = raw_key[:10]
     key_hash = hashlib.sha256(raw_key.encode()).hexdigest()
@@ -58,7 +62,9 @@ def create_api_key(request: HttpRequest, payload: CreateAPIKeySchema):
 
 @router.delete("/{key_id}", response={200: dict, 404: dict})
 def revoke_api_key(request: HttpRequest, key_id: str):
+    from accounts.main_user import require_main_user
     from accounts.models import APIKey
+    require_main_user(request.auth)  # CH-243
     try:
         key = APIKey.objects.get(id=key_id, organization=request.auth.organization)
         key.is_active = False
