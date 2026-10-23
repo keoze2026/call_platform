@@ -181,6 +181,18 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     return 200, data
 
 
+@router.get("/report-stamp", response={200: dict})
+def report_stamp(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
+    """CH-219: a fingerprint of the report's calls and the server time. The
+    Reports page asks every few seconds and reloads only when it changes, so the
+    report keeps itself current with auto refresh Off."""
+    from accounts.workspace_permissions import require_perm
+    from analytics.report_stamp import report_stamp as stamp_for
+    require_perm(request.auth, 'reporting', 'view')
+    require_reports_unlock(request, filters)
+    return 200, stamp_for(request.auth, filters)
+
+
 @router.get("/calls/export", auth=JWTAuth(), response=None)
 def export_calls(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     # The export is the screen as a file, and whether this buyer's logins may
