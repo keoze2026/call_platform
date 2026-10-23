@@ -33,6 +33,10 @@ NUMBER_CREATION = 'number_creation'
 AUDIO_RECORDING = 'audio_recording'
 BLOCK_NUMBERS = 'block_numbers'
 DOWNLOAD_REPORTS = 'download_reports'
+# CH-240 (Sir, 24 Oct): a publisher may open TFN Check and test-call the TFNs
+# allotted to them, and only those. Publishers only - buyers have no TFNs, and
+# the buyer page lists its own toggles. Off until the admin switches it on.
+TFN_TEST = 'tfn_test'
 
 PERMISSIONS = [
     {
@@ -64,6 +68,12 @@ PERMISSIONS = [
         'label': 'Download Reports',
         'description': 'Users can download reports about their call activity.',
         'default': True,
+    },
+    {
+        'key': TFN_TEST,
+        'label': 'TFN Test Calls',
+        'description': 'Can check and test-call their own TFNs on TFN Check.',
+        'default': False,
     },
 ]
 
@@ -152,6 +162,7 @@ PERMISSION_CAPABILITIES = {
     AUDIO_RECORDING: {Capability.RECORDINGS},
     BLOCK_NUMBERS: {Capability.BLOCK_NUMBERS},
     DOWNLOAD_REPORTS: {Capability.EXPORT},
+    TFN_TEST: {Capability.TFN_TEST},
 }
 
 

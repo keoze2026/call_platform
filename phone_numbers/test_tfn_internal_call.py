@@ -141,6 +141,8 @@ class TestCallEndpointTests(Base):
                                     role='publisher', publisher=mine, is_active=True)
         from django.test import Client
         client = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(login)}')
+        mine.permissions = {'tfn_test': True}
+        mine.save(update_fields=['permissions'])
         r, _ = self.post(client, '18774893792')
         self.assertEqual(r.status_code, 404)
         r, _ = self.post(self.client, '18774893792')
@@ -149,3 +151,44 @@ class TestCallEndpointTests(Base):
         TfnTest.objects.all().delete()
         r, _ = self.post(client, '18774893792')
         self.assertEqual(r.status_code, 202)
+
+
+@override_settings(**AMI_ON)
+class PublisherSwitchTests(Base):
+    """CH-240: "TFN Test Calls" in Publisher Access."""
+
+    def setUp(self):
+        super().setUp()
+        from django.test import Client
+        self.pub = Publisher.objects.create(organization=self.org, name='PDSO 2')
+        PhoneNumber.objects.filter(pk=self.phone.pk).update(publisher=self.pub)
+        login = User.objects.create(username='pd', email='pd@x.io', organization=self.org,
+                                    role='publisher', publisher=self.pub, is_active=True)
+        self.pub_client = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(login)}')
+
+    def start(self, client):
+        with mock.patch('tasks.run_tfn_test.delay'):
+            return client.post('/api/numbers/check/test', data=json.dumps({'number': '18774893792'}),
+                               content_type='application/json')
+
+    def test_off_by_default(self):
+        self.assertEqual(self.start(self.pub_client).status_code, 403)
+
+    def test_switched_on_they_test_their_own_number(self):
+        self.pub.permissions = {'tfn_test': True}
+        self.pub.save(update_fields=['permissions'])
+        self.assertEqual(self.start(self.pub_client).status_code, 202)
+
+    def test_the_switch_is_offered_for_publishers(self):
+        from accounts.partner_permissions import catalogue
+        self.assertIn('tfn_test', [p['key'] for p in catalogue()['permissions']])
+
+    def test_a_view_only_role_may_press_test_call(self):
+        from accounts.models import CustomRole
+        from django.test import Client
+        role = CustomRole.objects.create(organization=self.org, slug='looker', name='Looker',
+                                         capabilities=['tracking-numbers.view'])
+        viewer = User.objects.create(username='v', email='v@x.io', organization=self.org,
+                                     role=role.slug, is_active=True)
+        r = self.start(Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(viewer)}'))
+        self.assertEqual(r.status_code, 202, r.content)

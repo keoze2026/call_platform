@@ -128,6 +128,12 @@ def start_test_call(request: HttpRequest, payload: TestIn):
     allowed, publisher = _scope(request.auth)
     if not allowed:
         return 403, {'detail': 'Your account has no numbers to test'}
+    if publisher is not None:
+        # A publisher tests only with "TFN Test Calls" switched on in their
+        # Publisher Access (CH-240), and only their own numbers (below).
+        from accounts.permissions import Capability, has
+        if not has(request.auth, Capability.TFN_TEST):
+            return 403, {'detail': 'Test calls are not switched on for your account'}
     d = tfn_check.last10(payload.number)
     if len(d) != 10:
         return 400, {'detail': 'Not a phone number'}

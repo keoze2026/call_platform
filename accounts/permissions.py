@@ -35,6 +35,7 @@ class Capability:
     RECORDINGS = 'recordings'        # listen to and download call recordings
     BLOCK_NUMBERS = 'block_numbers'  # add numbers to the block list
     EXPORT = 'export'                # download a report
+    TFN_TEST = 'tfn_test'            # test-call their own TFNs on TFN Check (CH-240)
 
 
 # Role → what it may do. A role absent from here gets VIEW only, so a new role

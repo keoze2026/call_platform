@@ -98,6 +98,10 @@ RULES = [
     # TFN Check (CH-213): checking numbers is a question too. Making and
     # cancelling share links are the usual Edit and Delete.
     _rule(r'^/numbers/check$', 'tracking-numbers', verbs={'POST': 'view'}),
+    # A test call from TFN Check (CH-239) is the same question asked by phone.
+    # It fell to the general rule below and needed Edit, so a role that may
+    # only view numbers could not press Test call (CH-240).
+    _rule(r'^/numbers/check/test(/[^/]+)?$', 'tracking-numbers', verbs={'POST': 'view'}),
     _rule(r'^/numbers(/.*)?$', 'tracking-numbers'),
     _rule(r'^/dni/(?!snippet|assign)(.*)$', 'number-pools'),
 
