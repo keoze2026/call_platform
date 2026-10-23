@@ -307,19 +307,33 @@ class CampaignService:
         }
 
     @staticmethod
-    def format_campaign(campaign: Campaign) -> dict:
-        """Format campaign object to dict for response"""
+    def format_campaign(campaign: Campaign, user: User = None) -> dict:
+        """Format campaign object to dict for response.
+
+        With `user`, a publisher (or buyer) login gets its own calls in the
+        counters, not the whole campaign's: with several publishers on one
+        campaign the totals told each of them how many calls the others sent
+        (CH-238). Staff, and calls without a user, see the whole campaign.
+        """
         from django.utils import timezone
         from routing.models import CallLog
         from analytics.models import CallRecord
         from datetime import timedelta
-        
+        from accounts.permissions import scope_queryset
+
+        def mine(qs):
+            if user is None:
+                return qs
+            return scope_queryset(user, qs, buyer_field='buyer_id', publisher_field='publisher_id')
+
         now = timezone.now()
-        live_calls = CallLog.objects.filter(campaign_id=campaign.id, status__in=['in_progress', 'ringing', 'initiated']).count()
-        calls_hour = CallRecord.objects.filter(campaign_id=campaign.id, created_at__gte=now - timedelta(hours=1)).count()
-        calls_today = CallRecord.objects.filter(campaign_id=campaign.id, created_at__date=now.date()).count()
-        calls_month = CallRecord.objects.filter(campaign_id=campaign.id, created_at__month=now.month, created_at__year=now.year).count()
-        calls_global = CallRecord.objects.filter(campaign_id=campaign.id).count()
+        logs = mine(CallLog.objects.filter(campaign_id=campaign.id))
+        records = mine(CallRecord.objects.filter(campaign_id=campaign.id))
+        live_calls = logs.filter(status__in=['in_progress', 'ringing', 'initiated']).count()
+        calls_hour = records.filter(created_at__gte=now - timedelta(hours=1)).count()
+        calls_today = records.filter(created_at__date=now.date()).count()
+        calls_month = records.filter(created_at__month=now.month, created_at__year=now.year).count()
+        calls_global = records.count()
 
         cap = None
         if hasattr(campaign, 'cap'):

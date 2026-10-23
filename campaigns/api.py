@@ -22,7 +22,7 @@ def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
     require(request.auth, Capability.CREATE)
     try:
         campaign = CampaignService.create(data, request.auth)
-        return 201, CampaignService.format_campaign(campaign)
+        return 201, CampaignService.format_campaign(campaign, request.auth)
     except ValueError as e:
         return 400, {"detail": str(e)}
 
@@ -40,6 +40,14 @@ def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
 
     org = request.auth.organization
     campaigns = CampaignService.list_campaigns(request.auth).exclude(status='archived').select_related('cap')
+    from accounts.permissions import scope_queryset
+
+    def mine(qs):
+        # A publisher (or buyer) login counts only its own calls. Counted for
+        # the whole campaign, a publisher sharing it with others read their
+        # call volume in Live / Today / Month (CH-238, Sir 24 Oct: "each
+        # publisher can only see their own"). Staff see the whole campaign.
+        return scope_queryset(request.auth, qs, buyer_field='buyer_id', publisher_field='publisher_id')
 
     now = timezone.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -47,37 +55,37 @@ def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     # 1. Live calls grouped by campaign
-    live_qs = CallLog.objects.filter(
+    live_qs = mine(CallLog.objects.filter(
         campaign__organization=org,
         status__in=['in_progress', 'ringing', 'initiated']
-    ).values('campaign_id').annotate(total=Count('id'))
+    )).values('campaign_id').annotate(total=Count('id'))
     live_map = {str(item['campaign_id']): item['total'] for item in live_qs if item['campaign_id']}
 
     # 2. Hourly calls grouped by campaign
-    hourly_qs = CallRecord.objects.filter(
+    hourly_qs = mine(CallRecord.objects.filter(
         organization=org,
         created_at__gte=hour_ago
-    ).values('campaign_id').annotate(total=Count('id'))
+    )).values('campaign_id').annotate(total=Count('id'))
     hourly_map = {str(item['campaign_id']): item['total'] for item in hourly_qs if item['campaign_id']}
 
     # 3. Daily calls grouped by campaign
-    daily_qs = CallRecord.objects.filter(
+    daily_qs = mine(CallRecord.objects.filter(
         organization=org,
         created_at__gte=today_start
-    ).values('campaign_id').annotate(total=Count('id'))
+    )).values('campaign_id').annotate(total=Count('id'))
     daily_map = {str(item['campaign_id']): item['total'] for item in daily_qs if item['campaign_id']}
 
     # 4. Monthly calls grouped by campaign
-    monthly_qs = CallRecord.objects.filter(
+    monthly_qs = mine(CallRecord.objects.filter(
         organization=org,
         created_at__gte=month_start
-    ).values('campaign_id').annotate(total=Count('id'))
+    )).values('campaign_id').annotate(total=Count('id'))
     monthly_map = {str(item['campaign_id']): item['total'] for item in monthly_qs if item['campaign_id']}
 
     # 5. Global lifetime calls grouped by campaign
-    global_qs = CallRecord.objects.filter(
+    global_qs = mine(CallRecord.objects.filter(
         organization=org
-    ).values('campaign_id').annotate(total=Count('id'))
+    )).values('campaign_id').annotate(total=Count('id'))
     global_map = {str(item['campaign_id']): item['total'] for item in global_qs if item['campaign_id']}
 
     data = []
@@ -118,7 +126,7 @@ def get_campaign(request: HttpRequest, campaign_id: str):
     require_perm(request.auth, 'campaigns', 'view')
     try:
         campaign = CampaignService.get_campaign(campaign_id, request.auth)
-        return 200, CampaignService.format_campaign(campaign)
+        return 200, CampaignService.format_campaign(campaign, request.auth)
     except ValueError as e:
         return 404, {"detail": str(e)}
 
@@ -131,7 +139,7 @@ def update_campaign(request: HttpRequest, campaign_id: str, data: UpdateCampaign
     try:
         campaign = CampaignService.update(campaign_id, data, request.auth)
         campaign = CampaignService.get_campaign(campaign_id, request.auth)
-        return 200, CampaignService.format_campaign(campaign)
+        return 200, CampaignService.format_campaign(campaign, request.auth)
     except ValueError as e:
         return 404, {"detail": str(e)}
 
