@@ -23,6 +23,9 @@ same number:
   4. it ran at least SAME_LIMIT_RATIO of the try before it (Revo's limit is the
      same for every try of one call; a try well short of it was cut by the
      caller, not by Revo).
+Rules 3 and 4 do not apply when the buyer's line itself refused the previous
+try (fail reason "No Answer"): then the redial is the sender's whatever the
+length (CH-227).
 
 The grouped call is shown once: its latest try (so its result is the final
 one), dated from the first try, with the waiting time counted from the first
@@ -41,6 +44,9 @@ RETRY_GAP_SECONDS = 4
 MIN_TRY_SECONDS = 4
 SAME_LIMIT_RATIO = 0.6
 LOOKBACK_MINUTES = 15
+# The fail reason a try gets when the buyer's line refused or rang out it
+# (routing.asterisk_handler.NO_ANSWER_LABEL), as opposed to the caller hanging up.
+REFUSED_LABEL = 'No Answer'
 
 
 def try_length(call) -> float:
@@ -62,9 +68,16 @@ def is_retry(prev, before, arrived_at) -> bool:
     if gap < -1 or gap > RETRY_GAP_SECONDS:
         return False
     length = try_length(prev)
-    if length < MIN_TRY_SECONDS:
+    # CH-227: the buyer's line itself refused or rang out the previous try
+    # ("No Answer"), so the redial is the sender's, not a caller who hung up -
+    # however short the try. 17192334345, 23 Oct: the PDSO line refused 24
+    # tries in a row within a second each, the sender redialled every 1.5 s,
+    # and each became its own red row because each was shorter than
+    # MIN_TRY_SECONDS.
+    refused = prev.block_reason == REFUSED_LABEL
+    if length < MIN_TRY_SECONDS and not refused:
         return False
-    if before is not None and length < SAME_LIMIT_RATIO * try_length(before):
+    if before is not None and not refused and length < SAME_LIMIT_RATIO * try_length(before):
         return False
     return True
 
