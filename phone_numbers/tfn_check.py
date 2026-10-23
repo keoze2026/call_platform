@@ -252,7 +252,7 @@ def queue_tests(organization, numbers, user=None, publisher=None) -> int:
         if phone is None or tfn_test.has_running(phone) \
                 or tfn_test.daily_count(phone) >= tfn_test.PER_NUMBER_PER_DAY:
             continue
-        test = tfn_test.create_test(phone, user, trigger=TfnTest.Trigger.MANUAL)
+        test = tfn_test.create_test(phone, user, trigger=TfnTest.Trigger.MANUAL, internal=True)
         run_tfn_test.apply_async(args=[str(test.id)], countdown=queued * TEST_SPACING_SECONDS)
         queued += 1
     return queued

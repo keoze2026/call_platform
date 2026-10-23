@@ -254,6 +254,11 @@ class TfnTest(models.Model):
     class Mode(models.TextChoices):
         REAL_CALL = 'real_call', 'Real call'
         PLATFORM_CHECK = 'platform_check', 'Platform check'
+        # A test call started inside our own Asterisk, entering the inbound
+        # dialplan exactly where a carrier call does (CH-239). Proves our
+        # switch, routing and campaign take the number; nothing goes to the
+        # carrier, so it says nothing about carrier delivery.
+        INTERNAL_CALL = 'internal_call', 'Internal call'
 
     class Trigger(models.TextChoices):
         MANUAL = 'manual', 'Manual'
@@ -272,6 +277,9 @@ class TfnTest(models.Model):
     requested_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
     started_at = models.DateTimeField(null=True, blank=True)
     finished_at = models.DateTimeField(null=True, blank=True)
+    # What the test did, in order, for the screen (CH-239):
+    # [{"key": "placed", "ok": true, "text": "...", "at": "<iso>"}, ...]
+    steps = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

@@ -3,6 +3,8 @@
 Portal (logged in, mounted at /api/numbers/check/ before the numbers router so
 "check" is never read as a number id):
     POST   /api/numbers/check/              {numbers, test?}  check, optionally queue test calls
+    POST   /api/numbers/check/test          {number}  one test call, watched step by step (CH-239)
+    GET    /api/numbers/check/test/{id}     that test call's steps and result
     GET    /api/numbers/check/links         the workspace's share links
     POST   /api/numbers/check/links         {name, publisher_id?}  make one
     DELETE /api/numbers/check/links/{id}    cancel one
@@ -35,6 +37,10 @@ public_router = Router(tags=["TFN Check (public)"])
 class CheckIn(Schema):
     numbers: Union[str, List[str]] = ''
     test: bool = False
+
+
+class TestIn(Schema):
+    number: str
 
 
 class LinkIn(Schema):
@@ -92,6 +98,73 @@ def check_numbers(request: HttpRequest, payload: CheckIn):
     out = tfn_check.check(org, payload.numbers, publisher)
     out['tests_queued'] = queued
     return 200, out
+
+
+def _test_out(t) -> dict:
+    """What the page shows while a test call runs. Words only: no campaign,
+    buyer or carrier names (the full reason stays in the backend)."""
+    return {
+        'id': str(t.id),
+        'number': tfn_check.e164(tfn_check.last10(t.number)),
+        'status': t.status,
+        'mode': t.mode,
+        'steps': list(t.steps or []),
+        'started_at': t.started_at.isoformat() if t.started_at else None,
+        'finished_at': t.finished_at.isoformat() if t.finished_at else None,
+        'created_at': t.created_at.isoformat(),
+    }
+
+
+@router.post("/test", response={202: dict, 400: dict, 403: dict, 404: dict, 429: dict})
+def start_test_call(request: HttpRequest, payload: TestIn):
+    """One test call for one number, started inside our own phone system
+    (CH-239). The page polls GET /test/{id} and shows each step."""
+    from accounts.workspace_permissions import require_perm
+    from tasks import run_tfn_test
+    from . import tfn_test
+    from .models import PhoneNumber
+
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    allowed, publisher = _scope(request.auth)
+    if not allowed:
+        return 403, {'detail': 'Your account has no numbers to test'}
+    d = tfn_check.last10(payload.number)
+    if len(d) != 10:
+        return 400, {'detail': 'Not a phone number'}
+    qs = PhoneNumber.objects.filter(organization=request.auth.organization,
+                                    number__in=[f'+1{d}', f'1{d}', d, f'+{d}']).exclude(status='released')
+    if publisher is not None:
+        qs = qs.filter(publisher=publisher)
+    phone = qs.order_by('-updated_at').first()
+    if phone is None:
+        return 404, {'detail': 'This number is not on the platform'}
+    if tfn_test.has_running(phone):
+        return 400, {'detail': 'A test call for this number is already running'}
+    if tfn_test.daily_count(phone) >= tfn_test.PER_NUMBER_PER_DAY:
+        return 429, {'detail': f'At most {tfn_test.PER_NUMBER_PER_DAY} test calls per number in 24 hours'}
+    test = tfn_test.create_test(phone, request.auth, internal=True)
+    run_tfn_test.delay(str(test.id))
+    return 202, _test_out(test)
+
+
+@router.get("/test/{test_id}", response={200: dict, 403: dict, 404: dict})
+def get_test_call(request: HttpRequest, test_id: str):
+    from django.core.exceptions import ValidationError
+    from accounts.workspace_permissions import require_perm
+    from .models import TfnTest
+
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    allowed, publisher = _scope(request.auth)
+    if not allowed:
+        return 403, {'detail': 'Your account has no numbers to test'}
+    qs = TfnTest.objects.filter(organization=request.auth.organization)
+    if publisher is not None:
+        qs = qs.filter(phone_number__publisher=publisher)
+    try:
+        t = qs.get(id=test_id)
+    except (TfnTest.DoesNotExist, ValidationError, ValueError):
+        return 404, {'detail': 'Test not found'}
+    return 200, _test_out(t)
 
 
 @router.get("/links", response={200: list})

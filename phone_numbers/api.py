@@ -143,6 +143,7 @@ def _test_out(t) -> dict:
         'started_at': t.started_at.isoformat() if t.started_at else None,
         'finished_at': t.finished_at.isoformat() if t.finished_at else None,
         'created_at': t.created_at.isoformat(),
+        'steps': list(t.steps or []),
     }
 
 

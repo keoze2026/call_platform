@@ -212,6 +212,7 @@ class TfnTestOutSchema(Schema):
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
     created_at: str
+    steps: list = []
 
 
 class DailyTestSchema(Schema):

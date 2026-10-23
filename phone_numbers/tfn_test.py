@@ -3,6 +3,17 @@
 Two halves. The real call proves the carrier still delivers the number to us.
 The platform check proves the number, its campaign and its routing would take
 the call. A test creates no CallLog row, takes no fee and never rings a buyer.
+
+CH-239, the test call from TFN Check: the carrier refuses calls from our trunk
+to our own numbers, so a test placed through it never rang and the page never
+changed (Sir, 24 Oct: "what if any user wants to see test calls with their
+eyes"). An internal test call starts inside our own Asterisk and enters the
+inbound dialplan ([from-carrier]) exactly where a customer's call does: the
+switch, the route request, the number, its campaign and the routing all run
+for real, and it stops before any buyer is rung. Nothing goes to the carrier.
+Each step is written to `steps` as it happens, so the page shows the call
+going through. It proves our side only; carrier delivery is still shown by
+real calls (TFN Check reads only real_call tests for its status).
 """
 import logging
 import time
@@ -46,19 +57,51 @@ def is_test_caller(caller: str) -> bool:
     return bool(cid) and last10(caller) == last10(cid)
 
 
+def _step(key: str, ok: bool, text: str) -> dict:
+    return {'key': key, 'ok': ok, 'text': text, 'at': timezone.now().isoformat()}
+
+
+def add_steps(test_id, *steps) -> None:
+    """Append steps to a test. The worker and the inbound request both write,
+    so the row is locked for the read-modify-write."""
+    from django.db import transaction
+    try:
+        with transaction.atomic():
+            t = TfnTest.objects.select_for_update().filter(pk=test_id).first()
+            if t is None:
+                return
+            t.steps = list(t.steps or []) + list(steps)
+            t.save(update_fields=['steps'])
+    except Exception:
+        logger.exception('could not record the steps of TFN test %s', test_id)
+
+
 def evaluate(phone, caller: str):
     """(passed, reason) for the platform half. Reads state, writes nothing."""
+    passed, reason, _ = evaluate_steps(phone, caller)
+    return passed, reason
+
+
+def evaluate_steps(phone, caller: str):
+    """(passed, reason, steps). The steps are what a user watching the test sees,
+    so they name no campaign, buyer or rule; `reason` keeps the full story."""
     if phone is None:
-        return False, 'Number is not on the platform'
+        return False, 'Number is not on the platform', [_step('number', False, 'Number is not on the platform')]
     if phone.status != 'active':
-        return False, f'Number is {phone.status}, not active'
+        return False, f'Number is {phone.status}, not active', [
+            _step('number', False, f'Number is {phone.status}, not active')]
+    steps = [_step('number', True, 'Number is live')]
     campaign = phone.campaign
     if not campaign:
-        return False, 'Number is not attached to a campaign'
+        steps.append(_step('campaign', False, 'Number is not attached to a campaign'))
+        return False, 'Number is not attached to a campaign', steps
     if campaign.status != 'active':
-        return False, f'Campaign "{campaign.name}" is {campaign.status}, not active'
+        steps.append(_step('campaign', False, f'Its campaign is {campaign.status}, not active'))
+        return False, f'Campaign "{campaign.name}" is {campaign.status}, not active', steps
+    steps.append(_step('campaign', True, 'On an active campaign'))
     if campaign.routing_type == 'rtb':
-        return True, 'Number and campaign are active (RTB routing is not simulated)'
+        steps.append(_step('routing', True, 'Campaign is live (bidding is not simulated)'))
+        return True, 'Number and campaign are active (RTB routing is not simulated)', steps
 
     from routing.engine import RoutingEngine
     from routing.trace import RouteTrace
@@ -75,12 +118,15 @@ def evaluate(phone, caller: str):
         })
     except Exception:
         logger.exception('tfn_test routing check crashed for %s', phone.number)
-        return False, 'Routing check failed with an internal error'
+        steps.append(_step('routing', False, 'Routing check failed with an internal error'))
+        return False, 'Routing check failed with an internal error', steps
     if not decision or decision.get('error') or not decision.get('destination'):
         why = (decision or {}).get('error') or 'no destination'
-        return False, f'Routing would refuse the call: {why}'
+        steps.append(_step('routing', False, f'Routing would not forward the call: {why}'))
+        return False, f'Routing would refuse the call: {why}', steps
     buyer = decision.get('buyer')
-    return True, 'Number, campaign and routing are live' + (f' (buyer {buyer.name})' if buyer else '')
+    steps.append(_step('routing', True, 'Routing OK: a buyer line is ready to take the call'))
+    return True, 'Number, campaign and routing are live' + (f' (buyer {buyer.name})' if buyer else ''), steps
 
 
 def _finish(test_id, passed: bool, reason: str, mode=None) -> bool:
@@ -103,12 +149,14 @@ def handle_inbound(called: str, caller: str) -> bool:
     since = timezone.now() - timedelta(seconds=PENDING_SECONDS)
     test = (TfnTest.objects
             .filter(number__endswith=last10(called), status=TfnTest.Status.RUNNING,
-                    mode=TfnTest.Mode.REAL_CALL, started_at__gte=since)
+                    mode__in=[TfnTest.Mode.REAL_CALL, TfnTest.Mode.INTERNAL_CALL],
+                    started_at__gte=since)
             .select_related('phone_number__campaign').order_by('-started_at').first())
     if test is None:
         return False
     phone = PhoneNumber.objects.select_related('campaign').filter(pk=test.phone_number_id).first()
-    passed, reason = evaluate(phone, caller)
+    passed, reason, steps = evaluate_steps(phone, caller)
+    add_steps(test.pk, _step('reached', True, 'Reached our phone system'), *steps)
     _finish(test.pk, passed, ('Call reached the platform. ' + reason) if passed else reason)
     return True
 
@@ -136,11 +184,18 @@ def has_running(phone) -> bool:
         created_at__gte=since).exists()
 
 
-def create_test(phone, user=None, trigger=TfnTest.Trigger.MANUAL) -> TfnTest:
+def create_test(phone, user=None, trigger=TfnTest.Trigger.MANUAL, internal=False) -> TfnTest:
+    """`internal`: the test call starts inside our own Asterisk (CH-239)
+    instead of going out through the carrier."""
+    if not ami.configured():
+        mode = TfnTest.Mode.PLATFORM_CHECK
+    elif internal:
+        mode = TfnTest.Mode.INTERNAL_CALL
+    else:
+        mode = TfnTest.Mode.REAL_CALL
     return TfnTest.objects.create(
         organization=phone.organization, phone_number=phone, number=phone.number,
-        requested_by=user, trigger=trigger,
-        mode=TfnTest.Mode.REAL_CALL if ami.configured() else TfnTest.Mode.PLATFORM_CHECK)
+        requested_by=user, trigger=trigger, mode=mode)
 
 
 def run(test_id) -> None:
@@ -154,6 +209,18 @@ def run(test_id) -> None:
     try:
         if phone.status != 'active':
             _finish(test.pk, False, f'Number is {phone.status}, not active')
+            return
+        if test.mode == TfnTest.Mode.INTERNAL_CALL:
+            note = _internal_call(test, phone)
+            if note is None:
+                return
+            # Asterisk could not start the call at all: check our side without
+            # it, and say so on screen.
+            add_steps(test.pk, _step('placed', False, f'Test call could not be started ({note})'))
+            TfnTest.objects.filter(pk=test.pk).update(mode=TfnTest.Mode.PLATFORM_CHECK)
+            passed, reason, steps = evaluate_steps(phone, test_caller_id() or '+15555550100')
+            add_steps(test.pk, *steps)
+            _finish(test.pk, passed, f'Test call not placed ({note}). Platform check only: {reason}')
             return
         if test.mode == TfnTest.Mode.REAL_CALL:
             note = _real_call(test, phone)
@@ -212,4 +279,40 @@ def _real_call(test, phone):
     _finish(test.pk, False,
             f'No call reached the platform within {WAIT_SECONDS}s{why}. '
             'The carrier did not deliver this number to us.')
+    return None
+
+
+def internal_channel(phone) -> str:
+    """Local/<digits>@<inbound context>: the call enters our dialplan as if the
+    carrier had delivered it, with the same digits the carrier sends."""
+    digits = ''.join(c for c in phone.number if c.isdigit())
+    context = getattr(settings, 'TFN_TEST_CONTEXT', 'from-carrier') or 'from-carrier'
+    return f'Local/{digits}@{context}'
+
+
+def _internal_call(test, phone):
+    """Start the call inside our Asterisk and wait for the inbound leg to close
+    the test. None when the test was settled (either way); a note when the
+    call could not be started at all."""
+    caller = test_caller_id()
+    if not caller:
+        return 'TFN_TEST_CALLER_ID is not set'
+    try:
+        with ami.AMIClient() as client:
+            client.originate(internal_channel(phone), caller)
+            add_steps(test.pk, _step('placed', True, 'Test call placed'))
+            deadline = time.monotonic() + WAIT_SECONDS
+            while time.monotonic() < deadline:
+                if not TfnTest.objects.filter(pk=test.pk, status=TfnTest.Status.RUNNING).exists():
+                    return None
+                time.sleep(0.5)
+    except ami.AMIError as e:
+        return str(e)
+    if not TfnTest.objects.filter(pk=test.pk, status=TfnTest.Status.RUNNING).exists():
+        return None
+    add_steps(test.pk, _step('reached', False,
+                             f'The test call did not reach our call routing within {WAIT_SECONDS}s'))
+    _finish(test.pk, False,
+            f'Internal test call did not reach the platform within {WAIT_SECONDS}s: '
+            'check the inbound dialplan and the route request')
     return None

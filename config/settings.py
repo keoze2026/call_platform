@@ -541,6 +541,8 @@ ASTERISK_AMI_SECRET = config('ASTERISK_AMI_SECRET', default='')
 TFN_TEST_CALLER_ID = config('TFN_TEST_CALLER_ID', default='')
 # The PJSIP endpoint name the live dialplan dials through.
 TFN_TEST_TRUNK = config('TFN_TEST_TRUNK', default='carrier')
+# The inbound context an internal test call (CH-239) enters, as a carrier call does.
+TFN_TEST_CONTEXT = config('TFN_TEST_CONTEXT', default='from-carrier')
 # Automatic tests of quiet numbers (CH-213). Off by default: switch on once the
 # carrier accepts the test caller ID. A number with no call and no test for
 # TFN_AUTO_TEST_HOURS is tested, at most TFN_AUTO_TEST_MAX numbers a run.
