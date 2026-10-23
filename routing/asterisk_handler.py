@@ -491,6 +491,85 @@ def active_channels(request):
     })
 
 
+def settle_call_money(call_log, answered: bool, duration: int) -> bool:
+    """Revenue, payout and the balance charge for an ended call, then save it.
+
+    Shared by the hangup report and the late-answer check (CH-225) so a call
+    is paid for the same way whichever of them finds it answered. Returns
+    whether the call converted.
+    """
+    campaign = call_log.campaign
+    min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
+    converted = answered and (duration >= min_dur)
+
+    # Revenue and payout are different numbers: revenue is what the buyer pays
+    # for the call, payout is what goes to the publisher. Writing the payout into
+    # both left every CallLog with zero profit.
+    phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
+    payout_val = RoutingEngine.required_call_balance(campaign, phone) if converted else 0
+    revenue_val = (getattr(campaign, 'revenue_amount', 0) or 0) if converted else 0
+
+    call_log.revenue = revenue_val
+    call_log.publisher_payout = payout_val
+    call_log.save()
+
+    # CallRecord is written by the post_save signal on routing/signals.py, keyed
+    # on the CallLog id. A second update_or_create here keyed on twilio_call_sid
+    # created a *separate* row for every terminal call, doubling every analytics
+    # total — 8 real calls reported as 16.
+
+    # Deduct the call's cost from the organization's balance. Charged only on a
+    # converted call, at the same rate RoutingEngine checked before dispatch, so
+    # a call that was allowed through is always affordable. charge_call is
+    # idempotent on call_sid, so a carrier webhook retry will not double-charge.
+    if converted and getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
+        try:
+            from billing.services import BillingService
+
+            # Per-minute pricing: ceil(duration / 60) x rate x (1 + markup).
+            # A missed call has no duration and therefore no cost.
+            # Recording and the VoIP Shield are billable. Asterisk records
+            # when the campaign asks, and ipqs_checked is set when the lookup
+            # ran, so both are known by the time the call ends.
+            amount = BillingService.call_cost(
+                call_log.organization,
+                duration,
+                recorded=bool(call_log.recording_url) or bool(
+                    getattr(campaign, 'recording_enabled', False)
+                ),
+                voip_checked=bool(getattr(call_log, 'ipqs_checked', False)),
+            )
+
+            if amount > 0:
+                charge = BillingService.charge_call(
+                    organization=call_log.organization,
+                    campaign=campaign,
+                    buyer=call_log.buyer,
+                    publisher=call_log.publisher,
+                    amount=amount,
+                    call_sid=call_log.twilio_call_sid,
+                )
+                if charge is not None:
+                    # Record what was taken, so reporting never has to guess.
+                    CallLog.objects.filter(pk=call_log.pk).update(platform_cost=amount)
+
+                if charge is None:
+                    # Balance ran out between dispatch and hangup (concurrent
+                    # calls draining the same account). The call already
+                    # happened; record it so it can be reconciled.
+                    logger.warning(
+                        "call_charge_failed: call_log=%s org=%s amount=%s balance=%s",
+                        call_log.id,
+                        call_log.organization_id,
+                        amount,
+                        BillingService.get_balance(call_log.organization),
+                    )
+        except Exception:
+            logger.exception("call_charge_error: call_log=%s", call_log.id)
+
+    return converted
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def call_ended(request):
@@ -794,74 +873,7 @@ def call_ended(request):
                     call_log_id, recording_url,
                 )
 
-    campaign = call_log.campaign
-    min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
-    converted = answered and (duration >= min_dur)
-
-    # Revenue and payout are different numbers: revenue is what the buyer pays
-    # for the call, payout is what goes to the publisher. Writing the payout into
-    # both left every CallLog with zero profit.
-    phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
-    payout_val = RoutingEngine.required_call_balance(campaign, phone) if converted else 0
-    revenue_val = (getattr(campaign, 'revenue_amount', 0) or 0) if converted else 0
-
-    call_log.revenue = revenue_val
-    call_log.publisher_payout = payout_val
-    call_log.save()
-
-    # CallRecord is written by the post_save signal on routing/signals.py, keyed
-    # on the CallLog id. A second update_or_create here keyed on twilio_call_sid
-    # created a *separate* row for every terminal call, doubling every analytics
-    # total — 8 real calls reported as 16.
-
-    # Deduct the call's cost from the organization's balance. Charged only on a
-    # converted call, at the same rate RoutingEngine checked before dispatch, so
-    # a call that was allowed through is always affordable. charge_call is
-    # idempotent on call_sid, so a carrier webhook retry will not double-charge.
-    if converted and getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
-        try:
-            from billing.services import BillingService
-
-            # Per-minute pricing: ceil(duration / 60) x rate x (1 + markup).
-            # A missed call has no duration and therefore no cost.
-            # Recording and the VoIP Shield are billable. Asterisk records
-            # when the campaign asks, and ipqs_checked is set when the lookup
-            # ran, so both are known by the time the call ends.
-            amount = BillingService.call_cost(
-                call_log.organization,
-                duration,
-                recorded=bool(call_log.recording_url) or bool(
-                    getattr(campaign, 'recording_enabled', False)
-                ),
-                voip_checked=bool(getattr(call_log, 'ipqs_checked', False)),
-            )
-
-            if amount > 0:
-                charge = BillingService.charge_call(
-                    organization=call_log.organization,
-                    campaign=campaign,
-                    buyer=call_log.buyer,
-                    publisher=call_log.publisher,
-                    amount=amount,
-                    call_sid=call_log.twilio_call_sid,
-                )
-                if charge is not None:
-                    # Record what was taken, so reporting never has to guess.
-                    CallLog.objects.filter(pk=call_log.pk).update(platform_cost=amount)
-
-                if charge is None:
-                    # Balance ran out between dispatch and hangup (concurrent
-                    # calls draining the same account). The call already
-                    # happened; record it so it can be reconciled.
-                    logger.warning(
-                        "call_charge_failed: call_log=%s org=%s amount=%s balance=%s",
-                        call_log.id,
-                        call_log.organization_id,
-                        amount,
-                        BillingService.get_balance(call_log.organization),
-                    )
-        except Exception:
-            logger.exception("call_charge_error: call_log=%s", call_log.id)
+    converted = settle_call_money(call_log, answered, duration)
 
     # A number is "used" when a buyer ANSWERED a call on it, and only then.
     # It was every ended call: five KMQ numbers called once each to check the
