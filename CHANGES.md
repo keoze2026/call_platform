@@ -6566,3 +6566,427 @@ the deploy notes.
 the page out of the list. It now reads only the page asked for.
 
 Tests: `accounts/test_activity_log.py`.
+
+
+---
+
+# From CH-147 (19 Oct 2026) onwards
+
+The entries below are written from each change's own commit message, so they say
+what the change does in the words used when it was made. "Commit: see git log
+--grep CH-xxx" means the change was applied from a patch; search the log for its ID.
+Frontend changes are in the frontend repository's CHANGES.md.
+
+## Server setup in force (23 Oct 2026)
+
+Things set on the server rather than in code, needed for the changes below to
+behave as described:
+
+- `.env`: `ZERO_SECOND_ANSWER_IS_NOT_CONNECTED=False` (CH-222) - an answer under a
+  second counts as Completed, 1 second, as Revo shows it.
+- root crontab, every 2 minutes (CH-225):
+  `cd /opt/call_platform && /usr/bin/python3 /root/late_answers.py /root/sipcap | /usr/bin/docker compose exec -T web python manage.py mark_late_answers --apply >> /var/log/late_answers.log 2>&1`
+  (`/root/late_answers.py` is a copy of `docs/asterisk/late_answers.py`).
+- Carrier `XHR` (XOLO High Risk): High risk, no automatic deletion; numbers are
+  removed by hand on a complaint.
+- Buyer API logins (CH-221): `adc11bot@avortyx.io`, `pdsobot@avortyx.io`,
+  `adstbot@avortyx.io` - no password, used only to carry that buyer's Stats API key.
+
+## CH-147 - Every Roles tick is enforced on the server, Viewer ticks work
+**2026-10-19 · Accounts / Phone Numbers / Blocked numbers**
+
+**Also:** widen member role column so custom roles can be assigned
+
+Commit: `44c140bd`, `5f018a61`.
+Tests: `accounts/test_role_ticks.py`.
+
+## CH-149 - Working Autopilot rules, saved settings and automatic runs
+**2026-10-20 · Analytics / Config / Notifications**
+
+Commit: `0f7e51e4`.
+Tests: `analytics/test_autopilot.py`.
+
+## CH-151 - No Destination label for repeat callers and destination misses, blocked numbers match any spelling
+**2026-10-20 · Routing / Blocked numbers**
+
+Commit: `f57e5800`.
+Tests: `routing/test_call_cleanup.py`, `spam_protection/test_number_match.py`.
+
+## CH-154 - Carrier costs: owner rate cards, deleted TFNs kept for owner, monthly bill per carrier
+**2026-10-20 · Config / Phone Numbers**
+
+Commit: `a5c7634f`.
+Tests: `phone_numbers/test_owner_costs.py`.
+
+## CH-156 - Original duplicate handling holds for every repeat call, new campaigns default to Original
+**2026-10-20 · Campaigns / Routing**
+
+Commit: `a5e4644b`.
+Tests: `routing/test_original_handling.py`.
+
+## CH-161 - Block numbers per publisher: scoped blocks, routing check, publisher logins can use Block Numbers
+**2026-10-20 · Routing / Blocked numbers**
+
+Commit: `031a2990`.
+Tests: `spam_protection/test_publisher_blocks.py`.
+
+## CH-166 - No hard rule for missed callers, Caller Abandoned renamed to Not Connected
+**2026-10-20 · Routing**
+
+Commit: `2e15c365`.
+Tests: `routing/test_call_cleanup.py`.
+
+## CH-171 - TFN retired only at 1:30 AM Eastern, only if over 10 answered calls on one day
+**2026-10-20 · Config / Phone Numbers / Tasks**
+
+Commit: `31bd99b4`.
+Tests: `phone_numbers/test_answered_limit.py`.
+
+## CH-172 - Missed calls get no recording link, old ones cleared
+**2026-10-20 · Routing**
+
+Commit: `516113d2`.
+Tests: `routing/test_call_cleanup.py`.
+
+## CH-175 - Automated TFN test call API and morning test
+**2026-10-20 · Accounts / Config / Asterisk**
+
+Commit: `750209ca`.
+Tests: `phone_numbers/test_tfn_test.py`.
+
+## CH-176 - TFN test falls back to platform check when the carrier refuses the test call
+**2026-10-20 · Asterisk / Phone Numbers**
+
+Commit: `603f1040`.
+Tests: `phone_numbers/test_tfn_test.py`.
+
+## CH-177 - Login and password reset ignore capital letters in the email
+**2026-10-20 · Accounts**
+
+Commit: `736e6b7c`.
+Tests: `accounts/test_login_case.py`.
+
+## CH-178 - Live calls: long calls stay live, swept calls repaired on hangup
+**2026-10-21 · Config / Routing / Tasks**
+
+Commit: `0b9e401f`.
+Tests: `routing/test_stale_sweep.py`.
+
+## CH-179 - TFNs deleted notice stays in the bell until Seen
+**2026-10-21 · Notifications / Phone Numbers**
+
+Commit: `faba0445`.
+Tests: `notifications/test_deleted_tfns.py`.
+
+## CH-182 - TFNs deleted notice stays until 12 PM Eastern
+**2026-10-21 · Notifications**
+
+Commit: `28480782`.
+Tests: `notifications/test_deleted_tfns.py`.
+
+## CH-185 - Blocked callers red in every account; main Blocked Numbers shows every block and who blocked it
+**2026-10-21 · Accounts / Blocked numbers**
+
+**Also:** Test helper renamed so it no longer clashes with Django's test client
+
+Commit: `e3c95a52`, `fddbc3fe`.
+Tests: `spam_protection/test_blocked_everywhere.py`, `spam_protection/test_publisher_blocks.py`.
+
+## CH-186 - Routing (termination) cost per day on Carrier Costs
+**2026-10-21 · Phone Numbers**
+
+Commit: `29ebe780`.
+Tests: `phone_numbers/test_routing_cost.py`.
+
+## CH-187 - CH-188 0-second answers are Not Connected as in Revo; TTC and fail reason when the caller hangs up before the destination rings
+**2026-10-21 · Routing**
+
+Commit: `db52daaf`.
+Tests: `routing/test_call_cleanup.py`, `routing/test_zero_second_answer.py`.
+
+## CH-189 - TFNs get their carrier's price automatically when added
+**2026-10-21 · Phone Numbers**
+
+Commit: `faa25fab`.
+Tests: `phone_numbers/test_tfn_price.py`.
+
+## CH-192 - Publisher on a tracking number can be removed
+**2026-10-21 · Phone Numbers**
+
+Commit: `b3973873`.
+Tests: `phone_numbers/test_clear_publisher.py`.
+
+## CH-193 - A call that reached the line and did not connect reads No Answer, as in Revo
+**2026-10-21 · Routing**
+
+Commit: `226c9f6c`.
+Tests: `routing/test_call_cleanup.py`.
+
+## CH-194 - Paused TFNs stay on the campaign and Numbers lists
+**2026-10-21 · Phone Numbers**
+
+Commit: `6cb3add0`.
+Tests: `phone_numbers/test_paused_listed.py`.
+
+## CH-196 - A call with a run-together caller ID goes out instead of being dropped
+**2026-10-22 · Routing**
+
+**Also:** Routing view keeps its decorators
+
+Commit: `68bddd4d`, `97787dcf`.
+Tests: `routing/test_long_caller_id.py`.
+
+## CH-197 - Paused TFNs over the daily limit are retired at 1:30 AM with the TFN Deleted message
+**2026-10-22 · Phone Numbers / Tasks**
+
+Commit: `80bd597d`.
+Tests: `phone_numbers/test_paused_sweep.py`.
+
+## CH-199 - TFNs Expired alert: short message, one per batch, no carrier codes or rules
+**2026-10-22 · Notifications / Phone Numbers**
+
+Commit: `60ad9997`.
+Tests: `notifications/test_deleted_tfns.py`, `notifications/test_expired_message.py`, `phone_numbers/test_answered_limit.py`.
+
+## CH-200 - Who switched a buyer line on or off, recorded and shown
+**2026-10-22 · Accounts / Buyers**
+
+Commit: `35f8e2d3`.
+Tests: `buyers/test_destination_switches.py`.
+
+## CH-201 - Switching a line no longer rewrites other campaigns' routing
+**2026-10-22 · Buyers**
+
+Commit: `5f396d63`.
+Tests: `buyers/test_line_edit_routing.py`.
+
+## CH-206 - Blocked caller IDs are dropped before a call row: nothing on the portal, comment Callerid Blocked
+**2026-10-22 · Routing**
+
+A caller the team blocked (Blocked Numbers or the TFN's publisher) is hung up
+before the call row is created, so it never shows as a red missed call however
+many times it dials. Automatic do-not-call/spam/fraud blocks and buyer-only
+blocks are unchanged. The Blocked Numbers page saves the reason as
+'scope=number', which fell through to 'Caller is blacklisted'; any team block
+now reads 'Callerid Blocked'.
+
+Commit: `739bfd7c`.
+Tests: `routing/test_blocked_drop.py`.
+
+## CH-207 - Call volume spike reads as good news, not Critical
+**2026-10-22 · Analytics**
+
+Sir: more calls than yesterday is not a concern. The anomaly is now titled
+'Call volume up', says 'Good news: calls are up N% compared to yesterday.'
+and is sent as type 'success' so the portal shows it in green. A drop in
+volume is unchanged (Critical).
+
+Commit: `34b2832e`.
+Tests: `analytics/test_volume_spike.py`.
+
+## CH-209 - Formal wording for activity alerts: Elevated Call Activity
+**2026-10-22 · Analytics**
+
+Sir: portal wording must be professional. The volume spike now reads
+'Elevated Call Activity - Call volume is N% higher than yesterday.' The other
+alerts follow the same style: Reduced Call Activity, Revenue Decline and
+No Recent Call Activity. Severity is unchanged.
+
+Commit: `89e13b26`.
+Tests: `analytics/test_volume_spike.py`.
+
+## CH-211 - Live call counts per tracking number and destination
+**2026-10-22 · Routing**
+
+GET /api/routing/calls/live-counts returns the calls up right now, keyed by
+the number's last 10 digits, for the LIVE column Sir asked for on the
+campaign's Routed Destinations and Tracking Numbers. Same rule as the
+Destinations page (ringing or connected, not ended, last 4 hours), two
+grouped queries, scoped to what the user may see.
+
+Commit: `88f4f7c3`.
+Tests: `routing/test_live_counts.py`.
+
+## CH-213 - TFN Check: share links, an API and automatic tests, like XOLO's lookup
+**2026-10-23 · Accounts / Config / Notifications**
+
+Sir asked for our own version of XOLO's number lookup. Paste numbers, press
+Check, and each one reads Working, Active, Not Working, Not In Service, Paused,
+Expired or Not Found, judged from what we already hold: the number's record,
+its campaign, its last call in 24 hours and its last real test call. Customer
+wording only - no carrier codes, rules, campaign or buyer names.
+
+- POST /api/numbers/check/ checks up to 200 numbers; test=true also queues
+  real test calls (CH-175) for live numbers, within the per-number limit.
+- Share links: GET/POST /api/numbers/check/links, DELETE .../links/{id}.
+  A link opens /check/<token> with no login; a publisher link answers only
+  for that publisher's numbers. Cancelled links stop answering at once.
+- Public API: GET/POST /api/public/tfn-check/<token>, 30 checks a minute
+  per link. It never places calls.
+- Automatic tests of quiet numbers every 30 minutes, 7:30 AM - 9 PM
+  Eastern, off until TFN_AUTO_TEST_ENABLED is set (the carrier must accept
+  the test caller ID first). A number the carrier stops delivering raises
+  the new "TFN Not Working" alert, once a day per number.
+- The LIVE column's counts (CH-211) need Campaigns View, not Call Flows.
+- The route-table guard test lists the three older endpoints it flagged.
+
+Commit: `71f30f70`.
+Tests: `accounts/test_role_ticks.py`, `phone_numbers/test_tfn_check.py`.
+
+## CH-215 - One row per caller call: a sender's retries are grouped, as Revo shows them
+**2026-10-23 · Analytics / Notifications / Routing**
+
+Revo holds the caller and, when our buyer has not answered within its limit
+per try (24s for ADST-AVX, 6-8s for PDSOA), cancels and dials us again within
+a second. Each try reached us as a new call, so one missed call on Revo was
+3 to 9 red rows on our portal (12052619645: 1 on Revo, 3 here; 17198591047:
+3 on Revo, 16 here). The SIP capture shows no shared identifier across tries.
+
+A new call continues the previous try of the same caller on the same number
+when that try went unanswered, ended at most 4s earlier, ran at least 4s and
+at least 60% of the try before it (Revo's limit is the same for every try; a
+short try is the caller hanging up, and what follows is a new call). The
+latest try is the one row shown: dated from the first try, its wait counted
+from there, its result the final one. Earlier tries keep their call-log rows,
+marked retry_hidden, and leave the reports mirror, the Call Logs page and the
+buyer-missing-calls alert.
+
+group_call_retries applies the same grouping to a day already taken
+(dry run by default, --apply to write).
+
+Commit: `942ad5cd`.
+Tests: `routing/test_retry_group.py`.
+
+## CH-216 - Export and partner settings say "Repeated" for a duplicate caller
+**2026-10-23 · Accounts / Analytics**
+
+Sir, 23 Oct: "Instead of Dup use Repeated". The Reports export's Duplicate
+column is now Repeated, and so is the column's name in a partner's
+Reporting visibility. The key underneath stays 'duplicate'.
+
+Commit: `7a81487e`.
+Tests: `analytics/test_repeated_export.py`.
+
+## CH-219 - Report stamp: a cheap "has today's report changed?" check
+**2026-10-23 · Analytics**
+
+GET /api/analytics/report-stamp returns a fingerprint of the calls in the
+same view the report shows (days, time zone, partner scope) and the server
+time. The Reports page asks every few seconds and reloads only when the
+fingerprint changes, so the report keeps itself current with auto refresh
+Off (Sir, 23 Oct).
+
+Commit: see `git log --grep CH-219`.
+Tests: `analytics/test_report_stamp.py`.
+
+## CH-221 - A buyer's API key sees only that buyer's live calls
+**2026-10-23 · Analytics**
+
+/api/stats/concurrency read the whole workspace: a key made for a buyer's
+login listed every live call with every buyer's and campaign's name. It is
+now narrowed by the key owner's role, like every other Stats API endpoint.
+Admin keys are unchanged.
+
+Commit: see `git log --grep CH-221`.
+Tests: `analytics/test_buyer_api_key.py`.
+
+## CH-222 - An answer under a second can count as connected, as Revo counts it
+**2026-10-23 · Config / Routing**
+
+19739700901 (23 Oct): PDSO, through Revo, answered after 10 seconds and
+the call ended under a second later. The switch logged ANSWERED, 0 seconds;
+the 21 Oct rule (CH-187) made it Not Connected while Revo shows Completed
+With Conversion, 2 seconds (Sir: "fix this 1 sec gap").
+
+- ZERO_SECOND_ANSWER_IS_NOT_CONNECTED is now read from .env (default True,
+  unchanged). Set to False, an answer under a second is Completed, shown as
+  1 second, with its ring from the switch.
+- restore_short_answers: puts back calls already stored as Not Connected by
+  the old rule, using the CDR as proof (ANSWERED, 0 billable seconds only).
+  Calls that were never answered are left alone. Money is not touched.
+
+Commit: see `git log --grep CH-222`.
+Tests: `routing/test_zero_second_answer.py`.
+
+## CH-223 - A retried try never comes back into Reports as a second row
+**2026-10-23 · Routing**
+
+13072281061 (23 Oct): the first try's hang-up and the sender's retry came
+0.4 s apart. The retry hid the first try and removed it from Reports, and the
+background copy of that try, which had read it a moment earlier, put it back:
+one call showed as two rows. The copy now checks again after writing and
+removes itself if the try was hidden meanwhile.
+
+remove_hidden_tries takes out copies left behind before this fix (dry run
+by default). The call log keeps every try.
+
+Commit: see `git log --grep CH-223`.
+Tests: `routing/test_hidden_try_race.py`.
+
+## CH-224 - A new buyer or publisher starts with every report column visible
+**2026-10-23 · Accounts / Buyers / Publishers**
+
+A new partner was created with an empty column list: its settings read
+"0 of 12 visible" and its login saw no report columns. New buyers and
+publishers now start with all 12 ticked, and the admin unticks what that
+partner should not see (Sir, 23 Oct). Cost and Revenue are on by default too.
+
+fill_report_columns gives all 12 to partners created before this that have
+none ticked (dry run by default); any partner with a column ticked is left
+as it is.
+
+Commit: see `git log --grep CH-224`.
+Tests: `accounts/test_report_columns_default.py`.
+
+## CH-225 - A buyer's answer that crossed the caller hanging up counts, as on Revo
+**2026-10-23 · Asterisk / Routing**
+
+16787331137 (23 Oct): the caller hung up at 16:56:53.677 and Revo's answer
+arrived at 16:56:53.772. Our switch acknowledged it and hung up, so Revo
+shows the call Completed, 2 seconds, converted; our switch only reports
+CANCEL, so the portal showed it missed (Sir: "if Revo shows a duration,
+ours must too").
+
+- docs/asterisk/late_answers.py (host, read-only): finds calls in the SIP
+  capture whose 200 OK arrived within 2 s after our CANCEL.
+- mark_late_answers: counts each matching missed call Completed, 1 second,
+  settled and charged exactly like an answer under a second (CH-222).
+  Run by cron every 2 minutes; already-counted calls are skipped.
+- settle_call_money: the hang-up's revenue/payout/charge step, now shared so
+  both paths pay a call the same way. No change to the hang-up itself.
+
+Commit: see `git log --grep CH-225`.
+Tests: `routing/test_late_answer.py`.
+
+## CH-226 - Force a call Completed when Revo shows it completed
+**2026-10-23 · Routing**
+
+Some calls are answered on Revo's side but Revo never sends the answer to
+us (18032426735, 19368279603, 17089457151, 23 Oct): our server sees only
+the caller hanging up, like any unanswered call, so no rule can find them.
+Sir: "if it is complete on Revo it must be complete on our end".
+
+force_complete takes the callers Sir names with Revo's duration
+(caller:seconds) and marks the latest missed call of that caller on the day
+Completed with that duration - paid and charged like any answered call.
+Dry run by default; other missed calls of the same caller are listed, not
+touched.
+
+Commit: see `git log --grep CH-226`.
+Tests: `routing/test_force_complete.py`.
+
+## CH-227 - A burst of tries the buyer line refused shows as one call
+**2026-10-23 · Routing**
+
+17192334345 (23 Oct): the PDSO line refused 24 tries in a row within a
+second each and the sending platform redialled every ~1.5 s. CH-215 only
+groups tries that rang at least 4 seconds (shorter usually means a caller
+who hung up and called again), so each refusal was its own red row.
+
+When the buyer's line itself refused or rang out the previous try (fail
+reason "No Answer"), the redial within 4 seconds is the sender's whatever
+the length, and is grouped. A caller who hangs up and calls back stays a
+separate call. group_call_retries --apply regroups a past day the same way.
+
+Commit: see `git log --grep CH-227`.
+Tests: `routing/test_retry_refused.py`.
