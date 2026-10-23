@@ -295,12 +295,17 @@ def concurrency(request: HttpRequest):
 
     Counted from the call log's live statuses - the same figures the Live
     Monitor shows, taken at this moment.
+
+    A buyer's or publisher's key sees only its own calls (CH-221). This was the
+    one endpoint here that read the whole workspace, so a buyer's key listed
+    every live call with every buyer's and campaign's name.
     """
-    live = CallLog.objects.filter(
+    from accounts.permissions import scope_queryset
+    live = scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
         status__in=LIVE_STATUSES,
         created_at__gte=timezone.now() - timedelta(hours=4),
-    )
+    ))
 
     def grouped(field_id, name_attr):
         rows = live.values(field_id).annotate(cc=Count('id')).order_by('-cc')
