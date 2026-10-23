@@ -178,6 +178,15 @@ def mirror_call_log(call_log_id) -> bool:
             'started_at': started_at,
         },
     )
+    # CH-223: the try may have been hidden while this copy was being written.
+    # 13072281061, 23 Oct: the first try's hang-up and the sender's retry came
+    # 0.4 s apart; the retry hid the first try and removed it from the reports,
+    # and this copy, which had read the row a moment earlier, put it back - the
+    # same call showed twice. Checked again after writing: link() hides the row
+    # before it removes the copy, so whichever runs last, the copy goes.
+    if CallLog.objects.filter(id=call.id, retry_hidden=True).exists():
+        CallRecord.objects.filter(id=call.id).delete()
+        return False
     return True
 
 
