@@ -313,6 +313,11 @@ ASTERISK_SYNC_STRIKES = config('ASTERISK_SYNC_STRIKES', default=2, cast=int)
 # True records it as answered, timed from when the call was created; False
 # leaves it as the report says (unanswered, 0s).
 BLIND_HANGUP_ASSUMES_ANSWERED = config('BLIND_HANGUP_ASSUMES_ANSWERED', default=True, cast=bool)
+# CH-187 / CH-222: a call the buyer answered with under a second of talk.
+# True (default, unchanged): Not Connected. False: Completed, shown as 1 second,
+# as Revo shows it (Sir, 23 Oct). Read on every hangup - change .env and
+# restart web, no deploy needed.
+ZERO_SECOND_ANSWER_IS_NOT_CONNECTED = config('ZERO_SECOND_ANSWER_IS_NOT_CONNECTED', default=True, cast=bool)
 
 # Calls arrive over the SIP trunk into Asterisk, not through the Twilio voice
 # webhooks. Those webhooks are a second routing implementation with their own

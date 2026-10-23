@@ -661,9 +661,18 @@ def call_ended(request):
         answered and duration <= 0
         and getattr(settings, 'ZERO_SECOND_ANSWER_IS_NOT_CONNECTED', True)
     )
+    # CH-222: with ZERO_SECOND_ANSWER_IS_NOT_CONNECTED=False in .env the rule
+    # above is off. The buyer did pick up, for under a second of talk, and
+    # Revo shows the same call Completed, 1-2 seconds (19739700901, 23 Oct:
+    # ours Not Connected, Revo Completed With Conversion, 2s). The switch counts
+    # whole seconds, so under a second is shown as 1 second, not 0.
+    under_a_second = False
     if zero_second_answer:
         answered = False
         duration = 0
+    elif answered and duration <= 0:
+        under_a_second = True
+        duration = 1
 
     call_log.duration = duration
     call_log.status = CallLog.Status.COMPLETED if answered else CallLog.Status.NO_ANSWER
@@ -684,7 +693,10 @@ def call_ended(request):
         dialed_seconds = int(data.get('dialed_seconds') or 0)
     except (TypeError, ValueError):
         dialed_seconds = 0
-    if answered and dialed_seconds >= duration > 0:
+    if answered and under_a_second and dialed_seconds > 0:
+        # The talk was under a second, so DIALEDTIME is all ring.
+        call_log.ring_seconds = dialed_seconds
+    elif answered and dialed_seconds >= duration > 0:
         call_log.ring_seconds = dialed_seconds - duration
     elif not answered and (
         dialed_seconds > 0 or str(data.get('dial_status') or '').strip() or handed_to_dial
