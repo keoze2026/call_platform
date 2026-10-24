@@ -229,3 +229,18 @@ class BuyerTelegramReportTests(TestCase):
         self.assertFalse(other.permissions.get('download_reports'))
         # The workspace admin still manages it.
         self.assertEqual(self.api.get(f'/api/buyers/{other.id}/access').status_code, 200)
+
+    # ── CH-261: the Automated Reports page ────────────────────────────────
+
+    def test_automated_reports_lists_every_buyer_with_its_state(self):
+        Buyer.objects.create(organization=self.org, name='Q05')          # nothing set up
+        waiting = Buyer.objects.create(organization=self.org, name='Q06')
+        BuyerTelegramReport.objects.create(buyer=waiting, enabled=True, chat_id='555555')
+        body = self.api.get('/api/buyers/telegram-reports').json()
+        states = {i['buyer_name']: i['state'] for i in body['items']}
+        self.assertEqual(states, {'Q04': 'active', 'Q06': 'waiting_approval', 'Q05': 'not_set_up'})
+        self.assertEqual([i['buyer_name'] for i in body['items']], ['Q04', 'Q06', 'Q05'])
+        self.assertEqual(body['counts']['active'], 1)
+        self.assertEqual(self.buyer_login(Buyer.objects.create(organization=self.org, name='Q07'))
+                         .get('/api/buyers/telegram-reports').status_code, 403)
+

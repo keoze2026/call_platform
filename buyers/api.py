@@ -47,6 +47,39 @@ def _my_report_out(r) -> dict:
     }
 
 
+@router.get("/telegram-reports", response={200: dict})
+def list_telegram_reports(request: HttpRequest):
+    """Every buyer of the workspace with its Telegram report status, for the
+    Automated Reports page (CH-261). Workspace admins only. Defined before the
+    /{buyer_id} routes so "telegram-reports" is never taken for an id."""
+    from buyers.models import BuyerTelegramReport
+    require(request.auth, Capability.MEMBERS)
+    reports = {r.buyer_id: r for r in BuyerTelegramReport.objects.filter(buyer__organization=request.auth.organization)}
+    items = []
+    for b in Buyer.objects.filter(organization=request.auth.organization).exclude(status='archived').order_by('name'):
+        r = reports.get(b.id)
+        if r is None or not r.chat_id:
+            state = 'not_set_up'
+        elif not r.enabled:
+            state = 'off'
+        elif not r.buyer_approved:
+            state = 'waiting_approval'
+        else:
+            state = 'active'
+        items.append({
+            "buyer_id": str(b.id),
+            "buyer_name": b.name,
+            "state": state,
+            "send_time": r.send_time.strftime('%H:%M') if r else None,
+            "last_sent_at": r.last_sent_at.isoformat() if r and r.last_sent_at else None,
+            "last_result": r.last_result if r else '',
+        })
+    order = {'active': 0, 'waiting_approval': 1, 'off': 2, 'not_set_up': 3}
+    items.sort(key=lambda i: (order[i['state']], i['buyer_name'].lower()))
+    counts = {k: sum(1 for i in items if i['state'] == k) for k in order}
+    return 200, {"items": items, "counts": counts}
+
+
 @router.get("/my/telegram-report", response={200: dict, 403: dict})
 def get_my_telegram_report(request: HttpRequest):
     """A buyer login's own report switch."""

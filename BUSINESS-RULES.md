@@ -190,6 +190,10 @@ Last updated: 24 Oct 2026.
   or publisher login can never see or change another buyer's report or
   access settings.
 
+- **Automated Reports page (CH-261):** after Reports in the menu. Headline
+  "Reports that send themselves." / "Daily buyer reports on Telegram, set
+  once." Keep the wording brief (Sir). Lists every buyer's report status.
+
 ## Waiting for Sir (not built)
 
 - **Repeated callers and publisher payout:** on Revo a repeated caller pays
