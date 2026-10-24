@@ -87,6 +87,21 @@ def _tz(filters, user=None):
 # time; the fallback covers rows written before it was populated.
 CALL_TIME = Coalesce('started_at', 'created_at')
 
+# Every column of the call export, in order (the download and the emailed
+# digest, CH-266).
+EXPORT_HEADER = (
+    'Date', 'Call ID', 'Caller', 'State', 'Carrier', 'Called Number',
+    'Campaign', 'Buyer',
+    'Destination Name', 'Destination Number',
+    'Publisher',
+    'Status', 'Fail Reason',
+    'Duration (s)', 'TTC (s)',
+    # "Repeated", Sir's word for a duplicate caller (CH-216).
+    'Qualified', 'Converted', 'Repeated',
+    'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
+)
+
+
 # A call the publisher is paid for: it converted and it carries a payout - its
 # own (the tracking number's payout, CH-250) or the campaign's.
 PAID = Q(is_converted=True) & (Q(payout__gt=0) | Q(campaign__payout_amount__gt=0))
@@ -1407,6 +1422,34 @@ class AnalyticsService:
     # ── CSV export ───────────────────────────────────────────────────────────
 
     @staticmethod
+    def export_dropped_columns(user) -> set:
+        """Export columns this login may not have: the money mask of its role
+        and the columns its partner settings switch off. Shared by the
+        download and the emailed digest (CH-266), so the two never differ."""
+        hidden = MASKED_KEYS.get(getattr(user, 'role', ''), ())
+        drop = set()
+        # The partner's own column choices drop from the file as well - the
+        # export is the screen as a file, same rule as the money mask.
+        col_headers = {
+            'qualified': ('Qualified',), 'converted': ('Converted',),
+            'duplicate': ('Repeated',), 'duration': ('Duration (s)',),
+            'payout': ('Payout',), 'revenue': ('Revenue',),
+            'cost': ('Cost', 'Billed Minutes'),
+        }
+        for key in hidden_report_columns(user):
+            drop.update(col_headers.get(key, ()))
+        if 'payout' in hidden:
+            drop.add('Payout')
+        if 'revenue' in hidden:
+            drop.add('Revenue')
+        if 'profit' in hidden:
+            drop.add('Profit')
+        if 'cost' in hidden:
+            drop.update(('Cost', 'Billed Minutes'))
+
+        return drop
+
+    @staticmethod
     def export_csv(user: User, filters):
         class PseudoBuffer:
             def write(self, value):
@@ -1432,38 +1475,8 @@ class AnalyticsService:
         # Call ID lets a row be matched back to the call detail view.
         # The same mask as every screen: the export is just the screen as a
         # file, and a buyer's download was carrying Payout, Profit and Cost.
-        hidden = MASKED_KEYS.get(getattr(user, 'role', ''), ())
-        drop = set()
-        # The partner's own column choices drop from the file as well - the
-        # export is the screen as a file, same rule as the money mask.
-        col_headers = {
-            'qualified': ('Qualified',), 'converted': ('Converted',),
-            'duplicate': ('Repeated',), 'duration': ('Duration (s)',),
-            'payout': ('Payout',), 'revenue': ('Revenue',),
-            'cost': ('Cost', 'Billed Minutes'),
-        }
-        for key in hidden_report_columns(user):
-            drop.update(col_headers.get(key, ()))
-        if 'payout' in hidden:
-            drop.add('Payout')
-        if 'revenue' in hidden:
-            drop.add('Revenue')
-        if 'profit' in hidden:
-            drop.add('Profit')
-        if 'cost' in hidden:
-            drop.update(('Cost', 'Billed Minutes'))
-
-        header = [
-            'Date', 'Call ID', 'Caller', 'State', 'Carrier', 'Called Number',
-            'Campaign', 'Buyer',
-            'Destination Name', 'Destination Number',
-            'Publisher',
-            'Status', 'Fail Reason',
-            'Duration (s)', 'TTC (s)',
-            # "Repeated", Sir's word for a duplicate caller (CH-216).
-            'Qualified', 'Converted', 'Repeated',
-            'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
-        ]
+        drop = AnalyticsService.export_dropped_columns(user)
+        header = list(EXPORT_HEADER)
         keep = [i for i, name in enumerate(header) if name not in drop]
         yield writer.writerow([header[i] for i in keep])
 

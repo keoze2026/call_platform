@@ -420,6 +420,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.send_daily_summary',
         'schedule': 86400.0,  # every 24 hours
     },
+    # Settings > Scheduled Reports: the emailed digests (CH-266).
+    'send-scheduled-reports': {
+        'task': 'tasks.send_scheduled_reports',
+        'schedule': 300.0,  # every 5 minutes
+    },
     # Buyers' own daily reports on Telegram, each at its own time (CH-258).
     'send-buyer-reports': {
         'task': 'tasks.send_buyer_reports',

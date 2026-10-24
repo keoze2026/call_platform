@@ -11,6 +11,7 @@ class ScheduledReport(models.Model):
 
     class Format(models.TextChoices):
         CSV = 'csv', 'CSV'
+        XLSX = 'xlsx', 'Excel'   # CH-266
         PDF = 'pdf', 'PDF'
 
     class Status(models.TextChoices):

@@ -152,6 +152,20 @@ Last updated: 24 Oct 2026.
 - Only a buyer or publisher that picks **its own** zone differs. Choosing EST
   again puts it back on the portal's zone.
 
+- **Sessions (CH-266):** everyone sees only their **own** sign-ins; only the
+  workspace admin sees everyone's. You may end your own sign-ins.
+
+## 4c. Scheduled Reports (email digest) — CH-266
+
+- Settings › Scheduled Reports emails a report at the chosen time and days
+  (EST by default): a short summary in the email, the calls attached as
+  **Excel, CSV, or both**. PDF is not offered yet.
+- **One digest per login, with only that login's data** — a publisher's own
+  calls, a buyer's own calls. Nobody can see or change another's digest.
+- **Every export column is a tick box** (Date, Call ID, Caller ID, … Recording).
+  Our money columns (Payout, Profit, Cost, Billed Minutes) are offered to our
+  own staff only.
+
 ## 5. Notifications
 
 - **Watchdog (Telegram):** `🔴 AVORTYX | Title` … `Detected: {time}` and

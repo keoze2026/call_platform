@@ -875,3 +875,12 @@ def send_buyer_reports():
     from buyers.telegram_report import send_due_reports
     done = send_due_reports()
     return f"Buyer reports: {done['sent']} sent, {done['failed']} failed"
+
+
+@app.task(name='tasks.send_scheduled_reports')
+def send_scheduled_reports():
+    """Send the emailed digests that are due (CH-266)."""
+    from analytics.digest import send_due
+    done = send_due()
+    return f"Scheduled reports: {done['sent']} sent, {done['failed']} failed"
+
