@@ -51,7 +51,18 @@ Last updated: 24 Oct 2026.
   added after it (CH-189).
 - Routing cost opens on **Today** (CH-253).
 
-### 1.3 What buyers pay us and publishers earn — CH-247, CH-248, CH-250
+### 1.3 Company profit (before tax) — CH-257
+- **Profit before tax = what customers were charged − what carriers charge
+  us**, by Eastern month, shown to the owner on Carrier Costs.
+- Customer charges: call minutes (with recording and VoIP Shield), VoIP
+  Shield on missed/refused calls, rejected calls, TFN purchases, portal fees;
+  refunds come off. Our own portal's charges to itself do not count.
+- Our own campaigns' buyer revenue and publisher payouts are **not** part of
+  it (Sir: "this only").
+- The $20 TFN fee is taken from the balance **when a customer buys a number**
+  in the portal — not for uploaded numbers, and not shown as a daily charge.
+
+### 1.4 What buyers pay us and publishers earn — CH-247, CH-248, CH-250
 - Each campaign destination bills by **its own rule**, as on Revo:
   **Rate** and **Convert ON** = Incoming Call / Call Connected / Call Length
   (seconds). Adding a destination to a campaign **requires** both (CH-248).
