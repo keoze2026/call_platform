@@ -194,7 +194,7 @@ class CallLog(models.Model):
     # whenever the rate changed - calls billed at $0.45 were being redisplayed at
     # $0.045 - and rounding the minute total once lost the part-cents the invoice
     # charges per call. Storing the charged amount removes both problems.
-    platform_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0, db_index=True)
+    platform_cost = models.DecimalField(max_digits=14, decimal_places=4, default=0, db_index=True)
     buyer_payout = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     publisher_payout = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     revenue = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)

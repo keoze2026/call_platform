@@ -20,7 +20,8 @@ class BillingAccount(models.Model):
     stripe_payment_method_id = models.CharField(max_length=255, blank=True)
 
     # Balance
-    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    # Four decimals, as the rates (CH-255): fees under a cent were rounded on every call.
+    balance = models.DecimalField(max_digits=14, decimal_places=4, default=0)
     credit_limit = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     low_balance_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=10.00)
     auto_recharge = models.BooleanField(default=False)
@@ -31,7 +32,7 @@ class BillingAccount(models.Model):
     # Per-minute call pricing, per client. Billing rounds up to the whole minute:
     # a 90-second call bills as 2 minutes.
     per_minute_rate = models.DecimalField(
-        max_digits=10, decimal_places=4, default=Decimal('0.4500'),
+        max_digits=10, decimal_places=4, default=Decimal('0.0450'),
         help_text='What this client is charged per minute of call time'
     )
     markup_percent = models.DecimalField(
@@ -104,9 +105,9 @@ class Transaction(models.Model):
     currency = models.CharField(max_length=3, default='USD')
 
     transaction_type = models.CharField(max_length=20, choices=Type.choices)
-    amount = models.DecimalField(max_digits=10, decimal_places=2)
-    balance_before = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
-    balance_after = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    amount = models.DecimalField(max_digits=14, decimal_places=4)
+    balance_before = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    balance_after = models.DecimalField(max_digits=14, decimal_places=4, default=0)
 
     # Reference
     description = models.CharField(max_length=255, blank=True)
