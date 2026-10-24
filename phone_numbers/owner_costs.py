@@ -7,9 +7,14 @@ every endpoint on owner_router. Numbers a workspace deleted stay here (status
 own Tracking Numbers list.
 
 Month bill = number fees (every number live at any point in the month) +
-the carrier's flat portal fee + connected minutes x per-minute cost. Minutes
-are exact seconds / 60, so it is an estimate to compare with the invoice, not
-the invoice itself.
+the carrier's flat portal fee + connected minutes x per-minute cost. Each
+call's seconds are rounded the way the carrier bills them (CH-254: exact
+seconds, or up to 6 / 30 / 60 seconds). An estimate to compare with the
+invoice, not the invoice itself.
+
+CH-254: the month is the Eastern calendar month (as the routing cost and the
+reports count days), and the page total is the whole bill: every TFN carrier
+plus routing on to buyers (XOLO termination minutes and its monthly fee).
 """
 import calendar
 from datetime import date, datetime, time, timedelta, timezone as dt_timezone
@@ -17,7 +22,7 @@ from zoneinfo import ZoneInfo
 from decimal import Decimal, InvalidOperation
 from typing import List, Optional
 
-from django.db.models import Count, Q, Sum
+from django.db.models import Count, ExpressionWrapper, F, IntegerField, Q, Sum
 from django.db.models.functions import Coalesce, TruncDate
 from django.http import HttpRequest
 from django.utils import timezone
@@ -30,6 +35,16 @@ from routing.models import CallLog
 
 CONNECTED = Q(status__in=['completed', 'in_progress'])
 CENT = Decimal('0.01')
+EASTERN = ZoneInfo('America/New_York')
+
+
+def _billed(increment: int):
+    """Connected seconds with each call rounded up to `increment` seconds."""
+    if increment <= 1:
+        return Coalesce(Sum('duration', filter=CONNECTED), 0)
+    rounded = ExpressionWrapper(
+        (F('duration') + (increment - 1)) / increment * increment, output_field=IntegerField())
+    return Coalesce(Sum(rounded, filter=CONNECTED), 0)
 
 
 def _last10(number: str) -> str:
@@ -37,8 +52,11 @@ def _last10(number: str) -> str:
 
 
 def _month_bounds(month: Optional[str]):
-    """(start, end, 'YYYY-MM') for the month asked for, default this month."""
-    now = timezone.now()
+    """(start, end, 'YYYY-MM') for the month asked for, default this month.
+
+    Eastern calendar month (CH-254). It was UTC, so October began at 8 PM
+    Eastern on 30 Sep, and disagreed with the routing cost beside it."""
+    now = timezone.now().astimezone(EASTERN)
     if month:
         try:
             y, m = month.split('-')
@@ -49,14 +67,14 @@ def _month_bounds(month: Optional[str]):
             raise HttpError(400, "month must look like 2026-10.")
     else:
         y, m = now.year, now.month
-    start = datetime(y, m, 1, tzinfo=dt_timezone.utc)
+    start = datetime(y, m, 1, tzinfo=EASTERN)
     ny, nm = (y + 1, 1) if m == 12 else (y, m + 1)
-    end = datetime(ny, nm, 1, tzinfo=dt_timezone.utc)
+    end = datetime(ny, nm, 1, tzinfo=EASTERN)
     return start, end, f'{y:04d}-{m:02d}'
 
 
-def _money(d: Decimal) -> str:
-    return str(d.quantize(CENT))
+def _money(d) -> str:
+    return str(Decimal(d or 0).quantize(CENT))
 
 
 class CarrierRowSchema(Schema):
@@ -70,6 +88,7 @@ class CarrierRowSchema(Schema):
     number_monthly_cost: str
     portal_monthly_fee: str
     per_minute_cost: str
+    billing_increment: int
     numbers: List[dict]
     totals: dict
 
@@ -79,12 +98,16 @@ class CarrierCostsSchema(Schema):
     carriers: List[CarrierRowSchema]
     grand_total: str
     unassigned: dict
+    routing: dict
+    summary: dict
+    warnings: List[dict]
 
 
 class CarrierCostsUpdateSchema(Schema):
     number_monthly_cost: Optional[str] = None
     portal_monthly_fee: Optional[str] = None
     per_minute_cost: Optional[str] = None
+    billing_increment: Optional[int] = None
 
 
 class AssignCarrierSchema(Schema):
@@ -120,6 +143,7 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
     # (dialled numbers arrive without the +).
     org_ids = {n.organization_id for n in numbers}
     stats = {}
+    increments = Carrier.BILLING_INCREMENTS
     rows = (
         CallLog.objects
         .filter(organization_id__in=org_ids, created_at__gte=start, created_at__lt=end)
@@ -128,14 +152,14 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
             calls=Count('id'),
             connected=Count('id', filter=CONNECTED),
             tcl=Coalesce(Sum('duration', filter=CONNECTED), 0),
+            **{f'billed_{i}': _billed(i) for i in increments if i > 1},
         )
     )
+    blank = {'calls': 0, 'connected': 0, 'tcl': 0, **{f'billed_{i}': 0 for i in increments if i > 1}}
     for r in rows:
-        s = stats.setdefault((r['organization_id'], _last10(r['called_number'])),
-                             {'calls': 0, 'connected': 0, 'tcl': 0})
-        s['calls'] += r['calls']
-        s['connected'] += r['connected']
-        s['tcl'] += r['tcl']
+        s = stats.setdefault((r['organization_id'], _last10(r['called_number'])), dict(blank))
+        for k in s:
+            s[k] += r[k]
 
     by_carrier = {}
     unassigned = []
@@ -143,8 +167,10 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
         (by_carrier.setdefault(n.carrier_id, []) if n.carrier_id else unassigned).append(n)
 
     def number_row(n, carrier):
-        s = stats.get((n.organization_id, _last10(n.number)), {'calls': 0, 'connected': 0, 'tcl': 0})
-        minutes = Decimal(s['tcl']) / Decimal(60)
+        s = stats.get((n.organization_id, _last10(n.number)), blank)
+        increment = carrier.billing_increment if carrier else 1
+        billed = s['tcl'] if increment <= 1 else s.get(f'billed_{increment}', s['tcl'])
+        minutes = Decimal(billed) / Decimal(60)
         # The price the number was added at (CH-189); the carrier's current
         # price only for a number that has none of its own.
         if n.tfn_price is not None:
@@ -162,6 +188,8 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
             'calls': s['calls'],
             'connected': s['connected'],
             'tcl_seconds': s['tcl'],
+            # The seconds the carrier bills: each call rounded to its increment.
+            'billed_seconds': billed,
             'aht_seconds': round(s['tcl'] / s['connected']) if s['connected'] else 0,
             'number_fee': _money(fee),
             'minute_cost': _money(minute_cost),
@@ -172,6 +200,7 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
         calls = sum(r['calls'] for r in rows_)
         connected = sum(r['connected'] for r in rows_)
         tcl = sum(r['tcl_seconds'] for r in rows_)
+        billed = sum(r['billed_seconds'] for r in rows_)
         fees = sum((Decimal(r['number_fee']) for r in rows_), Decimal('0'))
         mins = sum((Decimal(r['minute_cost']) for r in rows_), Decimal('0'))
         portal = carrier.portal_monthly_fee if carrier else Decimal('0')
@@ -182,6 +211,7 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
             'calls': calls,
             'connected': connected,
             'tcl_seconds': tcl,
+            'billed_seconds': billed,
             'aht_seconds': round(tcl / connected) if connected else 0,
             'number_fees': _money(fees),
             'portal_fee': _money(portal),
@@ -209,16 +239,67 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
             'number_monthly_cost': _money(c.number_monthly_cost),
             'portal_monthly_fee': _money(c.portal_monthly_fee),
             'per_minute_cost': str(c.per_minute_cost),
+            'billing_increment': c.billing_increment,
             'numbers': rows_,
             'totals': t,
         })
 
     un_rows = [number_row(n, None) for n in unassigned]
+    un_totals = totals(un_rows, None)
+
+    # Routing on to buyers (XOLO termination) for the same month (CH-254). It
+    # had its own card and was left out of the total.
+    rate = _routing_rate()
+    r = _routing_window(start, end)
+    routing_minutes = Decimal(r['seconds']) * Decimal(rate.per_minute_cost or 0) / Decimal(60)
+    routing_fee = Decimal(rate.monthly_fee or 0)
+    routing = {
+        **_rate_out(rate),
+        'forwarded': r['forwarded'],
+        'connected': r['connected'],
+        'seconds': r['seconds'],
+        'minutes': str((Decimal(r['seconds']) / Decimal(60)).quantize(CENT)),
+        'minute_cost': _money(routing_minutes),
+        'total': _money(routing_minutes + routing_fee),
+    }
+    grand += routing_minutes + routing_fee
+
+    def add(key):
+        return _money(sum((Decimal(c['totals'][key]) for c in out), Decimal('0')))
+
+    summary = {
+        'number_fees': add('number_fees'),
+        'portal_fees': add('portal_fee'),
+        'minute_charges': add('minute_charges'),
+        'carriers_total': add('monthly_bill'),
+        'routing_minutes': routing['minute_cost'],
+        'routing_monthly_fee': routing['monthly_fee'],
+        'routing_total': routing['total'],
+        'grand_total': _money(grand),
+    }
+
+    # What would make the bill read low: a carrier with talk time and no
+    # minute rate, or TFNs and no TFN price; numbers with calls and no carrier.
+    warnings = []
+    for c in out:
+        t = c['totals']
+        if t['tcl_seconds'] > 0 and Decimal(c['per_minute_cost']) == 0:
+            warnings.append({'kind': 'no_minute_rate', 'carrier': c['name'], 'code': c['code'],
+                             'calls': t['calls']})
+        if t['numbers'] > 0 and Decimal(t['number_fees']) == 0:
+            warnings.append({'kind': 'no_number_fee', 'carrier': c['name'], 'code': c['code'],
+                             'numbers': t['numbers']})
+    if un_totals['numbers']:
+        warnings.append({'kind': 'no_carrier', 'numbers': un_totals['numbers'], 'calls': un_totals['calls']})
+
     return 200, {
         'month': label,
         'carriers': out,
         'grand_total': _money(grand),
-        'unassigned': {'numbers': un_rows, 'totals': totals(un_rows, None)},
+        'unassigned': {'numbers': un_rows, 'totals': un_totals},
+        'routing': routing,
+        'summary': summary,
+        'warnings': warnings,
     }
 
 
@@ -239,6 +320,11 @@ def update_carrier_costs(request: HttpRequest, carrier_id: str, data: CarrierCos
     if data.per_minute_cost is not None:
         c.per_minute_cost = _decimal(data.per_minute_cost, 'per_minute_cost', '0.0001')
         fields.append('per_minute_cost')
+    if data.billing_increment is not None:
+        if data.billing_increment not in Carrier.BILLING_INCREMENTS:
+            raise HttpError(400, "billing_increment must be 1, 6, 30 or 60 seconds.")
+        c.billing_increment = data.billing_increment
+        fields.append('billing_increment')
     if fields:
         c.save(update_fields=fields + ['updated_at'])
     return 200, {
@@ -246,6 +332,7 @@ def update_carrier_costs(request: HttpRequest, carrier_id: str, data: CarrierCos
         'number_monthly_cost': _money(c.number_monthly_cost),
         'portal_monthly_fee': _money(c.portal_monthly_fee),
         'per_minute_cost': str(c.per_minute_cost),
+        'billing_increment': c.billing_increment,
     }
 
 
@@ -277,7 +364,6 @@ def assign_carrier(request: HttpRequest, data: AssignCarrierSchema):
 # x the per-minute rate - an estimate to check the carrier's invoice against.
 # --------------------------------------------------------------------------
 
-EASTERN = ZoneInfo('America/New_York')
 FORWARDED_CONNECTED = Q(status='completed')
 MAX_DAYS = 93
 
@@ -299,6 +385,20 @@ def _rate_out(rate: RoutingRate) -> dict:
         'per_minute_cost': str(rate.per_minute_cost),
         'monthly_fee': _money(rate.monthly_fee),
     }
+
+
+def _routing_window(lo, hi) -> dict:
+    """Calls forwarded to a buyer between lo and hi, and the connected seconds."""
+    return (
+        CallLog.objects
+        .filter(created_at__gte=lo, created_at__lt=hi)
+        .exclude(destination_number='')
+        .aggregate(
+            forwarded=Count('id'),
+            connected=Count('id', filter=FORWARDED_CONNECTED),
+            seconds=Coalesce(Sum('duration', filter=FORWARDED_CONNECTED), 0),
+        )
+    )
 
 
 def _day(value: str, field: str) -> date:
