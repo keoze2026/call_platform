@@ -187,6 +187,9 @@ class BuyerTelegramReport(models.Model):
     no_recording_link = models.BooleanField(default=False)
     connected_only = models.BooleanField(default=False)
     hide_fail_reason = models.BooleanField(default=False)
+    # The columns in the files (CH-267); empty = the first set (Date, Caller
+    # ID, Destination, Status, Duration, Fail Reason, Recording).
+    included_columns = models.JSONField(default=list, blank=True)
     # {"status": "Call Status", ...} - the report's column headings.
     column_names = models.JSONField(default=dict, blank=True)
     # {"No Destination": "Line Busy", ...} - the wording of Fail Reason comments.

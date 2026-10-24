@@ -52,9 +52,32 @@ def available_columns(user) -> list:
     return [(c, LABELS.get(c, c)) for c in EXPORT_HEADER if c not in drop]
 
 
+def _f(report, name, default=None):
+    """A digest setting. The portal's client sends setting names in
+    snake_case ("format_choice"); older rows have them as typed
+    ("formatChoice"). Both are read (CH-267)."""
+    f = report.filters or {}
+    if name in f:
+        return f[name]
+    camel = name.split('_')[0] + ''.join(w.title() for w in name.split('_')[1:])
+    return f.get(camel, default)
+
+
+def _pairs(value, a, b) -> dict:
+    """[{a: x, b: y}, ...] -> {x: y} (a list survives the client's key
+    renaming, a map would not)."""
+    if isinstance(value, dict):
+        return {str(k): str(v) for k, v in value.items()}
+    out = {}
+    for item in value or []:
+        if isinstance(item, dict) and str(item.get(a, '')).strip():
+            out[str(item[a]).strip()] = str(item.get(b, '')).strip()
+    return out
+
+
 def _zone(report) -> ZoneInfo:
     from accounts.partner_timezone import portal_timezone
-    name = (report.filters or {}).get('timezone') or portal_timezone()
+    name = _f(report, 'timezone') or portal_timezone()
     try:
         return ZoneInfo(name)
     except Exception:
@@ -77,6 +100,10 @@ def _caller(value: str) -> str:
 def _pretty(col: str, value: str) -> str:
     if col == 'Status':
         return STATUS.get(value, value)
+    if col == 'Fail Reason':
+        # The wording the portal shows ("No Destination"), not the code.
+        from buyers.telegram_report import fail_reason_label
+        return fail_reason_label(value)
     if col in ('Duration (s)', 'TTC (s)'):
         return _hms(value) if value != '' else ''
     if col in ('Caller', 'Called Number', 'Destination Number'):
@@ -102,10 +129,20 @@ def build(report, now=None):
     head, body = (table[0], table[1:]) if table else ([], [])
 
     allowed = [c for c, _ in available_columns(user)]
-    chosen = (report.filters or {}).get('columns')
+    chosen = _f(report, 'columns')
     cols = [c for c in (chosen if isinstance(chosen, list) and chosen else allowed) if c in allowed and c in head]
     idx = [head.index(c) for c in cols]
     rows = [[_pretty(c, r[i] if i < len(r) else '') for c, i in zip(cols, idx)] for r in body]
+
+    # Manual edit (CH-267): the user's own wording for Fail Reason comments,
+    # and its own column headings.
+    rewrites = {k.lower(): v for k, v in _pairs(_f(report, 'comment_rewrites'), 'from', 'to').items()}
+    if rewrites and 'Fail Reason' in cols:
+        j = cols.index('Fail Reason')
+        for r in rows:
+            if r[j]:
+                r[j] = rewrites.get(r[j].lower(), r[j])
+    names = _pairs(_f(report, 'column_names'), 'key', 'label')
 
     def count(col, test):
         if col not in head:
@@ -118,12 +155,12 @@ def build(report, now=None):
         'connected': count('Status', lambda v: v in ('completed', 'in_progress')),
         'converted': count('Converted', lambda v: v == 'Yes'),
     }
-    return day, [LABELS.get(c, c) for c in cols], rows, summary
+    return day, [names.get(c) or LABELS.get(c, c) for c in cols], rows, summary
 
 
 def _files(report, day, header, rows):
     from buyers.xlsx import write_xlsx
-    choice = (report.filters or {}).get('formatChoice') or report.format or 'xlsx'
+    choice = _f(report, 'format_choice') or report.format or 'xlsx'
     stem = f'Avortyx report {day:%Y-%m-%d}'
     out = []
     if choice in ('csv', 'both'):
@@ -180,11 +217,11 @@ def is_due(report, now=None) -> bool:
     f = report.filters or {}
     tz = _zone(report)
     local = (now or timezone.now()).astimezone(tz)
-    days = [d for d in (f.get('days') or list(WEEKDAYS)) if d in WEEKDAYS]
+    days = [d for d in (_f(report, 'days') or list(WEEKDAYS)) if d in WEEKDAYS]
     if WEEKDAYS[local.weekday()] not in days:
         return False
     try:
-        at = time(int(f.get('hour', 18)), int(f.get('minute', 0)))
+        at = time(int(_f(report, 'hour', 18)), int(_f(report, 'minute', 0)))
     except (TypeError, ValueError):
         at = time(18, 0)
     if local.time() < at:

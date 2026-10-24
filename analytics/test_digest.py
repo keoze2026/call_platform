@@ -167,3 +167,33 @@ class DigestTests(TestCase):
         pub = self.client_for(self.puser)
         self.assertEqual(pub.delete(f'/api/accounts/workspace/sessions/{admins.id}').status_code, 403)
         self.assertEqual(pub.delete(f'/api/accounts/workspace/sessions/{own.id}').status_code, 204)
+
+    # ── CH-267 ───────────────────────────────────────────────────────────
+
+    def test_settings_saved_by_the_portal_are_followed(self):
+        """The portal's client sends setting names in snake_case: Excel + CSV
+        was read as one format before CH-267."""
+        self.call(self.pub, status='no_answer', seconds=0)
+        CallRecord.objects.filter(organization=self.org).update(block_reason='Destination missed (cap)')
+        api = self.client_for(self.admin)
+        r = api.post('/api/analytics/reports/', {
+            'name': 'd', 'frequency': 'daily', 'format': 'xlsx', 'recipients': ['admin@avortyx.io'],
+            'filters': {'format_choice': 'both', 'columns': ['Caller', 'Fail Reason'],
+                        'column_names': [{'key': 'Caller', 'label': 'Phone'}],
+                        'comment_rewrites': [{'from': 'No Destination', 'to': 'Line Busy'}]}},
+            content_type='application/json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(api.post(f"/api/analytics/reports/{r.json()['id']}/run-now/").status_code, 200)
+        names = sorted(a[0].rsplit('.', 1)[1] for a in mail.outbox[0].attachments)
+        self.assertEqual(names, ['csv', 'xlsx'])
+        csv_body = next(a[1] for a in mail.outbox[0].attachments if a[0].endswith('.csv'))
+        rows = list(csv.reader(io.StringIO(text(csv_body))))
+        self.assertEqual(rows[0], ['Phone', 'Fail Reason'])
+        self.assertEqual(rows[1][1], 'Line Busy')
+
+    def test_wording_cannot_say_a_call_connected(self):
+        r = self.client_for(self.admin).post('/api/analytics/reports/', {
+            'name': 'd', 'frequency': 'daily', 'format': 'xlsx', 'recipients': ['a@b.io'],
+            'filters': {'comment_rewrites': [{'from': 'No Destination', 'to': 'Connected'}]}},
+            content_type='application/json')
+        self.assertEqual(r.status_code, 400)

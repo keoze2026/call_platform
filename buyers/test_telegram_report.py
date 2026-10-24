@@ -244,3 +244,23 @@ class BuyerTelegramReportTests(TestCase):
         self.assertEqual(self.buyer_login(Buyer.objects.create(organization=self.org, name='Q07'))
                          .get('/api/buyers/telegram-reports').status_code, 403)
 
+
+    # ── CH-267: every column a buyer's client may see ────────────────────
+
+    def test_columns_can_be_picked_from_the_full_list(self):
+        self.rec(self.d1, 'completed', 65)
+        url = f'/api/buyers/{self.buyer.id}/telegram-report'
+        body = self.api.get(url).json()
+        keys = [c['key'] for c in body['columns']]
+        for k in ('call_id', 'state', 'carrier', 'campaign', 'ttc', 'converted', 'repeated', 'revenue'):
+            self.assertIn(k, keys)
+        for k in ('payout', 'profit', 'cost', 'billed_minutes'):
+            self.assertNotIn(k, keys)
+        self.assertEqual(body['included_columns'][:3], ['date', 'caller', 'destination'])
+        r = self.api.patch(url, {'included_columns': ['caller', 'campaign', 'converted', 'bogus']},
+                           content_type='application/json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.report.refresh_from_db()
+        _, header, rows, _ = build_reports(self.report, *self.window())[0]
+        self.assertEqual(header, ['Caller ID', 'Campaign', 'Converted'])
+        self.assertEqual(self.api.patch(url, {'included_columns': []}, content_type='application/json').status_code, 400)

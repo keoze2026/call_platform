@@ -165,6 +165,12 @@ Last updated: 24 Oct 2026.
 - **Every export column is a tick box** (Date, Call ID, Caller ID, … Recording).
   Our money columns (Payout, Profit, Cost, Billed Minutes) are offered to our
   own staff only.
+- **Manual edit (CH-267):** each digest can rename its columns and reword
+  Fail Reason comments — words only, never what happened.
+- **Export on Reports (CH-267):** before a download, the user ticks the
+  details to include and can rename headings; remembered for next time.
+- **Buyer Telegram reports (CH-267):** every column a buyer's client may see
+  is a tick box (never Payout, Profit, Cost, Billed Minutes), each renamable.
 
 ## 5. Notifications
 

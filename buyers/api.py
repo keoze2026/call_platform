@@ -564,6 +564,7 @@ class TelegramReportSchema(Schema):
     no_recording_link: Optional[bool] = None
     connected_only: Optional[bool] = None
     hide_fail_reason: Optional[bool] = None
+    included_columns: Optional[List[str]] = None    # column keys, CH-267
     # Lists of pairs, not maps: the portal's client renames object keys
     # (snake_case <-> camelCase), which would mangle "No Destination".
     column_names: Optional[List[dict]] = None       # [{"key": "status", "label": "Call Status"}]
@@ -585,7 +586,7 @@ def _telegram_report(request, buyer_id):
 
 
 def _telegram_report_out(r) -> dict:
-    from buyers.telegram_report import COLUMNS
+    from buyers.telegram_report import COLUMNS, DEFAULT_COLUMNS
     return {
         "enabled": r.enabled,
         "chat_id": r.chat_id,
@@ -596,6 +597,7 @@ def _telegram_report_out(r) -> dict:
         "column_names": [{"key": k, "label": v} for k, v in (r.column_names or {}).items()],
         "comment_rewrites": [{"from": k, "to": v} for k, v in (r.comment_rewrites or {}).items()],
         "columns": [{"key": k, "label": label} for k, label in COLUMNS],
+        "included_columns": list(r.included_columns or DEFAULT_COLUMNS),
         "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
         "last_result": r.last_result,
         "buyer_approved": r.buyer_approved,
@@ -639,6 +641,12 @@ def update_telegram_report(request: HttpRequest, buyer_id: str, data: TelegramRe
             v = getattr(data, f)
             if v is not None:
                 setattr(r, f, v)
+        if data.included_columns is not None:
+            from buyers.telegram_report import COLUMN_KEYS
+            keys = [k for k in data.included_columns if k in COLUMN_KEYS]
+            if not keys:
+                raise ReportError('Tick at least one column.')
+            r.included_columns = keys
         if data.column_names is not None:
             r.column_names = check_column_names(
                 {str(i.get('key', '')): i.get('label', '') for i in data.column_names if isinstance(i, dict)})

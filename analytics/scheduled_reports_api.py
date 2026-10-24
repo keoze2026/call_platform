@@ -12,6 +12,19 @@ router = Router(tags=["Scheduled Reports"], auth=JWTAuth())
 FORMATS = ('csv', 'xlsx', 'pdf')
 
 
+def _bad_wording(filters):
+    """The reason a digest's comment wording is refused, or None (CH-267):
+    wording changes words, not what happened."""
+    from analytics.digest import _pairs
+    from buyers.telegram_report import ReportError, check_rewrites
+    f = filters or {}
+    try:
+        check_rewrites(_pairs(f.get('comment_rewrites', f.get('commentRewrites')), 'from', 'to'))
+    except ReportError as e:
+        return str(e)
+    return None
+
+
 def _mine(request):
     """The caller's own digests (CH-266). They were the workspace's: every
     login - a publisher too - opened and edited the one digest, so a
@@ -86,6 +99,9 @@ def create_report(request, payload: ScheduledReportSchema):
     from analytics.scheduled_reports import ScheduledReport
     if payload.format not in FORMATS:
         return 400, {"detail": "Format must be CSV or Excel."}
+    bad = _bad_wording(payload.filters)
+    if bad:
+        return 400, {"detail": bad}
     report = ScheduledReport.objects.create(
         organization=request.auth.organization,
         created_by=request.auth,
@@ -109,13 +125,16 @@ def get_report(request, report_id: str):
         return 404, {"detail": "Report not found"}
 
 
-@router.patch("/{report_id}/", response={200: dict, 404: dict})
+@router.patch("/{report_id}/", response={200: dict, 400: dict, 404: dict})
 def update_report(request, report_id: str, payload: ScheduledReportUpdateSchema):
     from analytics.scheduled_reports import ScheduledReport
     try:
         report = _mine(request).get(id=report_id)
         if payload.format is not None and payload.format not in FORMATS:
             return 400, {"detail": "Format must be CSV or Excel."}
+        bad = _bad_wording(payload.filters) if payload.filters is not None else None
+        if bad:
+            return 400, {"detail": bad}
         for k, v in payload.dict(exclude_none=True).items():
             setattr(report, k, v)
         report.save()

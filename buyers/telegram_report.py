@@ -38,16 +38,32 @@ EASTERN = ZoneInfo('America/New_York')
 MORNING_CUTOFF = time(6, 0)
 MAX_ATTEMPTS = 3
 
-# Column key -> default heading. The order is the order in the file.
+# Column key -> default heading, in file order: every export column a buyer's
+# client may see (CH-267). Our own figures - Payout, Profit, Cost, Billed
+# Minutes - are never offered.
 COLUMNS = (
     ('date', 'Date (EST)'),
+    ('call_id', 'Call ID'),
     ('caller', 'Caller ID'),
+    ('state', 'State'),
+    ('carrier', 'Carrier'),
+    ('called_number', 'Called Number'),
+    ('campaign', 'Campaign'),
+    ('destination_name', 'Destination Name'),
     ('destination', 'Destination'),
+    ('publisher', 'Publisher'),
     ('status', 'Status'),
     ('duration', 'Duration'),
+    ('ttc', 'TTC'),
     ('fail_reason', 'Fail Reason'),
+    ('qualified', 'Qualified'),
+    ('converted', 'Converted'),
+    ('repeated', 'Repeated'),
+    ('revenue', 'Revenue'),
     ('recording', 'Recording'),
 )
+# Ticked for a new report: the report as it was first built.
+DEFAULT_COLUMNS = ('date', 'caller', 'destination', 'status', 'duration', 'fail_reason', 'recording')
 COLUMN_KEYS = {k for k, _ in COLUMNS}
 
 ANSWERED = ('completed', 'in_progress')
@@ -162,8 +178,10 @@ def build_reports(report, start, end):
     """[(destination, header, rows, stats)] for each destination of the buyer
     that took calls between start and end."""
     buyer = report.buyer
+    picked = set(report.included_columns or DEFAULT_COLUMNS)
     cols = [(k, report.column_names.get(k) or label) for k, label in COLUMNS
-            if not (k == 'recording' and report.no_recording_link)
+            if k in picked
+            and not (k == 'recording' and report.no_recording_link)
             and not (k == 'fail_reason' and report.hide_fail_reason)]
     header = [label for _, label in cols]
     rewrites = report.comment_rewrites or {}
@@ -192,13 +210,31 @@ def build_reports(report, start, end):
         for c in calls:
             reason = '' if (c.is_converted or c.status in ANSWERED) else fail_reason_label(c.block_reason)
             reason = rewrites_ci.get(reason.lower(), reason) if reason else reason
+            if c.ring_seconds is not None:
+                ttc = _hms(c.ring_seconds)
+            elif c.answered_at:
+                ttc = _hms((c.answered_at - c.call_time).total_seconds())
+            else:
+                ttc = ''
             values = {
                 'date': c.call_time.astimezone(EASTERN).strftime('%Y-%m-%d %H:%M:%S'),
+                'call_id': str(c.id),
                 'caller': _caller(c.caller_number),
+                'state': c.caller_state or '',
+                'carrier': c.carrier or c.carrier_name or '',
+                'called_number': _caller(c.called_number),
+                'campaign': c.campaign_name or '',
+                'destination_name': dest.name or '',
                 'destination': _caller(dest.tfn),
+                'publisher': c.publisher_name or '',
                 'status': _status(c),
                 'duration': _hms(c.duration_seconds) if c.status in ANSWERED else '00:00:00',
+                'ttc': ttc,
                 'fail_reason': reason,
+                'qualified': 'Yes' if c.is_qualified else 'No',
+                'converted': 'Yes' if c.is_converted else 'No',
+                'repeated': 'Yes' if c.is_duplicate else 'No',
+                'revenue': float(c.dynamic_revenue or 0),
                 'recording': public_recording_url(c.recording_url) or '',
             }
             rows.append([values[k] for k, _ in cols])
