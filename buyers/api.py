@@ -16,6 +16,64 @@ from accounts.api import JWTAuth
 router = Router(tags=["Buyers"], auth=JWTAuth())
 
 
+# ── The buyer's own Telegram report switch (CH-259) ─────────────────────────
+# Sir, 25 Oct: a report goes out automatically only for a buyer whose own
+# account ticked the box approving it; the buyer can turn it off any time.
+# Defined before the /{buyer_id} routes so "my" is never taken for an id.
+
+class MyTelegramReportSchema(Schema):
+    approved: bool
+
+
+def _my_buyer(request):
+    user = request.auth
+    if getattr(user, 'role', '') != 'buyer' or not getattr(user, 'buyer_id', None):
+        return None
+    return user.buyer
+
+
+def _my_report_out(r) -> dict:
+    from buyers.telegram_report import bot_username
+    return {
+        "approved": r.buyer_approved,
+        "approved_at": r.buyer_approved_at.isoformat() if r.buyer_approved_at else None,
+        # Set up by the workspace: whether a chat and time are there yet. The
+        # chat ID itself is not shown back.
+        "set_up": bool(r.enabled and r.chat_id),
+        "send_time": r.send_time.strftime('%H:%M'),
+        "no_recording_link": r.no_recording_link,
+        "bot": bot_username(),
+        "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
+    }
+
+
+@router.get("/my/telegram-report", response={200: dict, 403: dict})
+def get_my_telegram_report(request: HttpRequest):
+    """A buyer login's own report switch."""
+    from buyers.models import BuyerTelegramReport
+    buyer = _my_buyer(request)
+    if buyer is None:
+        return 403, {"detail": "Only a buyer's own login has this switch."}
+    r, _ = BuyerTelegramReport.objects.get_or_create(buyer=buyer)
+    return 200, _my_report_out(r)
+
+
+@router.patch("/my/telegram-report", response={200: dict, 403: dict})
+def set_my_telegram_report(request: HttpRequest, data: MyTelegramReportSchema):
+    """Approve, or stop, the automatic report. Only the buyer itself may."""
+    from django.utils import timezone as _tz
+    from buyers.models import BuyerTelegramReport
+    buyer = _my_buyer(request)
+    if buyer is None:
+        return 403, {"detail": "Only a buyer's own login has this switch."}
+    r, _ = BuyerTelegramReport.objects.get_or_create(buyer=buyer)
+    r.buyer_approved = data.approved
+    r.buyer_approved_at = _tz.now() if data.approved else None
+    r.buyer_approved_by = (request.auth.email or '')[:254] if data.approved else ''
+    r.save(update_fields=['buyer_approved', 'buyer_approved_at', 'buyer_approved_by', 'updated_at'])
+    return 200, _my_report_out(r)
+
+
 # Plain dict rather than BuyerOutSchema so the `invite` block reaches the
 # caller - a schema would filter it out, and whether the invitation went is what
 # the person who just filled in the form wants to know.
@@ -291,7 +349,10 @@ def get_buyer_access(request, buyer_id: str):
     """The buyer's time zone and what its own logins may do. Admin-side."""
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'view')
-    require(request.auth, Capability.EDIT)
+    # Workspace admins only (CH-259): partner logins skip the route table, so
+    # a buyer login with Manage Traffic could read every buyer's access here
+    # and grant itself Download Reports.
+    require(request.auth, Capability.MEMBERS)
     from buyers.models import Buyer
     try:
         b = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
@@ -328,6 +389,7 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
     """
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
+    require(request.auth, Capability.MEMBERS)   # admins only - see get_buyer_access
     payload = payload.dict(exclude_none=True)
     require(request.auth, Capability.EDIT)
     from buyers.models import Buyer
@@ -464,6 +526,10 @@ class TelegramReportSchema(Schema):
     comment_rewrites: Optional[List[dict]] = None   # [{"from": "No Destination", "to": "Line Busy"}]
 
 
+# Workspace admins only - checked here, not only in the route table: buyer and
+# publisher logins skip the route table by design (Partner Access governs
+# them), so a buyer login with Manage Traffic on could otherwise open, and
+# redirect, another buyer's report (CH-259).
 def _telegram_report(request, buyer_id):
     from buyers.models import BuyerTelegramReport
     try:
@@ -488,13 +554,16 @@ def _telegram_report_out(r) -> dict:
         "columns": [{"key": k, "label": label} for k, label in COLUMNS],
         "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
         "last_result": r.last_result,
+        "buyer_approved": r.buyer_approved,
+        "buyer_approved_at": r.buyer_approved_at.isoformat() if r.buyer_approved_at else None,
+        "buyer_approved_by": r.buyer_approved_by,
     }
 
 
 @router.get("/{buyer_id}/telegram-report", response={200: dict, 404: dict})
 def get_telegram_report(request: HttpRequest, buyer_id: str):
     """The buyer's daily Telegram report settings. Admin-side."""
-    require(request.auth, Capability.EDIT)
+    require(request.auth, Capability.MEMBERS)
     r = _telegram_report(request, buyer_id)
     if r is None:
         return 404, {"detail": "Buyer not found"}
@@ -507,7 +576,7 @@ def update_telegram_report(request: HttpRequest, buyer_id: str, data: TelegramRe
     import re
     from datetime import datetime as _dt
     from buyers.telegram_report import ReportError, check_column_names, check_rewrites
-    require(request.auth, Capability.EDIT)
+    require(request.auth, Capability.MEMBERS)
     r = _telegram_report(request, buyer_id)
     if r is None:
         return 404, {"detail": "Buyer not found"}
@@ -546,7 +615,7 @@ def send_telegram_report_now(request: HttpRequest, buyer_id: str):
     check the buyer's setup. Does not count as today's scheduled report."""
     from django.utils import timezone as _tz
     from buyers.telegram_report import ReportError, send_report
-    require(request.auth, Capability.EDIT)
+    require(request.auth, Capability.MEMBERS)
     r = _telegram_report(request, buyer_id)
     if r is None:
         return 404, {"detail": "Buyer not found"}

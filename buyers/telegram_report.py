@@ -241,6 +241,9 @@ def send_report(report, now=None) -> str:
     ReportError when it could not be sent."""
     if not report.chat_id.strip():
         raise ReportError('No Telegram chat ID is set for this buyer.')
+    if not report.buyer_approved:
+        raise ReportError('The buyer has not approved Telegram reports yet. They turn it on in their '
+                          'own Settings > Scheduled Reports.')
     now = now or timezone.now()
     day, start, end = report_window(report.send_time, now)
     files = build_reports(report, start, end)
@@ -265,6 +268,22 @@ def send_report(report, now=None) -> str:
     return f'Sent {len(files)} file(s) for {day:%d %b}'
 
 
+def bot_username() -> str:
+    """Our bot's @name, for the buyer's screen ("press Start on @AVSPTBOT").
+    Asked from Telegram once a day; empty when it cannot be read."""
+    from django.core.cache import cache
+    name = cache.get('telegram_bot_username')
+    if name is None:
+        name = ''
+        try:
+            r = _telegram('getMe', {})
+            name = '@' + r.json()['result']['username']
+        except Exception:
+            logger.warning('could not read the bot name from Telegram')
+        cache.set('telegram_bot_username', name, 86400 if name else 600)
+    return name
+
+
 def send_due_reports(now=None) -> dict:
     """Send every buyer report whose time has come today and has not gone yet."""
     from buyers.models import BuyerTelegramReport
@@ -274,7 +293,7 @@ def send_due_reports(now=None) -> dict:
     today = local.date()
     done = {'sent': 0, 'failed': 0}
     due = (BuyerTelegramReport.objects.select_related('buyer')
-           .filter(enabled=True, send_time__lte=local.time().replace(tzinfo=None))
+           .filter(enabled=True, buyer_approved=True, send_time__lte=local.time().replace(tzinfo=None))
            .exclude(chat_id='')
            .exclude(last_sent_on=today))
     for report in due:

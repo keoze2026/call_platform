@@ -190,6 +190,13 @@ class BuyerTelegramReport(models.Model):
     # {"No Destination": "Line Busy", ...} - the wording of Fail Reason comments.
     comment_rewrites = models.JSONField(default=dict, blank=True)
 
+    # The buyer's own consent (CH-259, Sir 25 Oct): a report goes out only
+    # when the buyer's account has ticked "send my report to Telegram", and
+    # it can untick it at any time. Set from the buyer's own login only.
+    buyer_approved = models.BooleanField(default=False)
+    buyer_approved_at = models.DateTimeField(null=True, blank=True)
+    buyer_approved_by = models.CharField(max_length=254, blank=True, default='')
+
     last_sent_on = models.DateField(null=True, blank=True)
     last_sent_at = models.DateTimeField(null=True, blank=True)
     last_result = models.CharField(max_length=255, blank=True, default='')

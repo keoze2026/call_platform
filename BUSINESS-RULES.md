@@ -172,8 +172,16 @@ Last updated: 24 Oct 2026.
 - Comment wording changes words, **never what happened**: a missed call
   cannot be worded as Connected / Completed / Converted, and Status always
   shows what the call did.
-- Telegram only delivers to a buyer who has pressed Start on our bot (or
-  added it to their group). Set up by an admin of the workspace.
+- **The buyer must approve it (CH-259, Sir 25 Oct):** a report goes out only
+  when the buyer's own login has turned on "Send my daily report to my
+  Telegram automatically" (Settings › Scheduled Reports). The buyer can turn
+  it off at any time and nothing more is sent. Send now also needs it.
+- Telegram only delivers to a buyer who has pressed Start on our bot
+  **@AVSPTBOT** (or added it to their group). One bot serves every buyer;
+  each buyer is told apart by its own chat ID.
+- Chat ID, time and options are set by a **workspace admin** only. A buyer
+  or publisher login can never see or change another buyer's report or
+  access settings.
 
 ## Waiting for Sir (not built)
 

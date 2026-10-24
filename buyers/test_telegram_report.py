@@ -48,7 +48,7 @@ class BuyerTelegramReportTests(TestCase):
         self.d2 = Destination.objects.create(organization=self.org, buyer=self.buyer, name='Q04|7777',
                                              tfn='+18667407777', enabled=True)
         self.report = BuyerTelegramReport.objects.create(buyer=self.buyer, enabled=True, chat_id='123456789',
-                                                         send_time=time(21, 0))
+                                                         send_time=time(21, 0), buyer_approved=True)
         self.n = 0
 
     def rec(self, dest, status, seconds=0, reason='', converted=False, at=None, rec_url=''):
@@ -171,3 +171,61 @@ class BuyerTelegramReportTests(TestCase):
                                     role='manager', is_active=True)
         api = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(staff)}')
         self.assertEqual(api.get(f'/api/buyers/{self.buyer.id}/telegram-report').status_code, 403)
+
+    # ── CH-259: the buyer's own approval ─────────────────────────────────
+
+    def buyer_login(self, buyer, **perms):
+        buyer.permissions = perms
+        buyer.save(update_fields=['permissions'])
+        u = User.objects.create(username=f'b{buyer.name}', email=f'{buyer.name}@buyer.io', organization=self.org,
+                                role='buyer', buyer=buyer, is_active=True)
+        return Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(u)}')
+
+    def test_nothing_goes_out_until_the_buyer_approves(self):
+        self.rec(self.d1, 'completed', 65)
+        BuyerTelegramReport.objects.filter(pk=self.report.pk).update(buyer_approved=False)
+        with mock.patch('requests.post', return_value=mock.Mock(status_code=200)) as post:
+            self.assertEqual(send_due_reports(datetime(2026, 10, 24, 21, 5, tzinfo=ET))['sent'], 0)
+            r = self.api.post(f'/api/buyers/{self.buyer.id}/telegram-report/send')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('not approved', r.json()['detail'])
+        self.assertEqual(post.call_count, 0)
+
+    def test_the_buyer_turns_it_on_and_off_in_its_own_login(self):
+        me = self.buyer_login(self.buyer)
+        with mock.patch('buyers.telegram_report.bot_username', return_value='@AVSPTBOT'):
+            r = me.patch('/api/buyers/my/telegram-report', {'approved': False}, content_type='application/json')
+            self.assertEqual(r.status_code, 200, r.content)
+            self.assertEqual((r.json()['approved'], r.json()['bot'], r.json()['set_up']), (False, '@AVSPTBOT', True))
+            self.assertNotIn('chat_id', r.json())
+            self.report.refresh_from_db()
+            self.assertFalse(self.report.buyer_approved)
+            r = me.patch('/api/buyers/my/telegram-report', {'approved': True}, content_type='application/json')
+        self.report.refresh_from_db()
+        self.assertTrue(self.report.buyer_approved)
+        self.assertEqual(self.report.buyer_approved_by, 'Q04@buyer.io')
+        # Staff have no such switch: approval is the buyer's own.
+        self.assertEqual(self.api.get('/api/buyers/my/telegram-report').status_code, 403)
+
+    def test_a_buyer_login_cannot_open_any_buyers_report_settings(self):
+        other = Buyer.objects.create(organization=self.org, name='Q05')
+        them = self.buyer_login(other, manage_traffic=True, download_reports=True)
+        url = f'/api/buyers/{self.buyer.id}/telegram-report'
+        self.assertEqual(them.get(url).status_code, 403)
+        self.assertEqual(them.patch(url, {'chat_id': '999999'}, content_type='application/json').status_code, 403)
+        self.assertEqual(them.post(url + '/send').status_code, 403)
+        self.report.refresh_from_db()
+        self.assertEqual(self.report.chat_id, '123456789')
+
+
+    def test_a_buyer_login_cannot_read_access_or_grant_itself_permissions(self):
+        other = Buyer.objects.create(organization=self.org, name='Q05')
+        them = self.buyer_login(other, manage_traffic=True)
+        self.assertEqual(them.get(f'/api/buyers/{self.buyer.id}/access').status_code, 403)
+        r = them.patch(f'/api/buyers/{other.id}/access', {'permissions': {'download_reports': True}},
+                       content_type='application/json')
+        self.assertEqual(r.status_code, 403)
+        other.refresh_from_db()
+        self.assertFalse(other.permissions.get('download_reports'))
+        # The workspace admin still manages it.
+        self.assertEqual(self.api.get(f'/api/buyers/{other.id}/access').status_code, 200)
