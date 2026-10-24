@@ -17,7 +17,8 @@ from phone_numbers.models import Carrier, PhoneNumber
 from routing.models import CallLog
 
 ET = ZoneInfo('America/New_York')
-SHORT = '2 TFNs Expired\n+1 877-489-3789\n+1 877-489-3790\nPlease add new TFNs to continue routing calls.'
+SHORT = ('2 TFNs Expired\nThe following numbers have expired and are no longer receiving calls:\n'
+         '18774893789\n18774893790\nAdd replacement TFNs to keep calls routing without interruption.')
 
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})

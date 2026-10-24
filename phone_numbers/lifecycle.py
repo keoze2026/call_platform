@@ -60,23 +60,44 @@ def pretty(number: str) -> str:
     return number
 
 
+def plain(number: str) -> str:
+    """+18888910358 -> 18888910358, the way Sir writes a TFN in this notice."""
+    d = ''.join(c for c in (number or '') if c.isdigit())
+    return d or number
+
+
 def expired_message(numbers) -> dict:
-    """Sir's short wording for the TFNs-expired alert (CH-199):
+    """Sir's wording for the TFNs-expired alert (CH-246, 24 Oct):
+
+        1 TFN Expired
+        The following number has expired and is no longer receiving calls:
+        18888910358
+        Add a replacement TFN to keep calls routing without interruption.
+
+    and for several:
 
         2 TFNs Expired
-        +1 877-489-3790
-        +1 877-489-3789
-        Please add new TFNs to continue routing calls.
+        The following numbers have expired and are no longer receiving calls:
+        18774893789
+        18774893790
+        Add replacement TFNs to keep calls routing without interruption.
 
     Carrier codes and the rule that retired a number are for our backend only;
     customers see just the numbers and what to do.
     """
-    shown = [pretty(n) for n in numbers]
-    title = '1 TFN Expired' if len(shown) == 1 else f'{len(shown)} TFNs Expired'
+    shown = [plain(n) for n in numbers]
+    if len(shown) == 1:
+        title = '1 TFN Expired'
+        intro = 'The following number has expired and is no longer receiving calls:'
+        ask = 'Add a replacement TFN to keep calls routing without interruption.'
+    else:
+        title = f'{len(shown)} TFNs Expired'
+        intro = 'The following numbers have expired and are no longer receiving calls:'
+        ask = 'Add replacement TFNs to keep calls routing without interruption.'
     return {
         'title': title,
         'numbers': shown,
-        'message': '\n'.join([title, *shown, 'Please add new TFNs to continue routing calls.']),
+        'message': '\n'.join([title, intro, *shown, ask]),
     }
 
 
