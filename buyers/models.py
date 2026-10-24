@@ -1,3 +1,4 @@
+import datetime
 import uuid
 from django.db import models
 from accounts.models import User, Organization
@@ -163,3 +164,42 @@ class BuyerSchedule(models.Model):
     def __str__(self):
         return f"{self.buyer.name} — {self.get_day_of_week_display()} {self.start_time}-{self.end_time}"
 from .destination import Destination
+
+
+class BuyerTelegramReport(models.Model):
+    """The buyer's own daily report, sent to its Telegram (CH-258, Sir 24 Oct).
+
+    At send_time (Eastern) the platform builds one Excel file per destination
+    of the buyer, with that destination's calls, and sends each to chat_id.
+    The buyer's choices are applied to every report: no recording links,
+    connected calls only, no Fail Reason column, its own column headings, and
+    its own wording for comments (wording only - a comment can never be made
+    to say a call connected when it did not).
+    """
+    buyer = models.OneToOneField(Buyer, on_delete=models.CASCADE, related_name='telegram_report')
+    enabled = models.BooleanField(default=False)
+    chat_id = models.CharField(max_length=64, blank=True, default='')
+    # Eastern. A time before 06:00 reports the whole previous day; any later
+    # time reports the day so far.
+    send_time = models.TimeField(default=datetime.time(21, 0))
+    no_recording_link = models.BooleanField(default=False)
+    connected_only = models.BooleanField(default=False)
+    hide_fail_reason = models.BooleanField(default=False)
+    # {"status": "Call Status", ...} - the report's column headings.
+    column_names = models.JSONField(default=dict, blank=True)
+    # {"No Destination": "Line Busy", ...} - the wording of Fail Reason comments.
+    comment_rewrites = models.JSONField(default=dict, blank=True)
+
+    last_sent_on = models.DateField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    last_result = models.CharField(max_length=255, blank=True, default='')
+    attempts_on = models.DateField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'buyer_telegram_reports'
+
+    def __str__(self):
+        return f"{self.buyer.name} report at {self.send_time}"

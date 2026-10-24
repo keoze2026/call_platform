@@ -867,3 +867,11 @@ def run_autopilot():
     """Run Autopilot for every workspace that switched on automatic runs."""
     from analytics.autopilot import run_due_passes
     return f"Autopilot ran for {run_due_passes()} workspaces"
+
+
+@app.task(name='tasks.send_buyer_reports')
+def send_buyer_reports():
+    """Send the buyers' daily Telegram reports that are due (CH-258)."""
+    from buyers.telegram_report import send_due_reports
+    done = send_due_reports()
+    return f"Buyer reports: {done['sent']} sent, {done['failed']} failed"

@@ -447,3 +447,116 @@ def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberS
                      "code": "not_a_partner"}
 
     return 200, {"detail": "removed"}
+
+
+# ── Telegram report (CH-258) ────────────────────────────────────────────────
+
+class TelegramReportSchema(Schema):
+    enabled: Optional[bool] = None
+    chat_id: Optional[str] = None
+    send_time: Optional[str] = None          # "21:00", Eastern
+    no_recording_link: Optional[bool] = None
+    connected_only: Optional[bool] = None
+    hide_fail_reason: Optional[bool] = None
+    # Lists of pairs, not maps: the portal's client renames object keys
+    # (snake_case <-> camelCase), which would mangle "No Destination".
+    column_names: Optional[List[dict]] = None       # [{"key": "status", "label": "Call Status"}]
+    comment_rewrites: Optional[List[dict]] = None   # [{"from": "No Destination", "to": "Line Busy"}]
+
+
+def _telegram_report(request, buyer_id):
+    from buyers.models import BuyerTelegramReport
+    try:
+        buyer = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
+    except (Buyer.DoesNotExist, ValueError):
+        return None
+    report, _ = BuyerTelegramReport.objects.get_or_create(buyer=buyer)
+    return report
+
+
+def _telegram_report_out(r) -> dict:
+    from buyers.telegram_report import COLUMNS
+    return {
+        "enabled": r.enabled,
+        "chat_id": r.chat_id,
+        "send_time": r.send_time.strftime('%H:%M'),
+        "no_recording_link": r.no_recording_link,
+        "connected_only": r.connected_only,
+        "hide_fail_reason": r.hide_fail_reason,
+        "column_names": [{"key": k, "label": v} for k, v in (r.column_names or {}).items()],
+        "comment_rewrites": [{"from": k, "to": v} for k, v in (r.comment_rewrites or {}).items()],
+        "columns": [{"key": k, "label": label} for k, label in COLUMNS],
+        "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
+        "last_result": r.last_result,
+    }
+
+
+@router.get("/{buyer_id}/telegram-report", response={200: dict, 404: dict})
+def get_telegram_report(request: HttpRequest, buyer_id: str):
+    """The buyer's daily Telegram report settings. Admin-side."""
+    require(request.auth, Capability.EDIT)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    return 200, _telegram_report_out(r)
+
+
+@router.patch("/{buyer_id}/telegram-report", response={200: dict, 400: dict, 404: dict})
+def update_telegram_report(request: HttpRequest, buyer_id: str, data: TelegramReportSchema):
+    """Save the report settings. Only the fields sent are touched."""
+    import re
+    from datetime import datetime as _dt
+    from buyers.telegram_report import ReportError, check_column_names, check_rewrites
+    require(request.auth, Capability.EDIT)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    try:
+        if data.chat_id is not None:
+            chat = data.chat_id.strip()
+            if chat and not re.fullmatch(r'-?\d{3,20}|@[A-Za-z0-9_]{5,32}', chat):
+                raise ReportError('A Telegram chat ID is a number (e.g. 123456789, or -100... for a group) or @channelname.')
+            r.chat_id = chat
+        if data.send_time is not None:
+            try:
+                r.send_time = _dt.strptime(data.send_time.strip(), '%H:%M').time()
+            except ValueError:
+                raise ReportError('Send time must look like 21:00.')
+        for f in ('enabled', 'no_recording_link', 'connected_only', 'hide_fail_reason'):
+            v = getattr(data, f)
+            if v is not None:
+                setattr(r, f, v)
+        if data.column_names is not None:
+            r.column_names = check_column_names(
+                {str(i.get('key', '')): i.get('label', '') for i in data.column_names if isinstance(i, dict)})
+        if data.comment_rewrites is not None:
+            r.comment_rewrites = check_rewrites(
+                {str(i.get('from', '')): i.get('to', '') for i in data.comment_rewrites if isinstance(i, dict)})
+        if r.enabled and not r.chat_id:
+            raise ReportError('Add the buyer\'s Telegram chat ID before switching the report on.')
+    except ReportError as e:
+        return 400, {"detail": str(e)}
+    r.save()
+    return 200, _telegram_report_out(r)
+
+
+@router.post("/{buyer_id}/telegram-report/send", response={200: dict, 400: dict, 404: dict})
+def send_telegram_report_now(request: HttpRequest, buyer_id: str):
+    """Send the report now - the period its scheduled report covers - to
+    check the buyer's setup. Does not count as today's scheduled report."""
+    from django.utils import timezone as _tz
+    from buyers.telegram_report import ReportError, send_report
+    require(request.auth, Capability.EDIT)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    try:
+        result = send_report(r)
+    except ReportError as e:
+        r.last_result = f'Not sent: {e}'[:255]
+        r.save(update_fields=['last_result', 'updated_at'])
+        return 400, {"detail": str(e)}
+    r.last_sent_at, r.last_result = _tz.now(), f'{result} (sent by hand)'
+    r.save(update_fields=['last_sent_at', 'last_result', 'updated_at'])
+    return 200, _telegram_report_out(r)
+

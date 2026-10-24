@@ -417,6 +417,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.send_daily_summary',
         'schedule': 86400.0,  # every 24 hours
     },
+    # Buyers' own daily reports on Telegram, each at its own time (CH-258).
+    'send-buyer-reports': {
+        'task': 'tasks.send_buyer_reports',
+        'schedule': 300.0,  # every 5 minutes
+    },
     'retry-failed-webhooks': {
         'task': 'tasks.retry_failed_webhooks',
         'schedule': 300.0,  # every 5 minutes

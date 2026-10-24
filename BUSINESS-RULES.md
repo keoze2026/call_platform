@@ -157,6 +157,24 @@ Last updated: 24 Oct 2026.
 
 ---
 
+## 6. Buyer reports on Telegram — CH-258
+
+- A buyer can get its own daily report on its Telegram (Buyer › Settings ›
+  Telegram Report): chat ID and **send time per buyer** (Eastern).
+- **One Excel file per destination** of the buyer, with that destination's
+  calls, each sent separately after a short summary. Blue header row.
+- The report covers the day so far at the send time; a time before 6:00 AM
+  covers the whole previous day. Sent once a day; a failed send is tried again
+  at most three times.
+- The buyer's choices apply to every report: **No Recording Link**, connected
+  calls only, no Fail Reason column, its own column headings, its own
+  **wording** for comments.
+- Comment wording changes words, **never what happened**: a missed call
+  cannot be worded as Connected / Completed / Converted, and Status always
+  shows what the call did.
+- Telegram only delivers to a buyer who has pressed Start on our bot (or
+  added it to their group). Set up by an admin of the workspace.
+
 ## Waiting for Sir (not built)
 
 - **Repeated callers and publisher payout:** on Revo a repeated caller pays
@@ -164,8 +182,6 @@ Last updated: 24 Oct 2026.
 - **"Missed With Conversion"** — Sir may choose two other words.
 - **Carrier rounding** (per second / 6 s / per minute) and **part-month TFN
   fees** — from each carrier's invoice.
-- **Buyer Telegram reports** (Excel per destination, set time per buyer,
-  "No Recording Link") — wording to be chosen by Sir.
 
 ## Will not be built
 - Changing a call's real status in a buyer's report (e.g. Not Connected shown
