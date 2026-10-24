@@ -31,6 +31,8 @@ QUIET_MINUTES=25
 
 send() {
     local text="$1"
+    # WATCHDOG_DRY_RUN=1: print the message instead of sending it.
+    if [ -n "${WATCHDOG_DRY_RUN:-}" ]; then printf '%s\n---\n' "$text"; return; fi
     local token chat
     token=$(grep -m1 '^TELEGRAM_BOT_TOKEN=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
     chat=$(grep -m1 '^TELEGRAM_SUPPORT_CHAT_ID=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
@@ -39,29 +41,52 @@ send() {
         -X POST "https://api.telegram.org/bot${token}/sendMessage" \
         -d "chat_id=${chat}" \
         --data-urlencode "text=${text}" \
+        -d "parse_mode=HTML" \
         -d "disable_web_page_preview=true"
 }
 
 # Alert once per fault, and again when it clears. Without this a two-hour outage
 # sends sixty identical messages and the next real one gets ignored.
+#
+# Wording (Sir, 24 Oct: "try some better professional notification messages"):
+# a bold title, then what happened, what it affects and what to do - the way
+# Sir rewrote the traffic alert himself. Sent as Telegram HTML.
+#   alert KEY "Title" "Body"            -> 🔴 <b>Title: AVORTYX</b> + body
+#   clear_alert KEY "Title" "Body"      -> 🟢 <b>Title: AVORTYX</b> + body
+#                                          + how long it lasted
 alert() {
-    local key="$1" msg="$2"
+    local key="$1" title="$2" body="$3" icon="${4:-🔴}"
     if [ ! -f "$STATE/$key" ]; then
         date -u +%s > "$STATE/$key"
-        send "🔴 AVORTYX — $msg"
-        echo "$(date -u +%FT%TZ) ALERT $key: $msg"
+        send "${icon} <b>${title}: AVORTYX</b>
+${body}"
+        echo "$(date -u +%FT%TZ) ALERT $key: $title - $body"
     fi
 }
 
 clear_alert() {
-    local key="$1" msg="$2"
+    local key="$1" title="$2" body="$3" label="${4:-Duration}"
     if [ -f "$STATE/$key" ]; then
         local since
         since=$(( ($(date -u +%s) - $(cat "$STATE/$key")) / 60 ))
         rm -f "$STATE/$key"
-        send "🟢 AVORTYX — $msg (was down ~${since} min)"
+        send "🟢 <b>${title}: AVORTYX</b>
+${body} ${label}: about $(duration "$since")."
         echo "$(date -u +%FT%TZ) CLEARED $key after ${since}m"
     fi
+}
+
+# "1 minute", "27 minutes", "3 hours 10 minutes".
+duration() {
+    local m="$1"
+    if [ "$m" -lt 1 ]; then echo "1 minute"; return; fi
+    if [ "$m" -lt 60 ]; then
+        [ "$m" -eq 1 ] && echo "1 minute" || echo "$m minutes"; return
+    fi
+    local h=$(( m / 60 )) r=$(( m % 60 ))
+    local hs="$h hours"; [ "$h" -eq 1 ] && hs="1 hour"
+    local rs="$r minutes"; [ "$r" -eq 1 ] && rs="1 minute"
+    if [ "$r" -eq 0 ]; then echo "$hs"; else echo "$hs $rs"; fi
 }
 
 # ── 1. the routing endpoint, which is what actually matters ──────────────────
@@ -72,18 +97,18 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
        -X POST http://127.0.0.1:8000/api/twilio/asterisk/route/ 2>/dev/null)
 
 if [ "$code" = "403" ]; then
-    clear_alert routing "routing is answering again"
+    clear_alert routing "Routing Restored" "Call routing is responding normally. Incoming calls are being forwarded again."
 else
-    alert routing "ROUTING IS DOWN — /api/twilio/asterisk/route/ returned '${code:-no response}' (expected 403). Calls cannot be routed."
+    alert routing "Routing Alert" "Call routing is not responding (status ${code:-none}). Incoming calls cannot be forwarded to buyers. Check the platform service immediately."
 fi
 
 # ── 2. the portal, as the outside world sees it ──────────────────────────────
 
 portal=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://avortyx.io/api/docs 2>/dev/null)
 if [ "$portal" = "200" ]; then
-    clear_alert portal "portal is back"
+    clear_alert portal "Portal Restored" "The portal is reachable again and users can sign in."
 else
-    alert portal "PORTAL IS DOWN — https://avortyx.io returned '${portal:-no response}'."
+    alert portal "Portal Alert" "The portal is not reachable (status ${portal:-none}). Users cannot sign in or view reports. Call routing is checked separately."
 fi
 
 # ── 3. nginx ─────────────────────────────────────────────────────────────────
@@ -91,17 +116,17 @@ fi
 # because a config it could not load stops it starting at all.
 
 if systemctl is-active --quiet nginx; then
-    clear_alert nginx "nginx is running again"
+    clear_alert nginx "Web Server Restored" "The web server is running again. The portal and recordings are available."
 else
-    alert nginx "NGINX IS DOWN — nothing is serving the portal or recordings."
+    alert nginx "Web Server Alert" "The web server has stopped. The portal and call recordings are unavailable until it is restarted."
 fi
 
 # ── 4. asterisk ──────────────────────────────────────────────────────────────
 
 if systemctl is-active --quiet asterisk; then
-    clear_alert asterisk "asterisk is running again"
+    clear_alert asterisk "Phone System Restored" "The phone system is running again and can receive calls."
 else
-    alert asterisk "ASTERISK IS DOWN — no calls can arrive at all."
+    alert asterisk "Phone System Alert" "The phone system has stopped. No calls can be received until it is restarted."
 fi
 
 # ── 5. the containers ────────────────────────────────────────────────────────
@@ -109,9 +134,9 @@ fi
 down=$(cd "$APP_DIR" && docker compose ps --format '{{.Service}} {{.State}}' 2>/dev/null \
        | grep -v ' running' | awk '{print $1}' | paste -sd, -)
 if [ -z "$down" ]; then
-    clear_alert containers "all containers are running again"
+    clear_alert containers "Services Restored" "All platform services are running again."
 else
-    alert containers "CONTAINERS DOWN — ${down}"
+    alert containers "Service Alert" "Platform services stopped: ${down}. Some features may be unavailable. Restart the services."
 fi
 
 # ── 6. calls actually arriving, during hours when they should be ─────────────
@@ -124,23 +149,29 @@ if [ "$hour" -ge "$BUSY_START_UTC" ] && [ "$hour" -lt "$BUSY_END_UTC" ]; then
     # so the value is marked and only the marked line is read. Stripping the whole
     # output to digits glued the banner's numbers onto the answer and reported
     # 75234 minutes for a 20 hour gap.
-    mins=$(cd "$APP_DIR" && docker compose exec -T web python manage.py shell -c "
+    quiet=$(cd "$APP_DIR" && docker compose exec -T web python manage.py shell -c "
 from django.utils import timezone
 from routing.models import CallLog
+from buyers.destination import Destination
 c = CallLog.objects.order_by('-created_at').first()
-print('WATCHDOG_MINS', int((timezone.now() - c.created_at).total_seconds() // 60) if c else 99999)
-" 2>/dev/null | grep '^WATCHDOG_MINS' | awk '{print $2}')
+print('WATCHDOG_MINS', int((timezone.now() - c.created_at).total_seconds() // 60) if c else 99999,
+      Destination.objects.filter(enabled=True).count())
+" 2>/dev/null | grep '^WATCHDOG_MINS')
+    mins=$(echo "$quiet" | awk '{print $2}')
+    # Live destinations, so "all destinations are active" is a fact, not a guess.
+    live_dest=$(echo "$quiet" | awk '{print $3}')
 
     if [ -n "$mins" ]; then
         if [ "$mins" -gt "$QUIET_MINUTES" ]; then
-            if [ "$mins" -gt 180 ]; then
-                human="$(( mins / 60 )) hours"
+            if [ "${live_dest:-0}" -gt 0 ]; then
+                dest_line="All systems are responding and ${live_dest} destinations are active."
             else
-                human="${mins} minutes"
+                dest_line="All systems are responding, but no destination is switched on."
             fi
-            alert traffic "NO CALLS for ${human} during busy hours. Everything is answering, so either nothing is being sent or calls are failing before they reach us."
+            alert traffic "Traffic Alert" "No inbound calls for $(duration "$mins") during peak hours. ${dest_line} This points to an upstream issue. Confirm traffic status with the source."
         else
-            clear_alert traffic "calls are arriving again"
+            # Counted from the alert, which fires after QUIET_MINUTES already passed.
+            clear_alert traffic "Traffic Restored" "Inbound calls are arriving again." "Alert lasted"
         fi
     fi
 fi
@@ -150,9 +181,9 @@ fi
 
 used=$(df / --output=pcent | tail -1 | tr -cd '0-9')
 if [ "${used:-0}" -ge 85 ]; then
-    alert disk "DISK AT ${used}% — the platform stops writing when it fills."
+    alert disk "Disk Warning" "Server disk is ${used}% full. The platform stops saving calls and recordings when it is full. Free up space soon." "🟠"
 else
-    clear_alert disk "disk usage back to ${used}%"
+    clear_alert disk "Disk Back to Normal" "Server disk usage is back to ${used}%."
 fi
 
 # ── 8. a daily heartbeat ─────────────────────────────────────────────────────
@@ -167,7 +198,8 @@ from django.utils import timezone
 from routing.models import CallLog
 print('WATCHDOG_CALLS', CallLog.objects.filter(created_at__date=timezone.now().date()).count())
 " 2>/dev/null | grep '^WATCHDOG_CALLS' | awk '{print \$2}')
-        send "✅ AVORTYX — all checks passing. Calls so far today: ${calls:-0}. Disk ${used}%."
+        send "✅ <b>Daily Check: AVORTYX</b>
+All systems are running normally. Calls so far today: ${calls:-0}. Disk usage: ${used}%."
     fi
 fi
 
