@@ -146,6 +146,8 @@ def update_destination(request: HttpRequest, rule_id: str, destination_id: str, 
         body = {}
     # buyer_id explicitly sent as null means detach the buyer
     data._detach_buyer = 'buyer_id' in body and body['buyer_id'] is None
+    # revenue sent as null: back to the campaign's rate (CH-247)
+    data._clear_revenue = 'revenue' in body and body['revenue'] is None
 
     try:
         destination = RoutingService.update_destination(rule_id, destination_id, data, request.auth)

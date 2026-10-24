@@ -85,6 +85,8 @@ class CallRecord(models.Model):
     def dynamic_revenue(self):
         if hasattr(self, '_dynamic_revenue'):
             return self._dynamic_revenue
+        if self.billing_rule:
+            return self.revenue
         if not self.is_converted:
             return Decimal('0')
         if self.campaign_id and getattr(self, 'campaign', None):
@@ -127,6 +129,9 @@ class CallRecord(models.Model):
     ring_seconds = models.IntegerField(null=True, blank=True)
     billable_seconds = models.IntegerField(default=0)
     is_converted    = models.BooleanField(default=False)
+    # CH-247: set when the call was billed by its destination's own rule; its
+    # stored revenue is then the figure, not the campaign's rate.
+    billing_rule    = models.CharField(max_length=10, blank=True, default='')
     is_qualified    = models.BooleanField(default=False)
     is_duplicate    = models.BooleanField(default=False)
     is_spam         = models.BooleanField(default=False)

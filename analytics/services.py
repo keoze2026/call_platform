@@ -257,6 +257,9 @@ class AnalyticsService:
 
         qs = qs.annotate(
             dynamic_revenue=Case(
+                # Billed by its destination's own rule (CH-247): the stored
+                # figure already is the revenue - its rate, or 0.
+                When(~Q(billing_rule=''), then=F('revenue')),
                 When(~earned, then=zero),
                 When(campaign__isnull=False, then=F('campaign__revenue_amount')),
                 default=F('revenue'),
@@ -505,6 +508,16 @@ class AnalyticsService:
         rate = Decimal(account.per_minute_rate or 0)
         markup = Decimal('1') + (Decimal(account.markup_percent or 0) / Decimal('100'))
         return rate, markup
+
+    @staticmethod
+    def _export_reason(r) -> str:
+        """The fail reason in the export, as on screen: an unanswered call that
+        still converted (its destination bills on Incoming Call, CH-247) reads
+        "... - With Conversion", as Revo writes it."""
+        reason = getattr(r, 'block_reason', '') or ''
+        if reason and r.is_converted and r.status not in ('completed', 'in_progress'):
+            return f'{reason} - With Conversion'
+        return reason
 
     @staticmethod
     def _cost_from_minutes(billable_minutes, rate, markup) -> Decimal:
@@ -1467,7 +1480,7 @@ class AnalyticsService:
                 r.campaign_name, r.buyer_name,
                 dest_names.get(dest_number, ''), dest_number,
                 r.publisher_name,
-                r.status, getattr(r, 'block_reason', '') or '',
+                r.status, AnalyticsService._export_reason(r),
                 r.duration_seconds, ttc,
                 'Yes' if r.is_qualified else 'No',
                 'Yes' if r.is_converted else 'No',

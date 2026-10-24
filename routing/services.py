@@ -146,7 +146,7 @@ class RoutingService:
         if not destination_value:
             raise ValueError("destination or phone_number is required")
 
-        destination = RuleDestination.objects.create(
+        destination = RuleDestination(
             rule=rule,
             destination_type=data.destination_type,
             destination=destination_value,
@@ -154,8 +154,40 @@ class RoutingService:
             priority=data.priority,
             weight=data.weight
         )
+        RoutingService._apply_billing(destination, data)
+        destination.save()
 
         return destination
+
+    @staticmethod
+    def _apply_billing(destination, data) -> None:
+        """Rate and "convert on" for this destination (CH-247)."""
+        from decimal import Decimal, InvalidOperation
+        valid = [c[0] for c in RuleDestination.ConvertOn.choices]
+        convert_on = getattr(data, 'convert_on', None)
+        if convert_on is not None:
+            convert_on = str(convert_on).strip().lower()
+            if convert_on not in valid:
+                raise ValueError('convert_on must be one of: incoming, connected, length, or empty')
+            destination.convert_on = convert_on
+        seconds = getattr(data, 'convert_seconds', None)
+        if seconds is not None:
+            if int(seconds) < 0:
+                raise ValueError('convert_seconds cannot be negative')
+            destination.convert_seconds = int(seconds)
+        if getattr(data, '_clear_revenue', False):
+            destination.revenue = None
+        revenue = getattr(data, 'revenue', None)
+        if revenue is not None:
+            try:
+                value = Decimal(str(revenue)).quantize(Decimal('0.01'))
+            except (InvalidOperation, ValueError):
+                raise ValueError('revenue must be a number')
+            if value < 0:
+                raise ValueError('revenue cannot be negative')
+            destination.revenue = value
+        if destination.convert_on == 'length' and destination.convert_seconds <= 0:
+            raise ValueError('Call Length needs a number of seconds above 0')
 
     @staticmethod
     def list_destinations(rule_id: str, user: User):
@@ -203,6 +235,8 @@ class RoutingService:
         if data.priority is not None:
             destination.priority = data.priority
 
+        RoutingService._apply_billing(destination, data)
+
         if data.weight is not None:
             destination.weight = data.weight
 
@@ -224,6 +258,10 @@ class RoutingService:
             'weight': destination.weight,
             'buyer_id': str(destination.buyer_id) if destination.buyer_id else None,
             'buyer_name': destination.buyer.name if destination.buyer else None,
+            # CH-247: this destination's billing; '' / null = the campaign's rule.
+            'revenue': str(destination.revenue) if destination.revenue is not None else None,
+            'convert_on': destination.convert_on,
+            'convert_seconds': destination.convert_seconds,
         }
 
     @staticmethod

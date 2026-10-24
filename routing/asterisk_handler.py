@@ -405,6 +405,12 @@ def _route_incoming_call(request):
     else:
         call_log.destination_number = dest_number
 
+    # The campaign destination row this call goes out under (CH-247): the row
+    # for the number actually dialled (a buyer's TFNs rotate), else the row
+    # routing chose. Its rate and "convert on" bill the call.
+    call_log.rule_destination_id = _rule_destination_for(
+        chosen_rule, dest_number, decision.get('rule_destination_id'))
+
     call_log.status = CallLog.Status.IN_PROGRESS
     call_log.routing_trace = trace.as_dict(selected={
         'destination': dest_number,
@@ -412,7 +418,7 @@ def _route_incoming_call(request):
         'rule': chosen_rule.name if chosen_rule is not None else None,
     })
     call_log.save(update_fields=[
-        'status', 'buyer', 'destination_number', 'routing_rule',
+        'status', 'buyer', 'destination_number', 'routing_rule', 'rule_destination',
         'routing_trace', 'updated_at',
     ])
 
@@ -552,6 +558,22 @@ def active_channels(request):
     })
 
 
+def _rule_destination_for(rule, number, chosen_id):
+    """The campaign destination row for the number dialled, by its last ten
+    digits; the row routing chose when the dialled number has none."""
+    if rule is None:
+        return chosen_id
+    digits = ''.join(c for c in str(number or '') if c.isdigit())[-10:]
+    try:
+        from routing.models import RuleDestination
+        for rd_id, dest in RuleDestination.objects.filter(rule=rule).values_list('id', 'destination'):
+            if digits and ''.join(c for c in dest if c.isdigit())[-10:] == digits:
+                return rd_id
+    except Exception:
+        logger.exception('could not match the dialled number to a destination row')
+    return chosen_id
+
+
 def settle_call_money(call_log, answered: bool, duration: int) -> bool:
     """Revenue, payout and the balance charge for an ended call, then save it.
 
@@ -560,15 +582,16 @@ def settle_call_money(call_log, answered: bool, duration: int) -> bool:
     whether the call converted.
     """
     campaign = call_log.campaign
-    min_dur = getattr(campaign, 'min_call_duration', 0) if campaign else 0
-    converted = answered and (duration >= min_dur)
+    # The destination's own rule when it has one (CH-247), else the campaign's.
+    from routing import billing
+    converted = billing.converts(call_log, answered, duration)
 
     # Revenue and payout are different numbers: revenue is what the buyer pays
     # for the call, payout is what goes to the publisher. Writing the payout into
     # both left every CallLog with zero profit.
     phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
     payout_val = RoutingEngine.required_call_balance(campaign, phone) if converted else 0
-    revenue_val = (getattr(campaign, 'revenue_amount', 0) or 0) if converted else 0
+    revenue_val = billing.revenue(call_log) if converted else 0
 
     call_log.revenue = revenue_val
     call_log.publisher_payout = payout_val

@@ -75,6 +75,19 @@ class RuleDestination(models.Model):
     priority = models.IntegerField(default=1)
     weight = models.IntegerField(default=100)
 
+    # How this buyer's destination is billed (CH-247), as on Revo: each buyer
+    # pays its own rate, on its own event. Left empty, the campaign's rule
+    # applies as before (revenue_amount, answered and min_call_duration).
+    class ConvertOn(models.TextChoices):
+        CAMPAIGN = '', 'Campaign default'
+        INCOMING = 'incoming', 'Incoming Call'
+        CONNECTED = 'connected', 'Call Connected'
+        LENGTH = 'length', 'Call Length'
+
+    revenue = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    convert_on = models.CharField(max_length=10, choices=ConvertOn.choices, default='', blank=True)
+    convert_seconds = models.PositiveIntegerField(default=0)
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -100,6 +113,10 @@ class CallLog(models.Model):
     organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='call_logs')
     campaign = models.ForeignKey('campaigns.Campaign', on_delete=models.SET_NULL, null=True, related_name='call_logs')
     routing_rule = models.ForeignKey(RoutingRule, on_delete=models.SET_NULL, null=True, blank=True, related_name='call_logs')
+    # The campaign destination row the call was forwarded under (CH-247): its
+    # rate and "convert on" decide how the call is billed.
+    rule_destination = models.ForeignKey('routing.RuleDestination', on_delete=models.SET_NULL,
+                                         null=True, blank=True, related_name='call_logs')
     buyer = models.ForeignKey('buyers.Buyer', on_delete=models.SET_NULL, null=True, blank=True, related_name='call_logs')
     publisher = models.ForeignKey('publishers.Publisher', on_delete=models.SET_NULL, null=True, blank=True, related_name='call_logs')
 

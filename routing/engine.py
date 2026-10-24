@@ -984,6 +984,7 @@ class RoutingEngine:
                 'error': None,
                 # The buyer's own TFN is chosen after this (pick_live_destination),
                 # and it must keep to the same duplicate rules (CH-241).
+                'rule_destination_id': destination.id,
                 'dup_exclude_tfns': set(call_data.get('dup_exclude_destinations', ())),
                 'dup_only_tfn': call_data.get('dup_only_destination'),
             }

@@ -29,6 +29,10 @@ class CreateDestinationSchema(Schema):
     buyer_id: Optional[str] = None
     priority: int = 1
     weight: int = 100
+    # CH-247: this destination's own billing; omitted = the campaign's rule.
+    revenue: Optional[float] = None
+    convert_on: Optional[str] = None
+    convert_seconds: Optional[int] = None
 
 
 class UpdateDestinationSchema(Schema):
@@ -38,6 +42,9 @@ class UpdateDestinationSchema(Schema):
     buyer_id: Optional[str] = None
     priority: Optional[int] = None
     weight: Optional[int] = None
+    revenue: Optional[float] = None
+    convert_on: Optional[str] = None
+    convert_seconds: Optional[int] = None
 
 
 # ===== RESPONSE SCHEMAS =====

@@ -41,15 +41,30 @@ STATUS_MAP = {
 
 
 def _is_converted(call) -> bool:
-    """Answered, and at least as long as the campaign requires."""
+    """Answered, and at least as long as the campaign requires - or, for a call
+    sent to a destination with its own rule, by that rule (CH-247): on
+    "Incoming Call" every forwarded call converts, answered or not."""
+    from routing import billing
+    if billing.rule_of(call) is not None:
+        return billing.converts(call, call.status == CallLog.Status.COMPLETED, call.duration or 0)
     if call.status != CallLog.Status.COMPLETED:
         return False
     threshold = getattr(call.campaign, 'min_call_duration', 0) if call.campaign_id else 0
     return (call.duration or 0) >= (threshold or 0)
 
 
+def _billing_rule(call) -> str:
+    from routing import billing
+    return billing.label(call)
+
+
 def _campaign_revenue(call) -> Decimal:
-    """Revenue for a call: campaign pricing, falling back to the stored value."""
+    """Revenue for a call: campaign pricing, falling back to the stored value.
+    A call billed by its destination's own rule keeps what billing stored
+    (CH-247): its rate when it converted, nothing when it did not."""
+    from routing import billing
+    if billing.rule_of(call) is not None:
+        return Decimal(call.revenue or 0)
     if call.campaign_id and call.campaign:
         return Decimal(call.campaign.revenue_amount or 0) or Decimal(call.revenue or 0)
     return Decimal(call.revenue or 0)
@@ -143,6 +158,7 @@ def mirror_call_log(call_log_id) -> bool:
             # Switch-measured ring (CH-120); null until the dialplan sent it.
             'ring_seconds': ring_seconds,
             'is_converted': _is_converted(call),
+            'billing_rule': _billing_rule(call),
             # Qualified means an answered call from a new caller: answered, and
             # not a repeat inside the campaign's duplicate window. The Qualified
             # column counts exactly these, so the drill-down lists the same
