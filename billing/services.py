@@ -83,6 +83,18 @@ class BillingService:
         return account.balance
 
     @staticmethod
+    def is_our_portal(organization) -> bool:
+        """Our own portal: the workspace the owner (superuser) logs into.
+        Sir, 24 Oct: calls are refused for lack of funds only in user
+        workspaces, never in ours (CH-255)."""
+        if organization is None:
+            return False
+        from accounts.models import User
+        return User.objects.filter(
+            organization=organization, is_superuser=True, is_active=True,
+        ).exists()
+
+    @staticmethod
     def has_sufficient_balance(organization, amount: Decimal) -> bool:
         """True when the organization can cover `amount`, credit limit included.
 
@@ -146,16 +158,19 @@ class BillingService:
         """What this client is charged for a call of this length.
 
             ceil(duration / 60) x per_minute_rate x (1 + markup)
+            + ceil(duration / 60) x recording fee     (when recorded)
+            + VoIP Shield fee                         (when the caller was checked)
 
         Rounded up to the whole minute, the standard telecom convention: a
-        90-second call bills as 2 minutes. A zero-length call (missed, no answer)
-        costs nothing.
+        90-second call bills as 2 minutes. A call that was never answered has
+        no minutes; it still pays the VoIP Shield fee when the caller was
+        checked - the fee is per checked call (CH-255).
 
         Rate and markup are per-client fields on the billing account, so pricing
         changes without a deploy.
         """
-        duration_seconds = int(duration_seconds or 0)
-        if duration_seconds <= 0:
+        duration_seconds = max(0, int(duration_seconds or 0))
+        if duration_seconds <= 0 and not voip_checked:
             return Decimal('0.00')
 
         try:
@@ -181,7 +196,9 @@ class BillingService:
         if voip_checked:
             cost += Decimal(account.voip_shield_fee_per_call or 0)
 
-        return cost.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
+        # To the hundredth of a cent, as the rates are: rounding each call to
+        # the cent charged $0.05 for a $0.045 minute (CH-255).
+        return cost.quantize(Decimal('0.0001'), rounding=ROUND_HALF_UP)
 
     @staticmethod
     def rejected_call_cost(organization) -> Decimal:
@@ -197,9 +214,21 @@ class BillingService:
             )
         except BillingAccount.DoesNotExist:
             return Decimal('0.00')
+        # $0.015, not rounded to $0.02 (CH-255).
         return Decimal(account.rejected_call_fee or 0).quantize(
-            Decimal('0.01'), rounding=ROUND_HALF_UP
+            Decimal('0.0001'), rounding=ROUND_HALF_UP
         )
+
+    @staticmethod
+    def voip_fee(organization) -> Decimal:
+        """The VoIP Shield fee for one checked call."""
+        try:
+            account = BillingAccount.objects.only('voip_shield_fee_per_call').get(
+                organization=organization
+            )
+        except BillingAccount.DoesNotExist:
+            return Decimal('0.00')
+        return Decimal(account.voip_shield_fee_per_call or 0)
 
     @staticmethod
     @transaction.atomic
@@ -255,7 +284,11 @@ class BillingService:
     @staticmethod
     @transaction.atomic
     def charge_call(organization, campaign, buyer, publisher, amount: Decimal, call_sid: str = '',
-                    description: str = 'Call charge') -> Transaction:
+                    description: str = 'Call charge', allow_negative: bool = False) -> Transaction:
+        """Take a call's charge. allow_negative: the call already happened, so
+        it is charged even when the balance ran out meanwhile or the call was
+        let through on the credit limit - the balance goes below zero (Sir,
+        24 Oct, CH-255). Without it a short balance takes nothing."""
         # Carriers retry end-of-call webhooks. Without this guard a retry would
         # charge the same call twice.
         if call_sid:
@@ -275,7 +308,7 @@ class BillingService:
         except BillingAccount.DoesNotExist:
             return None
 
-        if Decimal(account.balance or 0) < amount:
+        if not allow_negative and Decimal(account.balance or 0) < amount:
             return None
 
         balance_before = Decimal(account.balance or 0)

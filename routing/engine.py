@@ -168,6 +168,9 @@ class RoutingEngine:
     # blacklist to whoever is looking at the export - the boss read them as
     # duplicates. One query, and only for a call that is already refused.
     BLOCKED_CALLER_LABEL = 'Callerid Blocked'
+    # A user workspace out of balance (CH-255): the call is missed with this
+    # comment, in Sir's words.
+    INSUFFICIENT_FUNDS_LABEL = 'Insufficient Funds'
 
     BLOCK_LABELS = {
         'auto_detected': 'Caller is on a do-not-call register',
@@ -797,6 +800,13 @@ class RoutingEngine:
         if not getattr(settings, 'ENFORCE_CALL_BALANCE', True):
             return True
 
+        from billing.services import BillingService
+
+        # Our own portal - the workspace the owner logs into - is never
+        # refused for balance; only user workspaces are (CH-255).
+        if BillingService.is_our_portal(campaign.organization):
+            return True
+
         required = RoutingEngine.required_call_balance(
             campaign, phone_number, campaign.organization
         )
@@ -866,7 +876,7 @@ class RoutingEngine:
         # there is no point pricing a call the other rules would have dropped.
         if not RoutingEngine.check_balance(campaign, call_data.get('phone_number')):
             if trace: trace.step('balance', False, 'insufficient balance for one call')
-            return {'destination': None, 'rule': None, 'error': 'insufficient_balance'}
+            return {'destination': None, 'rule': None, 'error': RoutingEngine.INSUFFICIENT_FUNDS_LABEL}
         if trace: trace.step('balance', True)
 
         rules = campaign.routing_rules.filter(

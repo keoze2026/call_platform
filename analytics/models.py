@@ -62,7 +62,7 @@ class CallRecord(models.Model):
     destination_number = models.CharField(max_length=20, blank=True, default='', db_index=True)
     # The amount charged for this call, copied from the call log rather than
     # recalculated, so reporting always equals the invoice.
-    platform_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    platform_cost = models.DecimalField(max_digits=14, decimal_places=4, default=0)
 
     # Campaign / buyer / publisher (denormalized — store IDs and names)
     campaign = models.ForeignKey(

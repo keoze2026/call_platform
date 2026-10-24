@@ -338,6 +338,11 @@ def _route_incoming_call(request):
         # refused stays a failed row with its reason.
         if reason == 'Duplicate call':
             call_log.status = CallLog.Status.NO_ANSWER
+        elif reason == RoutingEngine.INSUFFICIENT_FUNDS_LABEL:
+            # Sir, 24 Oct: a user workspace out of balance - the call is
+            # MISSED with the comment "Insufficient Funds". No rejected-call
+            # fee is taken: there is nothing to take it from.
+            call_log.status = CallLog.Status.NO_ANSWER
         elif reason == RoutingEngine.BLOCKED_CALLER_LABEL:
             # The boss's rule: a caller the team blocked is MISSED, with the
             # comment "Callerid Blocked" - not a failed row. It is still a
@@ -625,11 +630,13 @@ def settle_call_money(call_log, answered: bool, duration: int) -> bool:
     # created a *separate* row for every terminal call, doubling every analytics
     # total — 8 real calls reported as 16.
 
-    # Deduct the call's cost from the organization's balance. Charged only on a
-    # converted call, at the same rate RoutingEngine checked before dispatch, so
-    # a call that was allowed through is always affordable. charge_call is
-    # idempotent on call_sid, so a carrier webhook retry will not double-charge.
-    if converted and getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
+    # Deduct the call's cost from the organization's balance (CH-255, Sir 24
+    # Oct): every ANSWERED call pays its minutes, converted or not - the rate
+    # is per connected minute - and every call the VoIP Shield checked pays
+    # that fee, answered or not. A call that happened is charged even if the
+    # balance ran out meanwhile (it goes below zero). charge_call is
+    # idempotent on call_sid, so a webhook retry will not double-charge.
+    if getattr(settings, 'CHARGE_COMPLETED_CALLS', True):
         try:
             from billing.services import BillingService
 
@@ -640,7 +647,7 @@ def settle_call_money(call_log, answered: bool, duration: int) -> bool:
             # ran, so both are known by the time the call ends.
             amount = BillingService.call_cost(
                 call_log.organization,
-                duration,
+                duration if answered else 0,
                 recorded=bool(call_log.recording_url) or bool(
                     getattr(campaign, 'recording_enabled', False)
                 ),
@@ -655,6 +662,7 @@ def settle_call_money(call_log, answered: bool, duration: int) -> bool:
                     publisher=call_log.publisher,
                     amount=amount,
                     call_sid=call_log.twilio_call_sid,
+                    allow_negative=True,
                 )
                 if charge is not None:
                     # Record what was taken, so reporting never has to guess.

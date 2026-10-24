@@ -809,6 +809,7 @@ def charge_rejected_call(call_log_id):
     Idempotent the same way call charging is - one CHARGE per call_sid - so a
     carrier retrying the refusal cannot take the fee twice.
     """
+    from decimal import Decimal
     from billing.services import BillingService
     from routing.models import CallLog
 
@@ -824,10 +825,18 @@ def charge_rejected_call(call_log_id):
     from routing.engine import RoutingEngine
     blocked_caller = (call.status == CallLog.Status.NO_ANSWER
                       and call.block_reason == RoutingEngine.BLOCKED_CALLER_LABEL)
-    if (call.status != CallLog.Status.FAILED and not blocked_caller) or not call.block_reason:
+    fee_due = bool(call.block_reason) and (call.status == CallLog.Status.FAILED or blocked_caller)
+    # The VoIP Shield fee is per checked call (CH-255): a refused call the
+    # Shield checked pays it too. Not a workspace refused for lack of funds -
+    # there is nothing to take it from.
+    voip_due = (bool(call.ipqs_checked) and bool(call.block_reason)
+                and call.block_reason != RoutingEngine.INSUFFICIENT_FUNDS_LABEL)
+    if not fee_due and not voip_due:
         return 'not a refusal'
 
-    amount = BillingService.rejected_call_cost(call.organization)
+    amount = BillingService.rejected_call_cost(call.organization) if fee_due else Decimal('0')
+    if voip_due:
+        amount += BillingService.voip_fee(call.organization)
     if amount <= 0:
         return 'fee is zero'
 
@@ -838,7 +847,8 @@ def charge_rejected_call(call_log_id):
         publisher=call.publisher,
         amount=amount,
         call_sid=call.twilio_call_sid,
-        description='Rejected call fee',
+        description=('Rejected call fee' + (' + VoIP Shield' if voip_due else '')) if fee_due
+        else 'VoIP Shield fee',
     )
     if tx is None:
         log.warning('rejected_fee_not_charged: call=%s balance too low', call_log_id)
