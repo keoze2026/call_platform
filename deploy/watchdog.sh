@@ -48,30 +48,54 @@ send() {
 # Alert once per fault, and again when it clears. Without this a two-hour outage
 # sends sixty identical messages and the next real one gets ignored.
 #
-# Wording (Sir, 24 Oct: "try some better professional notification messages"):
-# a bold title, then what happened, what it affects and what to do - the way
-# Sir rewrote the traffic alert himself. Sent as Telegram HTML.
-#   alert KEY "Title" "Body"            -> 🔴 <b>Title: AVORTYX</b> + body
-#   clear_alert KEY "Title" "Body"      -> 🟢 <b>Title: AVORTYX</b> + body
-#                                          + how long it lasted
+# Wording: Sir's template (24 Oct, "very professional language under every
+# notification"), sent as Telegram HTML:
+#
+#   🔴 <b>AVORTYX | Service Disruption</b>
+#   The AVORTYX portal is currently unreachable. Our team has been notified
+#   and is investigating.
+#   <b>Detected:</b> Oct 24, 2026, 8:08 AM ET
+#
+#   🟢 <b>AVORTYX | Service Restored</b>
+#   The AVORTYX portal is fully operational. Service was interrupted for
+#   approximately 1 minute.
+#   <b>Resolved:</b> Oct 24, 2026, 8:09 AM ET
+#
+#   alert KEY ICON "Title" "Body" [START_EPOCH]
+#       START_EPOCH: when the fault really began, if earlier than now (the
+#       traffic check knows when the last call came in).
+#   clear_alert KEY "Title" "Body with {dur}"
+#       {dur} becomes how long it lasted, e.g. "approximately 3 minutes".
+
+# Times are shown in the reports' zone, Eastern by default.
+WATCHDOG_TZ="${WATCHDOG_TZ:-America/New_York}"
+WATCHDOG_TZ_LABEL="${WATCHDOG_TZ_LABEL:-ET}"
+
+stamp() {
+    echo "$(TZ="$WATCHDOG_TZ" date "+%b %-d, %Y, %-I:%M %p") ${WATCHDOG_TZ_LABEL}"
+}
+
 alert() {
-    local key="$1" title="$2" body="$3" icon="${4:-🔴}"
+    local key="$1" icon="$2" title="$3" body="$4" began="${5:-}"
     if [ ! -f "$STATE/$key" ]; then
-        date -u +%s > "$STATE/$key"
-        send "${icon} <b>${title}: AVORTYX</b>
-${body}"
+        echo "${began:-$(date -u +%s)}" > "$STATE/$key"
+        send "${icon} <b>AVORTYX | ${title}</b>
+${body}
+<b>Detected:</b> $(stamp)"
         echo "$(date -u +%FT%TZ) ALERT $key: $title - $body"
     fi
 }
 
 clear_alert() {
-    local key="$1" title="$2" body="$3" label="${4:-Duration}"
+    local key="$1" title="$2" body="$3"
     if [ -f "$STATE/$key" ]; then
         local since
         since=$(( ($(date -u +%s) - $(cat "$STATE/$key")) / 60 ))
         rm -f "$STATE/$key"
-        send "🟢 <b>${title}: AVORTYX</b>
-${body} ${label}: about $(duration "$since")."
+        body="${body//\{dur\}/approximately $(duration "$since")}"
+        send "🟢 <b>AVORTYX | ${title}</b>
+${body}
+<b>Resolved:</b> $(stamp)"
         echo "$(date -u +%FT%TZ) CLEARED $key after ${since}m"
     fi
 }
@@ -97,18 +121,18 @@ code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
        -X POST http://127.0.0.1:8000/api/twilio/asterisk/route/ 2>/dev/null)
 
 if [ "$code" = "403" ]; then
-    clear_alert routing "Routing Restored" "Call routing is responding normally. Incoming calls are being forwarded again."
+    clear_alert routing "Call Routing Restored" "AVORTYX call routing is fully operational. Calls were not forwarded for {dur}."
 else
-    alert routing "Routing Alert" "Call routing is not responding (status ${code:-none}). Incoming calls cannot be forwarded to buyers. Check the platform service immediately."
+    alert routing "🔴" "Call Routing Disruption" "AVORTYX call routing is currently unavailable, and incoming calls cannot be forwarded. Our team has been notified and is investigating."
 fi
 
 # ── 2. the portal, as the outside world sees it ──────────────────────────────
 
 portal=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 https://avortyx.io/api/docs 2>/dev/null)
 if [ "$portal" = "200" ]; then
-    clear_alert portal "Portal Restored" "The portal is reachable again and users can sign in."
+    clear_alert portal "Service Restored" "The AVORTYX portal is fully operational. Service was interrupted for {dur}."
 else
-    alert portal "Portal Alert" "The portal is not reachable (status ${portal:-none}). Users cannot sign in or view reports. Call routing is checked separately."
+    alert portal "🔴" "Service Disruption" "The AVORTYX portal is currently unreachable. Our team has been notified and is investigating."
 fi
 
 # ── 3. nginx ─────────────────────────────────────────────────────────────────
@@ -116,17 +140,17 @@ fi
 # because a config it could not load stops it starting at all.
 
 if systemctl is-active --quiet nginx; then
-    clear_alert nginx "Web Server Restored" "The web server is running again. The portal and recordings are available."
+    clear_alert nginx "Web Service Restored" "The AVORTYX web service is fully operational. The portal and call recordings were unavailable for {dur}."
 else
-    alert nginx "Web Server Alert" "The web server has stopped. The portal and call recordings are unavailable until it is restarted."
+    alert nginx "🔴" "Web Service Disruption" "The AVORTYX web service is currently down, and the portal and call recordings are unavailable. Our team has been notified and is investigating."
 fi
 
 # ── 4. asterisk ──────────────────────────────────────────────────────────────
 
 if systemctl is-active --quiet asterisk; then
-    clear_alert asterisk "Phone System Restored" "The phone system is running again and can receive calls."
+    clear_alert asterisk "Call Service Restored" "The AVORTYX phone system is fully operational. Calls could not be received for {dur}."
 else
-    alert asterisk "Phone System Alert" "The phone system has stopped. No calls can be received until it is restarted."
+    alert asterisk "🔴" "Call Service Disruption" "The AVORTYX phone system is currently down, and no calls can be received. Our team has been notified and is investigating."
 fi
 
 # ── 5. the containers ────────────────────────────────────────────────────────
@@ -134,9 +158,9 @@ fi
 down=$(cd "$APP_DIR" && docker compose ps --format '{{.Service}} {{.State}}' 2>/dev/null \
        | grep -v ' running' | awk '{print $1}' | paste -sd, -)
 if [ -z "$down" ]; then
-    clear_alert containers "Services Restored" "All platform services are running again."
+    clear_alert containers "Platform Services Restored" "All AVORTYX platform services are fully operational. Service was interrupted for {dur}."
 else
-    alert containers "Service Alert" "Platform services stopped: ${down}. Some features may be unavailable. Restart the services."
+    alert containers "🔴" "Platform Service Disruption" "Some AVORTYX platform services are currently down (${down}), and some features may be unavailable. Our team has been notified and is investigating."
 fi
 
 # ── 6. calls actually arriving, during hours when they should be ─────────────
@@ -164,14 +188,15 @@ print('WATCHDOG_MINS', int((timezone.now() - c.created_at).total_seconds() // 60
     if [ -n "$mins" ]; then
         if [ "$mins" -gt "$QUIET_MINUTES" ]; then
             if [ "${live_dest:-0}" -gt 0 ]; then
-                dest_line="All systems are responding and ${live_dest} destinations are active."
+                dest_line="All systems are operational and ${live_dest} destinations are active, which points to an upstream issue. Please confirm traffic status with the source."
             else
-                dest_line="All systems are responding, but no destination is switched on."
+                dest_line="All systems are operational, but no destination is currently active. Please review destination settings."
             fi
-            alert traffic "Traffic Alert" "No inbound calls for $(duration "$mins") during peak hours. ${dest_line} This points to an upstream issue. Confirm traffic status with the source."
+            # Counted from the last call, so the restore message gives the real gap.
+            alert traffic "🔴" "Traffic Alert" "No inbound calls have been received for $(duration "$mins") during peak hours. ${dest_line}" \
+                "$(( $(date -u +%s) - mins * 60 ))"
         else
-            # Counted from the alert, which fires after QUIET_MINUTES already passed.
-            clear_alert traffic "Traffic Restored" "Inbound calls are arriving again." "Alert lasted"
+            clear_alert traffic "Traffic Restored" "Inbound calls are being received again. No calls arrived for {dur}."
         fi
     fi
 fi
@@ -181,9 +206,9 @@ fi
 
 used=$(df / --output=pcent | tail -1 | tr -cd '0-9')
 if [ "${used:-0}" -ge 85 ]; then
-    alert disk "Disk Warning" "Server disk is ${used}% full. The platform stops saving calls and recordings when it is full. Free up space soon." "🟠"
+    alert disk "🟠" "Storage Warning" "AVORTYX server storage is ${used}% full. Action is required: once storage is full, calls and recordings can no longer be saved. Our team has been notified."
 else
-    clear_alert disk "Disk Back to Normal" "Server disk usage is back to ${used}%."
+    clear_alert disk "Storage Normal" "AVORTYX server storage is back to ${used}% and operating normally. The warning lasted {dur}."
 fi
 
 # ── 8. a daily heartbeat ─────────────────────────────────────────────────────
@@ -198,8 +223,9 @@ from django.utils import timezone
 from routing.models import CallLog
 print('WATCHDOG_CALLS', CallLog.objects.filter(created_at__date=timezone.now().date()).count())
 " 2>/dev/null | grep '^WATCHDOG_CALLS' | awk '{print \$2}')
-        send "✅ <b>Daily Check: AVORTYX</b>
-All systems are running normally. Calls so far today: ${calls:-0}. Disk usage: ${used}%."
+        send "✅ <b>AVORTYX | Daily Status</b>
+All systems are fully operational. Calls received today: ${calls:-0}. Server storage used: ${used}%.
+<b>Checked:</b> $(stamp)"
     fi
 fi
 
