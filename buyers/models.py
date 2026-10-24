@@ -50,7 +50,9 @@ class Buyer(models.Model):
     # What this buyer's own logins may do, and the zone their reports count
     # days in. Controlled by the workspace admin; enforced server-side - a
     # hidden button is not a permission system (frontend spec, boss request).
-    timezone = models.CharField(max_length=64, default='UTC')
+    # Blank = the portal's time zone (CH-260); set only when the buyer
+    # counts its days in a zone of its own.
+    timezone = models.CharField(max_length=64, blank=True, default='')
     can_block_numbers = models.BooleanField(default=False)
     can_download_reports = models.BooleanField(default=False)
     payout_model = models.CharField(max_length=20, default='flat')

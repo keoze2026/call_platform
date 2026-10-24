@@ -145,6 +145,13 @@ Last updated: 24 Oct 2026.
 
 ---
 
+## 4b. Time zone — CH-260
+
+- The portal runs in **Eastern (EST)**. Every buyer and publisher follows it
+  by default — screens, their reports and their "today".
+- Only a buyer or publisher that picks **its own** zone differs. Choosing EST
+  again puts it back on the portal's zone.
+
 ## 5. Notifications
 
 - **Watchdog (Telegram):** `🔴 AVORTYX | Title` … `Detected: {time}` and

@@ -361,12 +361,23 @@ def get_buyer_access(request, buyer_id: str):
     from accounts.partner_permissions import clean_permissions
     perms = clean_permissions(b.permissions)
     return 200, {
-        "timezone": b.timezone or "UTC",
+        "timezone": _tz_effective(b),
+        "timezone_is_own": _tz_is_own(b),
         "permissions": {
             "block_numbers": perms.get('block_numbers', False),
             "download_reports": perms.get('download_reports', False),
         },
     }
+
+
+def _tz_effective(b):
+    from accounts.partner_timezone import effective
+    return effective(b)
+
+
+def _tz_is_own(b):
+    from accounts.partner_timezone import is_own
+    return is_own(b)
 
 
 class _AccessPermissionsSchema(Schema):
@@ -400,12 +411,11 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
 
     fields = []
     if 'timezone' in payload and payload['timezone'] is not None:
-        import zoneinfo
+        from accounts.partner_timezone import to_store
         try:
-            zoneinfo.ZoneInfo(str(payload['timezone']))
+            b.timezone = to_store(str(payload['timezone']))
         except Exception:
             return 400, {"detail": "Unknown time zone"}
-        b.timezone = str(payload['timezone'])
         fields.append('timezone')
     # One store: the permissions JSON the capability system reads. The
     # booleans stay as mirrors so nothing old breaks - never the source
@@ -422,7 +432,8 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
     fields += ['permissions', 'can_block_numbers', 'can_download_reports']
     b.save(update_fields=list(set(fields)))
     return 200, {
-        "timezone": b.timezone or "UTC",
+        "timezone": _tz_effective(b),
+        "timezone_is_own": _tz_is_own(b),
         "permissions": {
             "block_numbers": stored.get('block_numbers', False),
             "download_reports": stored.get('download_reports', False),

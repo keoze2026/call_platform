@@ -40,6 +40,9 @@ class Publisher(models.Model):
     # and the defaults in `accounts/partner_permissions.py` apply.
     permissions = models.JSONField(default=dict, blank=True)
     visible_report_columns = models.JSONField(default=_all_report_columns, blank=True)
+    # Blank = the portal's time zone (CH-260). It was kept only in the browser
+    # that set it, so any other device showed UTC.
+    timezone = models.CharField(max_length=64, blank=True, default='')
 
     # Tracking
     unique_id = models.CharField(max_length=50, unique=True, blank=True)

@@ -249,6 +249,9 @@ CORS_ALLOWED_ORIGINS = [
 # Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
+# The portal's time zone (CH-260, Sir 25 Oct): every buyer and publisher
+# follows it until that partner picks a zone of its own.
+PORTAL_TIMEZONE = config('PORTAL_TIMEZONE', default='America/New_York')
 USE_I18N = True
 USE_TZ = True
 

@@ -61,10 +61,13 @@ def _tz(filters, user=None):
     test #7). An explicit parameter always wins.
     """
     name = _f(filters, 'timezone')
-    if not name and user is not None and getattr(user, 'role', '') == 'buyer':
-        b = getattr(user, 'buyer', None)
-        if b is not None and getattr(b, 'timezone', ''):
-            name = b.timezone
+    if not name and user is not None and getattr(user, 'role', '') in ('buyer', 'publisher'):
+        # The partner's own zone, else the portal's (CH-260). It was UTC for a
+        # buyer nobody had set a zone for: its "today" began at 8 PM Eastern.
+        from accounts.partner_timezone import effective
+        partner = getattr(user, getattr(user, 'role', ''), None)
+        if partner is not None:
+            name = effective(partner)
     if not name:
         return timezone.get_current_timezone()
     try:

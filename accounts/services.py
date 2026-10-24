@@ -240,13 +240,17 @@ class ProfileService:
             from accounts.partner_permissions import clean_permissions
             b = user.buyer
             perms = clean_permissions(b.permissions)
+            from accounts.partner_timezone import effective
             return {
-                'partner_timezone': b.timezone or 'UTC',
+                'partner_timezone': effective(b),
                 'partner_permissions': {
                     'block_numbers': perms.get('block_numbers', False),
                     'download_reports': perms.get('download_reports', False),
                 },
             }
+        if getattr(user, 'role', '') == 'publisher' and getattr(user, 'publisher_id', None) and user.publisher:
+            from accounts.partner_timezone import effective
+            return {'partner_timezone': effective(user.publisher), 'partner_permissions': None}
         return {'partner_timezone': None, 'partner_permissions': None}
 
     @staticmethod
