@@ -184,6 +184,10 @@ class Carrier(models.Model):
     number_monthly_cost = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     portal_monthly_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     per_minute_cost = models.DecimalField(max_digits=8, decimal_places=4, default=0)
+    # How the carrier rounds each call's minutes (CH-254): 1 = exact seconds,
+    # 6 = up to the next 6 seconds, 60 = up to the whole minute.
+    BILLING_INCREMENTS = (1, 6, 30, 60)
+    billing_increment = models.PositiveSmallIntegerField(default=1)
     is_active = models.BooleanField(default=True, db_index=True)
     notes = models.TextField(blank=True, default='')
 
