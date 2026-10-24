@@ -84,6 +84,13 @@ def _tz(filters, user=None):
 # time; the fallback covers rows written before it was populated.
 CALL_TIME = Coalesce('started_at', 'created_at')
 
+# A call the publisher is paid for: it converted and it carries a payout - its
+# own (the tracking number's payout, CH-250) or the campaign's.
+PAID = Q(is_converted=True) & (Q(payout__gt=0) | Q(campaign__payout_amount__gt=0))
+
+# Answered: the buyer picked up (or is still talking).
+ANSWERED = Q(status__in=['completed', 'in_progress'])
+
 
 def _f(filters, name, default=None):
     """Read a filter field, tolerating filters being None."""
@@ -124,7 +131,9 @@ REPORT_COLUMN_FIELDS = {
     'connected':     ('connected_calls',),
     'not_connected': ('not_connected_calls',),
     'qualified':     ('qualified_calls', 'is_qualified'),
-    'converted':     ('converted_calls', 'conversion_rate', 'is_converted'),
+    # not_converted / lost split the calls by the converted verdict, so they
+    # hide with it (CH-250).
+    'converted':     ('converted_calls', 'conversion_rate', 'is_converted', 'not_converted', 'lost'),
     'duplicate':     ('duplicate_calls', 'dupe', 'duplicates', 'is_duplicate'),
     'duration':      ('duration_seconds', 'avg_call_duration'),
     'tcl':           ('total_duration_sec',),
@@ -265,8 +274,13 @@ class AnalyticsService:
                 default=F('revenue'),
                 output_field=DecimalField(max_digits=10, decimal_places=4)
             ),
+            # The payout stored on the call is what the publisher earned for
+            # it: the tracking number's own payout (Yahoo Native $5), else the
+            # campaign's (CH-250). Reading the campaign's first showed every
+            # number at the campaign rate.
             dynamic_payout=Case(
                 When(~earned, then=zero),
+                When(payout__gt=0, then=F('payout')),
                 When(campaign__isnull=False, then=F('campaign__payout_amount')),
                 default=F('payout'),
                 output_field=DecimalField(max_digits=10, decimal_places=4)
@@ -439,6 +453,12 @@ class AnalyticsService:
                 no_answer=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
+                # The chart's three colours, as on Revo (CH-250): converted
+                # (blue), answered but not converted (yellow), and missed AND
+                # not converted (red). A missed call that converted - its
+                # destination pays on Incoming - is blue, not red.
+                not_converted=Count('id', filter=Q(is_converted=False) & ANSWERED),
+                lost=Count('id', filter=Q(is_converted=False) & ~ANSWERED),
                 revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -462,6 +482,9 @@ class AnalyticsService:
                 'connected':    r['connected'] + live_c,   # a live call is connected
                 'no_answer':    r['no_answer'],
                 'converted':    r['converted'],
+                # A live call has not converted yet: answered, not converted.
+                'not_converted': r['not_converted'] + live_c,
+                'lost':         r['lost'],
                 'revenue':      r['revenue'],
                 'payout':       r['payout'],
                 'profit':       r['profit'],
@@ -477,6 +500,8 @@ class AnalyticsService:
                     'connected':    live_c,
                     'no_answer':    0,
                     'converted':    0,
+                    'not_converted': live_c,
+                    'lost':         0,
                     'revenue':      Decimal('0'),
                     'payout':       Decimal('0'),
                     'profit':       Decimal('0'),
@@ -511,13 +536,20 @@ class AnalyticsService:
 
     @staticmethod
     def _export_reason(r) -> str:
-        """The fail reason in the export, as on screen: an unanswered call that
-        still converted (its destination bills on Incoming Call, CH-247) reads
-        "... - With Conversion", as Revo writes it."""
-        reason = getattr(r, 'block_reason', '') or ''
-        if reason and r.is_converted and r.status not in ('completed', 'in_progress'):
-            return f'{reason} - With Conversion'
-        return reason
+        """The fail reason in the export, as on screen: only a call that did
+        not convert has one (CH-250)."""
+        if r.is_converted:
+            return ''
+        return getattr(r, 'block_reason', '') or ''
+
+    @staticmethod
+    def _export_status(r) -> str:
+        """The status in the export. A missed call that still converted (its
+        destination pays on Incoming Call, CH-247) reads "Missed With
+        Conversion", as on screen (CH-250)."""
+        if r.is_converted and r.status not in ('completed', 'in_progress'):
+            return 'Missed With Conversion'
+        return r.status
 
     @staticmethod
     def _cost_from_minutes(billable_minutes, rate, markup) -> Decimal:
@@ -590,9 +622,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=Q(
-                    is_converted=True, campaign__payout_amount__gt=0,
-                )),
+                paid_calls=Count('id', filter=PAID),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -900,9 +930,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=Q(
-                    is_converted=True, campaign__payout_amount__gt=0,
-                )),
+                paid_calls=Count('id', filter=PAID),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -978,9 +1006,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=Q(
-                    is_converted=True, campaign__payout_amount__gt=0,
-                )),
+                paid_calls=Count('id', filter=PAID),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -1099,9 +1125,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=Q(
-                    is_converted=True, campaign__payout_amount__gt=0,
-                )),
+                paid_calls=Count('id', filter=PAID),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -1480,7 +1504,7 @@ class AnalyticsService:
                 r.campaign_name, r.buyer_name,
                 dest_names.get(dest_number, ''), dest_number,
                 r.publisher_name,
-                r.status, AnalyticsService._export_reason(r),
+                AnalyticsService._export_status(r), AnalyticsService._export_reason(r),
                 r.duration_seconds, ttc,
                 'Yes' if r.is_qualified else 'No',
                 'Yes' if r.is_converted else 'No',
