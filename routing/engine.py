@@ -605,71 +605,109 @@ class RoutingEngine:
 
     @staticmethod
     def get_valid_destination(rule: RoutingRule, call_data: dict):
-        """Pick the first destination that passes every check.
+        """Standard routing: priority first, then weight (CH-249), as on Revo.
+
+        Destinations are tried by priority, 1 before 2. Inside one priority the
+        call goes to one of the destinations that can take it, chosen by weight:
+        three lines at priority 1 / weight 100 share the calls evenly, 75 and 25
+        split them three to one, weight 0 takes a call only when nothing else
+        at that priority can. Only when no destination of a priority can take
+        the call does the next priority get it.
+
+        It used to take the first destination of the top priority every time,
+        so weight did nothing and one line at priority 1 took every call until
+        it was switched off or full (Sir, 24 Oct: "priority and weight should
+        work perfect").
 
         Records why each one was rejected into call_data['trace'] when the caller
         supplies it, so a call can later explain its own routing. Costs nothing
         when no trace is passed.
         """
         trace = call_data.get('trace')
-        destinations = list(rule.destinations.all().order_by('priority'))
+        destinations = list(rule.destinations.all().order_by('priority', 'created_at'))
 
+        tiers = []
         for destination in destinations:
-            reason = None
+            if tiers and tiers[-1][0] == destination.priority:
+                tiers[-1][1].append(destination)
+            else:
+                tiers.append((destination.priority, [destination]))
 
-            # Duplicate handling, set up by route_call for a repeat caller.
-            # Original: only the destination that took their first call.
-            # Different: never one they have already reached.
-            dup_only = call_data.get('dup_only_destination')
-            if dup_only and _d10(destination.destination) != dup_only:
-                reason = 'duplicate routes to its original destination'
-            elif _d10(destination.destination) in call_data.get('dup_exclude_destinations', ()):
-                reason = 'already took this caller (duplicates: different)'
-            elif destination.buyer_id and str(destination.buyer_id) in call_data.get('dup_exclude_buyers', ()):
-                reason = f'buyer already took this caller (duplicates: different)'
-            elif destination.buyer_id and str(destination.buyer_id) in call_data.get('blocked_buyers', ()):
-                reason = 'this buyer has blocked the caller'
-
-            if reason is None and destination.buyer:
-                buyer = destination.buyer
-                dest_fault = None
-                if buyer.status != 'active':
-                    reason = f'buyer {buyer.name} is {buyer.status}'
-                    dest_fault = 'Destination missed (buyer paused)'
-                elif not RoutingEngine.is_destination_enabled(
-                    buyer, destination.destination
-                ):
-                    reason = f'destination {destination.destination} is switched off'
-                    dest_fault = 'Destination missed (TFN off)'
-                elif not RoutingEngine.check_buyer_caps(buyer):
-                    reason = f'buyer {buyer.name} has reached its cap'
-                    dest_fault = 'Destination missed (cap full)'
-                elif not RoutingEngine.check_buyer_concurrency(
-                    buyer, destination_number=destination.destination
-                ):
-                    reason = f'buyer {buyer.name} is at concurrency limit'
-                    dest_fault = 'Destination missed (CC full)'
-                # The owner's rule: a call the buyer's line could not take is
-                # missed ON THAT LINE, never an anonymous campaign drop. The
-                # first destination-side refusal in priority order is the line
-                # that should have answered, so the call is recorded against
-                # it if no later destination takes the call.
-                if dest_fault and 'refused_destination' not in call_data:
-                    call_data['refused_destination'] = {
-                        'tfn': destination.destination,
-                        'buyer': buyer,
-                        'label': dest_fault,
-                    }
-
-            if reason is None:
-                if trace is not None:
-                    trace.record_destination(rule, destination, eligible=True)
-                return destination
-
-            if trace is not None:
-                trace.record_destination(rule, destination, eligible=False, reason=reason)
+        for _priority, tier in tiers:
+            eligible = []
+            for destination in tier:
+                reason = RoutingEngine._destination_refusal(destination, call_data)
+                if reason is None:
+                    eligible.append(destination)
+                    if trace is not None:
+                        trace.record_destination(rule, destination, eligible=True)
+                elif trace is not None:
+                    trace.record_destination(rule, destination, eligible=False, reason=reason)
+            if eligible:
+                return RoutingEngine._by_weight(eligible)
 
         return None
+
+    @staticmethod
+    def _by_weight(eligible):
+        """One destination, chosen in proportion to weight. Weight 0 only when
+        every candidate is 0."""
+        if len(eligible) == 1:
+            return eligible[0]
+        weights = [max(0, d.weight or 0) for d in eligible]
+        if sum(weights) <= 0:
+            return eligible[0]
+        return random.choices(eligible, weights=weights, k=1)[0]
+
+    @staticmethod
+    def _destination_refusal(destination, call_data):
+        """Why this destination cannot take the call, or None."""
+        reason = None
+
+        # Duplicate handling, set up by route_call for a repeat caller.
+        # Original: only the destination that took their first call.
+        # Different: never one they have already reached.
+        dup_only = call_data.get('dup_only_destination')
+        if dup_only and _d10(destination.destination) != dup_only:
+            reason = 'duplicate routes to its original destination'
+        elif _d10(destination.destination) in call_data.get('dup_exclude_destinations', ()):
+            reason = 'already took this caller (duplicates: different)'
+        elif destination.buyer_id and str(destination.buyer_id) in call_data.get('dup_exclude_buyers', ()):
+            reason = f'buyer already took this caller (duplicates: different)'
+        elif destination.buyer_id and str(destination.buyer_id) in call_data.get('blocked_buyers', ()):
+            reason = 'this buyer has blocked the caller'
+
+        if reason is None and destination.buyer:
+            buyer = destination.buyer
+            dest_fault = None
+            if buyer.status != 'active':
+                reason = f'buyer {buyer.name} is {buyer.status}'
+                dest_fault = 'Destination missed (buyer paused)'
+            elif not RoutingEngine.is_destination_enabled(
+                buyer, destination.destination
+            ):
+                reason = f'destination {destination.destination} is switched off'
+                dest_fault = 'Destination missed (TFN off)'
+            elif not RoutingEngine.check_buyer_caps(buyer):
+                reason = f'buyer {buyer.name} has reached its cap'
+                dest_fault = 'Destination missed (cap full)'
+            elif not RoutingEngine.check_buyer_concurrency(
+                buyer, destination_number=destination.destination
+            ):
+                reason = f'buyer {buyer.name} is at concurrency limit'
+                dest_fault = 'Destination missed (CC full)'
+            # The owner's rule: a call the buyer's line could not take is
+            # missed ON THAT LINE, never an anonymous campaign drop. The
+            # first destination-side refusal in priority order is the line
+            # that should have answered, so the call is recorded against
+            # it if no later destination takes the call.
+            if dest_fault and 'refused_destination' not in call_data:
+                call_data['refused_destination'] = {
+                    'tfn': destination.destination,
+                    'buyer': buyer,
+                    'label': dest_fault,
+                }
+        return reason
 
     @staticmethod
     def evaluate_rule(rule: RoutingRule, call_data: dict) -> RuleDestination:

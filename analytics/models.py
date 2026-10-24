@@ -103,6 +103,10 @@ class CallRecord(models.Model):
             return self._dynamic_payout
         if not self.is_converted:
             return Decimal('0')
+        # The call's own payout - its tracking number's, else the campaign's
+        # (CH-250). Same order as the reports' dynamic_payout.
+        if self.payout and self.payout > 0:
+            return self.payout
         if self.campaign_id and getattr(self, 'campaign', None):
             return self.campaign.payout_amount
         return self.payout

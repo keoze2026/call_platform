@@ -71,10 +71,18 @@ def _campaign_revenue(call) -> Decimal:
 
 
 def _campaign_payout(call) -> Decimal:
-    """Payout for a call: campaign pricing, falling back to the stored value."""
+    """Payout for a call: what was paid on it, else the campaign's pricing.
+
+    The stored value comes first (CH-250). When the call converted,
+    settle_call_money stored the tracking number's own payout (Yahoo Native
+    $5) or, without one, the campaign's. Reading the campaign's first showed
+    every number at the campaign rate in Reports."""
+    stored = Decimal(call.publisher_payout or 0)
+    if stored > 0:
+        return stored
     if call.campaign_id and call.campaign:
-        return Decimal(call.campaign.payout_amount or 0) or Decimal(call.publisher_payout or 0)
-    return Decimal(call.publisher_payout or 0)
+        return Decimal(call.campaign.payout_amount or 0)
+    return stored
 
 
 def _answered_before(call) -> bool:
