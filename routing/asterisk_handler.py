@@ -390,13 +390,23 @@ def _route_incoming_call(request):
         # TFN the buyer has (boss: a buyer can have multiple), cap-aware -
         # .first() here is what made a second live TFN silently dead.
         try:
-            live_dest = RoutingEngine.pick_live_destination(
-                buyer,
-                exclude=decision.get('dup_exclude_tfns') or (),
-                only=decision.get('dup_only_tfn'),
-            )
-            if live_dest and live_dest.tfn:
-                dest_number = live_dest.tfn
+            # The routed row is one of this buyer's own TFNs: dial exactly that
+            # number. Swapping in the buyer's next TFN in rotation overrode the
+            # campaign's priority and weight - a priority 1 row could ring the
+            # buyer's priority 2 TFN, or a TFN not routed in this campaign at
+            # all (CH-249). Rotation stays for a row that names the buyer
+            # without one of its TFNs.
+            own = _buyer_tfn(buyer, dest_number)
+            if own:
+                dest_number = own
+            else:
+                live_dest = RoutingEngine.pick_live_destination(
+                    buyer,
+                    exclude=decision.get('dup_exclude_tfns') or (),
+                    only=decision.get('dup_only_tfn'),
+                )
+                if live_dest and live_dest.tfn:
+                    dest_number = live_dest.tfn
         except Exception:
             # Falls back to the number already resolved. If this keeps firing,
             # calls are going to a stale destination and nobody would know.
@@ -556,6 +566,19 @@ def active_channels(request):
         "asterisk_active": active_count,
         "reason": reason,
     })
+
+
+def _buyer_tfn(buyer, number):
+    """The buyer's own destination number matching `number` (by its last ten
+    digits), written as it is saved on the Destinations page, or None."""
+    digits = ''.join(c for c in str(number or '') if c.isdigit())[-10:]
+    if not digits:
+        return None
+    from buyers.destination import Destination
+    for tfn in Destination.objects.filter(buyer=buyer).values_list('tfn', flat=True):
+        if ''.join(c for c in (tfn or '') if c.isdigit())[-10:] == digits:
+            return tfn
+    return None
 
 
 def _rule_destination_for(rule, number, chosen_id):
