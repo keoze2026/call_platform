@@ -7387,3 +7387,30 @@ for 6 hours without the calls still running at midnight. Closed now means
 2 hours after the day ends. With the frontend fix CH-286 (Sir, 26 Oct: the
 23rd showed 11, 40 and 1,591 calls on three admin screens).
 Tests: `analytics/test_summary_cost.py` (ClosedDayTests).
+
+## CH-290 - Revo's call log corrects calls whose answer crossed the hang-up
+**2026-10-26 · Routing / RevoCalls API**
+
+18704239446, 26 Oct, 1:29 PM ET: Revo shows Completed - With Conversion,
+1 second; ours showed No Answer. The SIP capture has 180, 183, our CANCEL and
+XOLO's 487 - the buyer's answer never reached our server, so no rule here can
+see it (Sir: "fix this at any cost").
+
+- `routing/revo_sync.py` reads Revo's call log through the RevoCalls API
+  (`GET main-api.revocalls.com/api/<workspace>/calls/log?date&dateTo&timezone=46`,
+  Bearer key; found with `scripts/revo_discover.sh`).
+- A call is corrected only when Revo shows it Completed, finished and short
+  (10 s at most), ours is missed because the caller hung up while it rang,
+  same caller and number, Revo's row within seconds of ours, and Revo's
+  answer (start + TTC) within 3 s of our hang-up. It becomes Completed with
+  Revo's duration, paid and charged like any answered call, tagged
+  "Completed by Revo" and "revo:<id>", with a note.
+- A call our switch saw answered is never changed; any other disagreement is
+  listed as "check". Running again changes nothing.
+- `manage.py sync_revo` (dry run by default, `--apply`, `--minutes`). Needs no
+  restart; host cron every minute once approved:
+  `* * * * * cd /opt/call_platform && /usr/bin/docker compose exec -T web python manage.py sync_revo --apply --quiet >> /var/log/revo_sync.log 2>&1`
+- `.env`: REVO_API_KEY, REVO_WORKSPACE; optional REVO_API_BASE, REVO_TIMEZONE_ID
+  (46), REVO_MAX_SECONDS (10), REVO_CROSS_SECONDS (3).
+
+Tests: `routing/test_revo_sync.py`.
