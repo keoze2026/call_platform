@@ -16,11 +16,18 @@ Two deliberate choices:
   from weeks back). A TTL bounds how stale a repaired day can look.
 """
 import hashlib
+from datetime import timedelta
 
 from django.core.cache import cache
 from django.utils import timezone
 
 TTL_SECONDS = 6 * 3600
+
+# A day is closed this long after it ends, not at midnight (CH-287). A call
+# is recorded when it ENDS but belongs to the day it started, so a call still
+# running at midnight joins that day after midnight. Cached at 00:05, the day
+# was served without those calls for six hours.
+SETTLE = timedelta(hours=2)
 
 # Every filter that changes the response must be in the key, or two
 # different requests would share one answer.
@@ -38,8 +45,8 @@ def _range_is_closed(filters, user) -> bool:
     date_from = _f(filters, 'date_from') or _f(filters, 'start_date')
     if not date_from or not date_to:
         return False
-    today = timezone.localtime(timezone.now(), _tz(filters, user)).date().isoformat()
-    return date_to < today
+    settled = timezone.localtime(timezone.now() - SETTLE, _tz(filters, user)).date().isoformat()
+    return date_to < settled
 
 
 def closed_range_response(request, filters, name, compute):

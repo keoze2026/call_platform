@@ -7377,3 +7377,13 @@ Needs `docker compose restart web` to load (a few seconds; do it when no calls
 are up). Tests: `analytics/test_summary_cost.py`.
 
 Commit: see `git log --grep CH-284`.
+
+## CH-287 - A finished day is cached only 2 hours after it ends
+**2026-10-26 · Reports**
+
+A call is recorded when it ends but belongs to the day it started. A day
+counted as closed at midnight, so a report of it opened at 00:05 was cached
+for 6 hours without the calls still running at midnight. Closed now means
+2 hours after the day ends. With the frontend fix CH-286 (Sir, 26 Oct: the
+23rd showed 11, 40 and 1,591 calls on three admin screens).
+Tests: `analytics/test_summary_cost.py` (ClosedDayTests).

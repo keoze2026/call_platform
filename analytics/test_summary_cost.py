@@ -76,3 +76,29 @@ class SummaryCostTests(TestCase):
         masked = mask_partner_money(partner, [{'cost': Decimal('0.90'), 'total_cost': Decimal('0.90')}])
         self.assertIsNone(masked[0]['cost'])
         self.assertIsNone(masked[0]['total_cost'])
+
+
+class ClosedDayTests(TestCase):
+    """CH-287: a day is cached as finished only 2 hours after it ends."""
+
+    def closed(self, now, date_to):
+        from datetime import datetime
+        from unittest import mock
+        from zoneinfo import ZoneInfo
+        from types import SimpleNamespace
+        from analytics import report_cache
+        f = SimpleNamespace(date_from=date_to, date_to=date_to, timezone='America/New_York')
+        user = SimpleNamespace(timezone='America/New_York')
+        at = datetime.fromisoformat(now).replace(tzinfo=ZoneInfo('America/New_York'))
+        with mock.patch('django.utils.timezone.now', return_value=at):
+            return report_cache._range_is_closed(f, user)
+
+    def test_not_closed_just_after_midnight(self):
+        self.assertFalse(self.closed('2026-10-24T00:05:00', '2026-10-23'))
+        self.assertFalse(self.closed('2026-10-24T01:59:00', '2026-10-23'))
+
+    def test_closed_two_hours_after(self):
+        self.assertTrue(self.closed('2026-10-24T02:01:00', '2026-10-23'))
+
+    def test_today_never_closed(self):
+        self.assertFalse(self.closed('2026-10-23T15:00:00', '2026-10-23'))
