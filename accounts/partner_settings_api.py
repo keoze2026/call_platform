@@ -55,6 +55,9 @@ def _resolve(request, kind: str, partner_id: str):
         return None
 
 
+from accounts.partner_timezone import effective as effective_tz, is_own as tz_is_own  # noqa: E402
+
+
 def _state(partner) -> dict:
     """What the settings page needs to render, with the defaults filled in.
 
@@ -68,6 +71,9 @@ def _state(partner) -> dict:
         'permissions': clean_permissions(partner.permissions),
         'visible_report_columns': clean_report_columns(partner.visible_report_columns),
         'has_been_set': bool(partner.permissions) or bool(partner.visible_report_columns),
+        # The zone it counts days in: its own, or the portal's (CH-260).
+        'timezone': effective_tz(partner),
+        'timezone_is_own': tz_is_own(partner),
     }
 
 
@@ -86,6 +92,11 @@ def read_settings(request: HttpRequest, kind: str, partner_id: str):
         return 404, {'detail': f"Unknown partner type '{kind}'."}
     partner = _resolve(request, kind, partner_id)
     if partner is None:
+        return 404, {'detail': f'{kind.title()} not found'}
+    # A buyer or publisher login reads only its own record (CH-260): the
+    # organization scope alone let it read every other partner's settings.
+    role = getattr(request.auth, 'role', '')
+    if role in ('buyer', 'publisher') and str(getattr(request.auth, f'{role}_id', '') or '') != str(partner.id):
         return 404, {'detail': f'{kind.title()} not found'}
     return 200, _state(partner)
 
@@ -130,6 +141,14 @@ def write_settings(request: HttpRequest, kind: str, partner_id: str):
             }
         partner.permissions = clean_permissions(incoming)
         fields.append('permissions')
+
+    if 'timezone' in body and body['timezone'] is not None:
+        from accounts.partner_timezone import to_store
+        try:
+            partner.timezone = to_store(str(body['timezone']))
+        except Exception:
+            return 400, {'detail': 'Unknown time zone.'}
+        fields.append('timezone')
 
     if 'visible_report_columns' in body:
         incoming = body['visible_report_columns']

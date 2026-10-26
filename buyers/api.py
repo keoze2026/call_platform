@@ -16,6 +16,97 @@ from accounts.api import JWTAuth
 router = Router(tags=["Buyers"], auth=JWTAuth())
 
 
+# ── The buyer's own Telegram report switch (CH-259) ─────────────────────────
+# Sir, 25 Oct: a report goes out automatically only for a buyer whose own
+# account ticked the box approving it; the buyer can turn it off any time.
+# Defined before the /{buyer_id} routes so "my" is never taken for an id.
+
+class MyTelegramReportSchema(Schema):
+    approved: bool
+
+
+def _my_buyer(request):
+    user = request.auth
+    if getattr(user, 'role', '') != 'buyer' or not getattr(user, 'buyer_id', None):
+        return None
+    return user.buyer
+
+
+def _my_report_out(r) -> dict:
+    from buyers.telegram_report import bot_username
+    return {
+        "approved": r.buyer_approved,
+        "approved_at": r.buyer_approved_at.isoformat() if r.buyer_approved_at else None,
+        # Set up by the workspace: whether a chat and time are there yet. The
+        # chat ID itself is not shown back.
+        "set_up": bool(r.enabled and r.chat_id),
+        "send_time": r.send_time.strftime('%H:%M'),
+        "no_recording_link": r.no_recording_link,
+        "bot": bot_username(),
+        "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
+    }
+
+
+@router.get("/telegram-reports", response={200: dict})
+def list_telegram_reports(request: HttpRequest):
+    """Every buyer of the workspace with its Telegram report status, for the
+    Automated Reports page (CH-261). Workspace admins only. Defined before the
+    /{buyer_id} routes so "telegram-reports" is never taken for an id."""
+    from buyers.models import BuyerTelegramReport
+    require(request.auth, Capability.MEMBERS)
+    reports = {r.buyer_id: r for r in BuyerTelegramReport.objects.filter(buyer__organization=request.auth.organization)}
+    items = []
+    for b in Buyer.objects.filter(organization=request.auth.organization).exclude(status='archived').order_by('name'):
+        r = reports.get(b.id)
+        if r is None or not r.chat_id:
+            state = 'not_set_up'
+        elif not r.enabled:
+            state = 'off'
+        elif not r.buyer_approved:
+            state = 'waiting_approval'
+        else:
+            state = 'active'
+        items.append({
+            "buyer_id": str(b.id),
+            "buyer_name": b.name,
+            "state": state,
+            "send_time": r.send_time.strftime('%H:%M') if r else None,
+            "last_sent_at": r.last_sent_at.isoformat() if r and r.last_sent_at else None,
+            "last_result": r.last_result if r else '',
+        })
+    order = {'active': 0, 'waiting_approval': 1, 'off': 2, 'not_set_up': 3}
+    items.sort(key=lambda i: (order[i['state']], i['buyer_name'].lower()))
+    counts = {k: sum(1 for i in items if i['state'] == k) for k in order}
+    return 200, {"items": items, "counts": counts}
+
+
+@router.get("/my/telegram-report", response={200: dict, 403: dict})
+def get_my_telegram_report(request: HttpRequest):
+    """A buyer login's own report switch."""
+    from buyers.models import BuyerTelegramReport
+    buyer = _my_buyer(request)
+    if buyer is None:
+        return 403, {"detail": "Only a buyer's own login has this switch."}
+    r, _ = BuyerTelegramReport.objects.get_or_create(buyer=buyer)
+    return 200, _my_report_out(r)
+
+
+@router.patch("/my/telegram-report", response={200: dict, 403: dict})
+def set_my_telegram_report(request: HttpRequest, data: MyTelegramReportSchema):
+    """Approve, or stop, the automatic report. Only the buyer itself may."""
+    from django.utils import timezone as _tz
+    from buyers.models import BuyerTelegramReport
+    buyer = _my_buyer(request)
+    if buyer is None:
+        return 403, {"detail": "Only a buyer's own login has this switch."}
+    r, _ = BuyerTelegramReport.objects.get_or_create(buyer=buyer)
+    r.buyer_approved = data.approved
+    r.buyer_approved_at = _tz.now() if data.approved else None
+    r.buyer_approved_by = (request.auth.email or '')[:254] if data.approved else ''
+    r.save(update_fields=['buyer_approved', 'buyer_approved_at', 'buyer_approved_by', 'updated_at'])
+    return 200, _my_report_out(r)
+
+
 # Plain dict rather than BuyerOutSchema so the `invite` block reaches the
 # caller - a schema would filter it out, and whether the invitation went is what
 # the person who just filled in the form wants to know.
@@ -291,7 +382,10 @@ def get_buyer_access(request, buyer_id: str):
     """The buyer's time zone and what its own logins may do. Admin-side."""
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'view')
-    require(request.auth, Capability.EDIT)
+    # Workspace admins only (CH-259): partner logins skip the route table, so
+    # a buyer login with Manage Traffic could read every buyer's access here
+    # and grant itself Download Reports.
+    require(request.auth, Capability.MEMBERS)
     from buyers.models import Buyer
     try:
         b = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
@@ -300,12 +394,23 @@ def get_buyer_access(request, buyer_id: str):
     from accounts.partner_permissions import clean_permissions
     perms = clean_permissions(b.permissions)
     return 200, {
-        "timezone": b.timezone or "UTC",
+        "timezone": _tz_effective(b),
+        "timezone_is_own": _tz_is_own(b),
         "permissions": {
             "block_numbers": perms.get('block_numbers', False),
             "download_reports": perms.get('download_reports', False),
         },
     }
+
+
+def _tz_effective(b):
+    from accounts.partner_timezone import effective
+    return effective(b)
+
+
+def _tz_is_own(b):
+    from accounts.partner_timezone import is_own
+    return is_own(b)
 
 
 class _AccessPermissionsSchema(Schema):
@@ -328,6 +433,7 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
     """
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
+    require(request.auth, Capability.MEMBERS)   # admins only - see get_buyer_access
     payload = payload.dict(exclude_none=True)
     require(request.auth, Capability.EDIT)
     from buyers.models import Buyer
@@ -338,12 +444,11 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
 
     fields = []
     if 'timezone' in payload and payload['timezone'] is not None:
-        import zoneinfo
+        from accounts.partner_timezone import to_store
         try:
-            zoneinfo.ZoneInfo(str(payload['timezone']))
+            b.timezone = to_store(str(payload['timezone']))
         except Exception:
             return 400, {"detail": "Unknown time zone"}
-        b.timezone = str(payload['timezone'])
         fields.append('timezone')
     # One store: the permissions JSON the capability system reads. The
     # booleans stay as mirrors so nothing old breaks - never the source
@@ -360,7 +465,8 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
     fields += ['permissions', 'can_block_numbers', 'can_download_reports']
     b.save(update_fields=list(set(fields)))
     return 200, {
-        "timezone": b.timezone or "UTC",
+        "timezone": _tz_effective(b),
+        "timezone_is_own": _tz_is_own(b),
         "permissions": {
             "block_numbers": stored.get('block_numbers', False),
             "download_reports": stored.get('download_reports', False),
@@ -447,3 +553,131 @@ def remove_buyer_member(request: HttpRequest, buyer_id: str, data: RemoveMemberS
                      "code": "not_a_partner"}
 
     return 200, {"detail": "removed"}
+
+
+# ── Telegram report (CH-258) ────────────────────────────────────────────────
+
+class TelegramReportSchema(Schema):
+    enabled: Optional[bool] = None
+    chat_id: Optional[str] = None
+    send_time: Optional[str] = None          # "21:00", Eastern
+    no_recording_link: Optional[bool] = None
+    connected_only: Optional[bool] = None
+    hide_fail_reason: Optional[bool] = None
+    included_columns: Optional[List[str]] = None    # column keys, CH-267
+    # Lists of pairs, not maps: the portal's client renames object keys
+    # (snake_case <-> camelCase), which would mangle "No Destination".
+    column_names: Optional[List[dict]] = None       # [{"key": "status", "label": "Call Status"}]
+    comment_rewrites: Optional[List[dict]] = None   # [{"from": "No Destination", "to": "Line Busy"}]
+
+
+# Workspace admins only - checked here, not only in the route table: buyer and
+# publisher logins skip the route table by design (Partner Access governs
+# them), so a buyer login with Manage Traffic on could otherwise open, and
+# redirect, another buyer's report (CH-259).
+def _telegram_report(request, buyer_id):
+    from buyers.models import BuyerTelegramReport
+    try:
+        buyer = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
+    except (Buyer.DoesNotExist, ValueError):
+        return None
+    report, _ = BuyerTelegramReport.objects.get_or_create(buyer=buyer)
+    return report
+
+
+def _telegram_report_out(r) -> dict:
+    from buyers.telegram_report import COLUMNS, DEFAULT_COLUMNS
+    return {
+        "enabled": r.enabled,
+        "chat_id": r.chat_id,
+        "send_time": r.send_time.strftime('%H:%M'),
+        "no_recording_link": r.no_recording_link,
+        "connected_only": r.connected_only,
+        "hide_fail_reason": r.hide_fail_reason,
+        "column_names": [{"key": k, "label": v} for k, v in (r.column_names or {}).items()],
+        "comment_rewrites": [{"from": k, "to": v} for k, v in (r.comment_rewrites or {}).items()],
+        "columns": [{"key": k, "label": label} for k, label in COLUMNS],
+        "included_columns": list(r.included_columns or DEFAULT_COLUMNS),
+        "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
+        "last_result": r.last_result,
+        "buyer_approved": r.buyer_approved,
+        "buyer_approved_at": r.buyer_approved_at.isoformat() if r.buyer_approved_at else None,
+        "buyer_approved_by": r.buyer_approved_by,
+    }
+
+
+@router.get("/{buyer_id}/telegram-report", response={200: dict, 404: dict})
+def get_telegram_report(request: HttpRequest, buyer_id: str):
+    """The buyer's daily Telegram report settings. Admin-side."""
+    require(request.auth, Capability.MEMBERS)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    return 200, _telegram_report_out(r)
+
+
+@router.patch("/{buyer_id}/telegram-report", response={200: dict, 400: dict, 404: dict})
+def update_telegram_report(request: HttpRequest, buyer_id: str, data: TelegramReportSchema):
+    """Save the report settings. Only the fields sent are touched."""
+    import re
+    from datetime import datetime as _dt
+    from buyers.telegram_report import ReportError, check_column_names, check_rewrites
+    require(request.auth, Capability.MEMBERS)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    try:
+        if data.chat_id is not None:
+            chat = data.chat_id.strip()
+            if chat and not re.fullmatch(r'-?\d{3,20}|@[A-Za-z0-9_]{5,32}', chat):
+                raise ReportError('A Telegram chat ID is a number (e.g. 123456789, or -100... for a group) or @channelname.')
+            r.chat_id = chat
+        if data.send_time is not None:
+            try:
+                r.send_time = _dt.strptime(data.send_time.strip(), '%H:%M').time()
+            except ValueError:
+                raise ReportError('Send time must look like 21:00.')
+        for f in ('enabled', 'no_recording_link', 'connected_only', 'hide_fail_reason'):
+            v = getattr(data, f)
+            if v is not None:
+                setattr(r, f, v)
+        if data.included_columns is not None:
+            from buyers.telegram_report import COLUMN_KEYS
+            keys = [k for k in data.included_columns if k in COLUMN_KEYS]
+            if not keys:
+                raise ReportError('Tick at least one column.')
+            r.included_columns = keys
+        if data.column_names is not None:
+            r.column_names = check_column_names(
+                {str(i.get('key', '')): i.get('label', '') for i in data.column_names if isinstance(i, dict)})
+        if data.comment_rewrites is not None:
+            r.comment_rewrites = check_rewrites(
+                {str(i.get('from', '')): i.get('to', '') for i in data.comment_rewrites if isinstance(i, dict)})
+        if r.enabled and not r.chat_id:
+            raise ReportError('Add the buyer\'s Telegram chat ID before switching the report on.')
+    except ReportError as e:
+        return 400, {"detail": str(e)}
+    r.save()
+    return 200, _telegram_report_out(r)
+
+
+@router.post("/{buyer_id}/telegram-report/send", response={200: dict, 400: dict, 404: dict})
+def send_telegram_report_now(request: HttpRequest, buyer_id: str):
+    """Send the report now - the period its scheduled report covers - to
+    check the buyer's setup. Does not count as today's scheduled report."""
+    from django.utils import timezone as _tz
+    from buyers.telegram_report import ReportError, send_report
+    require(request.auth, Capability.MEMBERS)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    try:
+        result = send_report(r)
+    except ReportError as e:
+        r.last_result = f'Not sent: {e}'[:255]
+        r.save(update_fields=['last_result', 'updated_at'])
+        return 400, {"detail": str(e)}
+    r.last_sent_at, r.last_result = _tz.now(), f'{result} (sent by hand)'
+    r.save(update_fields=['last_sent_at', 'last_result', 'updated_at'])
+    return 200, _telegram_report_out(r)
+

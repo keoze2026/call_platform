@@ -109,3 +109,44 @@ class CarrierBillTests(TestCase):
         self.assertIn(('no_number_fee', 'XLR'), kinds)
         self.assertIn(('no_carrier', None), kinds)
         self.assertNotIn(('no_minute_rate', 'XHR'), kinds)
+
+
+@override_settings(ALLOWED_HOSTS=['*'],
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class CompanyProfitTests(TestCase):
+    """CH-257: company profit before tax = customer charges - carrier costs."""
+
+    def setUp(self):
+        from billing.models import BillingAccount
+        self.ours = Organization.objects.create(name='Avortyx', slug='avx')
+        owner = User.objects.create(username='o', email='o@x.io', organization=self.ours,
+                                    role='admin', is_superuser=True, is_active=True)
+        self.api = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(owner)}')
+        self.cust = Organization.objects.create(name='texora', slug='texora')
+        self.accounts = {o: BillingAccount.objects.create(organization=o, balance=Decimal('100'))
+                         for o in (self.ours, self.cust)}
+        Carrier.objects.create(organization=self.ours, name='XHR', code='XHR', portal_monthly_fee=Decimal('350'))
+        RoutingRate.objects.update_or_create(key='termination', defaults={
+            'per_minute_cost': Decimal('0'), 'monthly_fee': Decimal('350')})
+
+    def tx(self, org, amount, description, kind='charge'):
+        from billing.models import Transaction
+        Transaction.objects.create(organization=org, billing_account=self.accounts[org], transaction_type=kind,
+                                   amount=Decimal(amount), description=description, status='completed')
+
+    def test_profit_is_customer_charges_minus_carrier_costs(self):
+        self.tx(self.cust, '0.09', 'Call charge')
+        self.tx(self.cust, '0.025', 'Rejected call fee + VoIP Shield')
+        self.tx(self.cust, '0.01', 'VoIP Shield fee')
+        self.tx(self.cust, '49.99', 'Portal access fee (Oct 2026)')
+        self.tx(self.cust, '20', 'Tracking number +18885550000')
+        self.tx(self.cust, '5', 'Refund', kind='refund')
+        self.tx(self.ours, '123', 'Call charge')            # our own portal: not income
+        p = self.api.get('/api/owner/carrier-costs').json()['profit']
+        self.assertEqual((p['calls'], p['rejected'], p['voip'], p['portal'], p['tfn']),
+                         ('0.09', '0.03', '0.01', '49.99', '20.00'))
+        self.assertEqual(p['refunds'], '5.00')
+        self.assertEqual(p['income'], '65.12')              # 70.115 - 5 = 65.115, half up
+        self.assertEqual(p['customers'], 1)
+        self.assertEqual(p['carrier_costs'], '700.00')      # XHR $350 + routing $350
+        self.assertEqual(p['profit'], '-634.88')            # 65.12 - 700

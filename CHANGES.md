@@ -3,6 +3,9 @@
 Running record of every change made during the handover-prep work.
 Newest at the bottom. Each change has an ID — quote the ID when discussing one.
 
+The rules Sir has set (rates, report colours, routing, access) are kept in
+BUSINESS-RULES.md — update it in the same change whenever he gives a new one.
+
 ## Index
 
 | ID | Date | Area | Summary | Status |
@@ -7009,3 +7012,321 @@ earlier call was answered or still live; Revo's Dupe counts any earlier call.
   `backfill_duplicates` no longer counts hidden retry tries.
 
 Tests: `routing/test_repeated_any_call.py`.
+
+## CH-238 - Shared campaigns: a publisher's campaign counters are their own calls
+**2026-10-24 · Publishers / Campaigns**
+
+Sir, 24 Oct: 5-10 publishers will share one campaign; each must see only their
+own TFNs, never the other publishers or theirs. Checked with two publishers on
+one campaign, logged in as one, across every GET endpoint of the API: the
+other publisher's name, numbers and callers never come back, and their record
+or number opened by id is "not found". Numbers, calls, live calls, reports,
+exports and the publisher list were already scoped.
+
+One gap: the campaign list and campaign page counted Live / Hour / Today /
+Month / All calls for the whole campaign, so a publisher read how many calls
+the others sent. A publisher (or buyer) login now gets its own calls there;
+staff still see the whole campaign.
+
+The sweep stays as a test, so a new endpoint that shows another publisher's
+data fails it: publishers/test_shared_campaign_privacy.py.
+
+Commit: see `git log --grep CH-238`.
+
+## CH-239 - TFN Check: watch a test call go through, inside our own phone system
+**2026-10-24 · TFN Check**
+
+Sir, 24 Oct: a user should be able to see a test call with their own eyes,
+with nothing going to XOLO. The old test went out through the carrier, which
+refuses calls from our trunk to our own numbers, so it never rang and the page
+never changed.
+
+A test call now starts inside our own Asterisk (AMI originate of
+Local/<number>@from-carrier) and enters the inbound dialplan exactly where a
+customer's call does: the switch, the route request, the number, its campaign
+and the routing all run for real, and it is hung up before any buyer is rung.
+No call row, no fee, nothing in Reports. Each step is recorded as it happens
+(TfnTest.steps) - placed, reached our phone system, number live, on an active
+campaign, routing ready - with the failing step in red when one fails. If the
+manager link cannot start the call, our side is still checked and the page
+says the call could not be started.
+
+POST /api/numbers/check/test {number} starts one; GET /api/numbers/check/test/{id}
+returns its steps. A publisher login tests only its own numbers. The steps name
+no campaign, buyer or carrier; the full reason stays in the backend. TFN Check
+statuses still come from real calls only, so a test inside our system never
+claims the carrier delivers the number.
+
+Migration phone_numbers 0018 (steps, internal_call mode). Optional setting
+TFN_TEST_CONTEXT (default from-carrier).
+
+Commit: see `git log --grep CH-239`.
+
+## CH-240 - Publishers can test-call their own TFNs; Test call needs View, not Edit
+**2026-10-24 · TFN Check / Permissions**
+
+Sir, 24 Oct: "give this test option in publisher access too, so they can test
+their TFNs only, the ones allotted to them". Publisher Access has a new switch,
+TFN Test Calls (off until the admin turns it on). With it on, the publisher's
+login may start a test call on TFN Check - for its own numbers only; any other
+number is "not on the platform" to them. Buyers are not offered it: they have
+no TFNs. Without the switch the test endpoint answers 403.
+
+Also fixed: POST /api/numbers/check/test fell to the general /numbers rule and
+needed Tracking Numbers Edit, so a staff role that may only view numbers could
+not press Test call. A test is a question, like the check itself: View.
+
+Commit: see `git log --grep CH-240`.
+
+## CH-241 - Duplicates on "Different" never go back to a TFN that already had the caller
+**2026-10-24 · Routing**
+
+Sir, 24 Oct: "if dups are routed on different TFNs and buyer, in any case not
+a single call should be forwarded on the same TFN". Two holes let them:
+
+1. After routing chose a buyer's row under the campaign's duplicate rule, the
+   call went to whichever of that buyer's live TFNs was next in its rotation
+   (pick_live_destination) - which ignored the rule. A buyer with several TFNs
+   could take a repeat caller on the very TFN that already had him; on
+   "Original" the caller could be rotated away from his original TFN. The
+   rotation now skips the TFNs the caller must not reach, or keeps him on his
+   original one.
+
+2. "Already reached" counted only answered calls, so a caller whose first call
+   rang out was forwarded straight back to that TFN. On "Different" every call
+   forwarded to a TFN now counts - answered, unanswered, refused by the buyer's
+   line, still ringing - inside the campaign's duplicate window. "No
+   Destination" rows do not: we refused those and never dialled the TFN.
+   "Original" is unchanged: only an answered call pins the caller.
+
+Numbers are compared on their last ten digits, so "+18667404516" and
+"18667404516" are one TFN. When every TFN has had the caller, the call is a
+missed "Duplicate call", as before.
+
+Tests: routing/test_duplicates_never_same_tfn.py (fails on the old code).
+
+Commit: see `git log --grep CH-241`.
+
+## CH-242 - "Different" means never: remembered forever, across campaigns, one call at a time
+**2026-10-24 · Routing**
+
+Sir, 24 Oct: "if repeated callers are set on Different, no matter what it
+should not go to the same destination. Only on Normal or Original may a caller
+go to the same destination. There is no 'could go' - never." After CH-241
+three ways remained:
+
+1. Memory: Different only looked inside the campaign's duplicate window (24
+   hours by default); after that the caller could be sent back to a TFN that
+   already had him. It now remembers as long as Original does (a year). The
+   window still governs blocking and the Repeated column.
+2. Campaigns: the same buyer TFN sits in several campaigns, and each campaign
+   looked only at its own calls. On Different, every campaign of the
+   workspace now counts (Sir's choice); never another workspace.
+3. Two calls from one caller arriving together could both be routed before
+   either saved its TFN. Routing a caller on a Different campaign now takes a
+   short lock per caller: the second call waits until the first has saved where
+   it went (at most 3 seconds - a stuck lock never holds a call up).
+
+Original and Normal are unchanged.
+
+Commit: see `git log --grep CH-242`.
+
+## CH-243 - API keys: only the workspace's main account sees or manages them
+**2026-10-24 · Accounts / API keys**
+
+Sir, 24 Oct: "APIs are very sensitive - only visible and editable in the main
+account by the main login user. Not allowed anyone: publisher, buyer, admin,
+manager - just the main user of that account." Every login could list every
+key of the workspace (GET /api/accounts/api-keys/), make keys, and revoke any
+of them - a publisher or buyer could switch off the keys our buyer bots use.
+
+accounts/main_user.py: the main user is the workspace's first admin (the
+earliest active admin by date joined - the account that signed it up); the
+platform owner also may. Every API key endpoint (both routers) answers 403
+to anyone else. /me says is_main_user, so the portal hides the section.
+
+The Revoke route the portal reaches only looked at the caller's own keys and
+its missing 404 schema turned "not found" into a 500; the main account now
+revokes any key of the workspace, and an unknown key is a 404.
+
+Keys already in use keep working: this governs who sees and manages keys, not
+who may call the API with one.
+
+Commit: see `git log --grep CH-243`.
+
+## CH-244 - Watchdog alerts in a professional format
+**2026-10-24 · Watchdog**
+
+Sir, 24 Oct: "try some better professional notification messages". The
+watchdog's Telegram alerts read like log lines ("ROUTING IS DOWN -
+/api/twilio/asterisk/route/ returned '500' (expected 403)"). Every alert and
+recovery now follows the format Sir used himself: a bold title, then what
+happened, what it affects and what to do. For example:
+
+  🔴 Traffic Alert: AVORTYX
+  No inbound calls for 27 minutes during peak hours. All systems are
+  responding and 14 destinations are active. This points to an upstream
+  issue. Confirm traffic status with the source.
+
+  🟢 Routing Restored: AVORTYX
+  Call routing is responding normally. Incoming calls are being forwarded
+  again. Duration: about 2 minutes.
+
+"Destinations are active" is now checked (live destinations are counted), not
+assumed. Disk warnings are amber. WATCHDOG_DRY_RUN=1 prints messages instead
+of sending them. Nothing about when alerts fire has changed.
+
+Commit: see `git log --grep CH-244`.
+
+## CH-245 - Watchdog alerts follow Sir's template: AVORTYX | title, Detected / Resolved
+**2026-10-24 · Watchdog**
+
+Sir, 24 Oct, with the exact template and "we need very professional
+language under every notification":
+
+  🔴 AVORTYX | Service Disruption
+  The AVORTYX portal is currently unreachable. Our team has been notified
+  and is investigating.
+  Detected: {time}
+
+  🟢 AVORTYX | Service Restored
+  The AVORTYX portal is fully operational. Service was interrupted for
+  approximately 1 minute.
+  Resolved: {time}
+
+Every alert now uses it - Service, Call Routing, Web Service, Call Service,
+Platform Services, Traffic, Storage, and the Daily Status - with the time in
+Eastern (WATCHDOG_TZ / WATCHDOG_TZ_LABEL to change it). No status codes or
+paths in the messages; the watchdog log keeps them. A traffic restore counts
+from the last call received, so it gives the real gap, not the time since the
+alert.
+
+Commit: see `git log --grep CH-245`.
+
+## CH-246 - TFN Expired alert in Sir's wording
+**2026-10-24 · Notifications**
+
+Sir, 24 Oct:
+
+  1 TFN Expired
+  The following number has expired and is no longer receiving calls:
+  18888910358
+  Add a replacement TFN to keep calls routing without interruption.
+
+The group alert (number.deleted) now reads exactly so, with the plural form
+for several numbers ("The following numbers have expired...", "Add
+replacement TFNs..."), and numbers written as 18888910358 as Sir writes them.
+
+Commit: see `git log --grep CH-246`.
+
+## CH-247 - Each campaign destination bills by its own rule, as on Revo
+**2026-10-24 · Routing / Billing**
+
+Sir, 24 Oct: "every buyer and their destination have different rules of
+billing calls - some pay for incoming, some pay for connected only, some pay
+for call length". On Revo each destination has a Rate and "Convert ON". Here
+the Edit box on a destination showed the same fields but saved nothing, and
+every call was billed by the campaign's one rule.
+
+A campaign destination row (RuleDestination) now stores:
+  revenue          what this buyer pays per converted call
+  convert_on       incoming   every call forwarded to it converts, answered
+                              or not ("Not Connected - With Conversion")
+                   connected  the buyer answered
+                   length     answered and at least convert_seconds long
+                   ''         the campaign's rule, as before (default)
+
+Each call remembers the row it was forwarded under (CallLog.rule_destination:
+the row for the number actually dialled, else the row routing chose). At
+hang-up the row's rule decides Converted, the revenue (its rate), and the
+publisher payout, as Revo shows it; platform cost is unchanged (per minute,
+nothing for an unanswered call). Reports follow: CallRecord.billing_rule marks
+these calls and their stored revenue is the figure; Converted counts them.
+A call refused before dialling never converts by a row. Existing rows keep the
+campaign's rule until someone edits them; past calls are not rebilled.
+
+PATCH /api/routing/rules/{rule}/destinations/{id} takes revenue (null = the
+campaign's), convert_on and convert_seconds; Call Length needs seconds > 0.
+The export writes "... - With Conversion" for unanswered converted calls.
+
+Migrations: routing 0019, analytics 0022.
+Tests: routing/test_destination_billing.py (route request + hang-up, each rule).
+
+Commit: see `git log --grep CH-247`.
+
+## CH-249 - Standard routing: priority first, then weight; the routed TFN is the one dialled
+**2026-10-24 · Routing**
+
+Sir, 24 Oct: "if any TFN is set on priority, calls should land there first;
+priority and weight should work perfectly". Two faults:
+
+1. Weight did nothing. The priority router took the first destination of the
+   top priority every time, so of three lines at priority 1 / weight 100 one
+   took every call until it was switched off or full. Now, inside a priority,
+   the call goes to one of the lines that can take it, chosen by weight
+   (100/100/100 share evenly, 75/25 three to one, weight 0 only when nothing
+   else at that priority can). The next priority gets a call only when no line
+   of the higher one can take it (off, buyer paused, cap or CC full,
+   duplicate rule).
+
+2. After routing chose a buyer's TFN, the call was dialled to whichever of
+   that buyer's live TFNs was next in its rotation - a priority 1 row could
+   ring the buyer's priority 2 TFN, or a TFN not routed in this campaign. When
+   the routed row is one of the buyer's own TFNs, exactly that number is
+   dialled now. Rotation remains only for a row that names a buyer without one
+   of its TFNs.
+
+Tests: routing/test_priority_weight.py (3 of its 8 fail on the old code).
+
+Commit: see `git log --grep CH-249`.
+
+## CH-250 - Reports: three colours by conversion, Missed With Conversion, per-number payout
+**2026-10-24 · Analytics / Reports**
+
+- Chart series sends converted / not_converted / lost: blue converted, yellow
+  answered but not converted, red missed AND not converted (as on Revo).
+- Export: a missed call that converted reads "Missed With Conversion" in
+  Status; only a call that did not convert has a Fail Reason.
+- Payout is the call's own (tracking number's payout, else the campaign's),
+  in the mirror, the report queries and the model; Paid counts it too.
+- resync_call_payouts puts the paid payout on calls already in Reports.
+
+Deployed 24 Oct: `resync_call_payouts --apply` put the paid payout on 428 past calls.
+
+Commit: see `git log --grep CH-250`.
+
+## CH-254 - Carrier Costs: the whole month's bill, counted the way carriers bill
+**2026-10-24 · Owner / Carrier Costs**
+
+- Page total = every TFN carrier + routing (XOLO termination minutes and
+  its $350 monthly charge); routing was left out.
+- Month is the Eastern calendar month (was UTC), as routing and reports.
+- Per-carrier rounding: exact seconds, or each call up to 6 / 30 / 60 s
+  (Carrier.billing_increment, default exact seconds - nothing changes
+  until it is set). TCL stays real talk time; billed seconds shown apart.
+- Summary block and warnings: a carrier with calls and no per-minute rate,
+  TFNs with no TFN fee, TFNs with no carrier.
+
+Rates set 24 Oct (Sir): XOLO High Risk $15 a TFN, $0.040 a minute and $350 a month for High and Low Risk together; XOLO Low Risk (XLR) $5 a TFN, $0.015 a minute; Freedom $5 a TFN, $0.035 a minute, no monthly charge; XOLO termination $0.004 a minute and $350 a month. Rounding is left on exact seconds per carrier until an invoice shows otherwise. Migration: phone_numbers 0019. Tests: `phone_numbers/test_carrier_bill.py`.
+
+Commit: see `git log --grep CH-254`.
+
+## CH-255 - User billing as Sir set it: Insufficient Funds, every answered call, exact fees
+**2026-10-24 · Billing / Routing**
+
+Sir, 24 Oct:
+- A user workspace out of balance: the call is MISSED with the comment
+  "Insufficient Funds" (was Failed, "insufficient_balance"); no rejected fee.
+  Our own portal - the workspace the owner logs into - is never refused.
+- Every ANSWERED call pays its minutes, converted or not ($/connected min).
+- VoIP Shield fee on every checked call: answered, missed or refused.
+- A call that happened is charged even if the balance ran out meanwhile or
+  it was let through on the credit limit (balance goes below zero); it was
+  free before.
+- Money kept to four decimals like the rates: a $0.015 rejected fee was
+  taken as $0.02, a $0.045 minute as $0.05.
+- New workspaces start at $0.045 a minute.
+
+Rates set 24 Oct (Sir): customers pay $0.045 a minute (texora moved from $0.45). Migrations: billing 0009 and 0010, routing 0020, analytics 0023. Tests: `routing/test_user_billing.py`, `routing/test_user_charges.py`.
+
+Commit: see `git log --grep CH-255`.

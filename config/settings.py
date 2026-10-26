@@ -249,6 +249,9 @@ CORS_ALLOWED_ORIGINS = [
 # Internationalization
 LANGUAGE_CODE = 'en-us'
 TIME_ZONE = 'UTC'
+# The portal's time zone (CH-260, Sir 25 Oct): every buyer and publisher
+# follows it until that partner picks a zone of its own.
+PORTAL_TIMEZONE = config('PORTAL_TIMEZONE', default='America/New_York')
 USE_I18N = True
 USE_TZ = True
 
@@ -416,6 +419,16 @@ CELERY_BEAT_SCHEDULE = {
     'send-daily-summary': {
         'task': 'tasks.send_daily_summary',
         'schedule': 86400.0,  # every 24 hours
+    },
+    # Settings > Scheduled Reports: the emailed digests (CH-266).
+    'send-scheduled-reports': {
+        'task': 'tasks.send_scheduled_reports',
+        'schedule': 300.0,  # every 5 minutes
+    },
+    # Buyers' own daily reports on Telegram, each at its own time (CH-258).
+    'send-buyer-reports': {
+        'task': 'tasks.send_buyer_reports',
+        'schedule': 300.0,  # every 5 minutes
     },
     'retry-failed-webhooks': {
         'task': 'tasks.retry_failed_webhooks',

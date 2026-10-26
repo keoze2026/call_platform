@@ -756,6 +756,12 @@ def workspace_sessions(request: HttpRequest):
             user__organization=request.auth.organization,
             expires_at__gt=timezone.now()
         ).select_related('user').order_by('-created_at')
+        # Your own sign-ins only (CH-266): every login - a publisher's too -
+        # was shown every sign-in of the workspace, with names and emails.
+        # The workspace admin still sees everyone's.
+        from accounts.permissions import has
+        if not has(request.auth, Capability.MEMBERS):
+            tokens = tokens.filter(user=request.auth)
         data = []
         for t in tokens:
             data.append({
@@ -787,12 +793,13 @@ def workspace_sessions(request: HttpRequest):
 def revoke_session(request: HttpRequest, session_id: str):
     # Ending somebody else's session is a member-management action. It was
     # scoped to the workspace but open to every role in it, so an agent could
-    # sign the admin out.
-    require(request.auth, Capability.MEMBERS)
-
+    # sign the admin out. Ending one of your own is yours to do (CH-266).
+    from accounts.permissions import has
     from rest_framework_simplejwt.token_blacklist.models import OutstandingToken, BlacklistedToken
     try:
         token = OutstandingToken.objects.get(id=session_id, user__organization=request.auth.organization)
+        if token.user_id != request.auth.id and not has(request.auth, Capability.MEMBERS):
+            require(request.auth, Capability.MEMBERS)
         BlacklistedToken.objects.get_or_create(token=token)
         return 204, None
     except OutstandingToken.DoesNotExist:

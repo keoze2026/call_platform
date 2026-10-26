@@ -1,3 +1,4 @@
+import datetime
 import uuid
 from django.db import models
 from accounts.models import User, Organization
@@ -49,7 +50,9 @@ class Buyer(models.Model):
     # What this buyer's own logins may do, and the zone their reports count
     # days in. Controlled by the workspace admin; enforced server-side - a
     # hidden button is not a permission system (frontend spec, boss request).
-    timezone = models.CharField(max_length=64, default='UTC')
+    # Blank = the portal's time zone (CH-260); set only when the buyer
+    # counts its days in a zone of its own.
+    timezone = models.CharField(max_length=64, blank=True, default='')
     can_block_numbers = models.BooleanField(default=False)
     can_download_reports = models.BooleanField(default=False)
     payout_model = models.CharField(max_length=20, default='flat')
@@ -163,3 +166,52 @@ class BuyerSchedule(models.Model):
     def __str__(self):
         return f"{self.buyer.name} — {self.get_day_of_week_display()} {self.start_time}-{self.end_time}"
 from .destination import Destination
+
+
+class BuyerTelegramReport(models.Model):
+    """The buyer's own daily report, sent to its Telegram (CH-258, Sir 24 Oct).
+
+    At send_time (Eastern) the platform builds one Excel file per destination
+    of the buyer, with that destination's calls, and sends each to chat_id.
+    The buyer's choices are applied to every report: no recording links,
+    connected calls only, no Fail Reason column, its own column headings, and
+    its own wording for comments (wording only - a comment can never be made
+    to say a call connected when it did not).
+    """
+    buyer = models.OneToOneField(Buyer, on_delete=models.CASCADE, related_name='telegram_report')
+    enabled = models.BooleanField(default=False)
+    chat_id = models.CharField(max_length=64, blank=True, default='')
+    # Eastern. A time before 06:00 reports the whole previous day; any later
+    # time reports the day so far.
+    send_time = models.TimeField(default=datetime.time(21, 0))
+    no_recording_link = models.BooleanField(default=False)
+    connected_only = models.BooleanField(default=False)
+    hide_fail_reason = models.BooleanField(default=False)
+    # The columns in the files (CH-267); empty = the first set (Date, Caller
+    # ID, Destination, Status, Duration, Fail Reason, Recording).
+    included_columns = models.JSONField(default=list, blank=True)
+    # {"status": "Call Status", ...} - the report's column headings.
+    column_names = models.JSONField(default=dict, blank=True)
+    # {"No Destination": "Line Busy", ...} - the wording of Fail Reason comments.
+    comment_rewrites = models.JSONField(default=dict, blank=True)
+
+    # The buyer's own consent (CH-259, Sir 25 Oct): a report goes out only
+    # when the buyer's account has ticked "send my report to Telegram", and
+    # it can untick it at any time. Set from the buyer's own login only.
+    buyer_approved = models.BooleanField(default=False)
+    buyer_approved_at = models.DateTimeField(null=True, blank=True)
+    buyer_approved_by = models.CharField(max_length=254, blank=True, default='')
+
+    last_sent_on = models.DateField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    last_result = models.CharField(max_length=255, blank=True, default='')
+    attempts_on = models.DateField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'buyer_telegram_reports'
+
+    def __str__(self):
+        return f"{self.buyer.name} report at {self.send_time}"

@@ -19,7 +19,7 @@ plus routing on to buyers (XOLO termination minutes and its monthly fee).
 import calendar
 from datetime import date, datetime, time, timedelta, timezone as dt_timezone
 from zoneinfo import ZoneInfo
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import List, Optional
 
 from django.db.models import Count, ExpressionWrapper, F, IntegerField, Q, Sum
@@ -74,7 +74,8 @@ def _month_bounds(month: Optional[str]):
 
 
 def _money(d) -> str:
-    return str(Decimal(d or 0).quantize(CENT))
+    # Half a cent rounds up, as money is rounded ($0.025 -> $0.03).
+    return str(Decimal(d or 0).quantize(CENT, rounding=ROUND_HALF_UP))
 
 
 class CarrierRowSchema(Schema):
@@ -101,6 +102,7 @@ class CarrierCostsSchema(Schema):
     routing: dict
     summary: dict
     warnings: List[dict]
+    profit: dict
 
 
 class CarrierCostsUpdateSchema(Schema):
@@ -300,6 +302,56 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
         'routing': routing,
         'summary': summary,
         'warnings': warnings,
+        'profit': _company_profit(start, end, grand),
+    }
+
+
+# Charges taken from customers, by the description each kind is written with.
+INCOME_LINES = (
+    ('calls', 'Call charge'),            # minutes, with recording and VoIP Shield
+    ('rejected', 'Rejected call fee'),   # with VoIP Shield when it checked the caller
+    ('voip', 'VoIP Shield fee'),         # a missed or refused call the Shield checked
+    ('portal', 'Portal access fee'),
+    ('tfn', 'Tracking number '),         # a number bought in the portal
+)
+
+
+def _company_profit(start, end, carrier_costs: Decimal) -> dict:
+    """Company profit before tax for the month (CH-257, Sir 24 Oct): what
+    customers were charged - minutes, recording, VoIP Shield, rejected calls,
+    TFN and portal fees - minus what the carriers charge us (this page's
+    total). Customers are the user workspaces; our own portal's charges to
+    itself are our own money and are left out. Refunds to customers come off."""
+    from billing.models import Transaction
+    from accounts.models import Organization
+
+    ours = [o.id for o in Organization.objects.filter(users__is_superuser=True, users__is_active=True).distinct()]
+    base = Transaction.objects.filter(
+        created_at__gte=start, created_at__lt=end,
+        status=Transaction.Status.COMPLETED,
+    ).exclude(organization_id__in=ours)
+    charges = base.filter(transaction_type=Transaction.Type.CHARGE)
+
+    lines, taken = {}, Q()
+    for key, prefix in INCOME_LINES:
+        q = Q(description__startswith=prefix)
+        lines[key] = charges.filter(q).aggregate(t=Coalesce(Sum('amount'), Decimal('0')))['t']
+        taken |= q
+    lines['other'] = charges.exclude(taken).aggregate(t=Coalesce(Sum('amount'), Decimal('0')))['t']
+    refunds = base.filter(transaction_type=Transaction.Type.REFUND).aggregate(
+        t=Coalesce(Sum('amount'), Decimal('0')))['t']
+
+    # Profit from the rounded figures shown, so the three always add up.
+    income = Decimal(_money(sum(lines.values(), Decimal('0')) - refunds))
+    carrier_costs = Decimal(_money(carrier_costs))
+    customers = charges.values('organization_id').distinct().count()
+    return {
+        **{k: _money(v) for k, v in lines.items()},
+        'refunds': _money(refunds),
+        'income': _money(income),
+        'customers': customers,
+        'carrier_costs': _money(carrier_costs),
+        'profit': _money(income - carrier_costs),
     }
 
 
