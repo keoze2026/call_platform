@@ -7414,3 +7414,12 @@ see it (Sir: "fix this at any cost").
   (46), REVO_MAX_SECONDS (10), REVO_CROSS_SECONDS (3).
 
 Tests: `routing/test_revo_sync.py`.
+
+## CH-291 - sync_revo for a whole day, or for the callers Sir lists
+**2026-10-26 · Routing / RevoCalls API**
+
+Sir's list of 26 Oct (7 callers "missed in Avortyx, connected in Revo", one
+"Revo 1, Avortyx 2"). `sync_revo --date YYYY-MM-DD` reads the whole Eastern
+day; `--caller a,b,c` reads only those callers through Revo's search and
+prints our own rows of the day for each next to Revo's count. Same rules,
+dry run unless `--apply`.

@@ -100,8 +100,9 @@ class RevoCall:
                    live=bool(row.get('live')))
 
 
-def fetch(since: datetime, session=None, max_pages=40) -> list:
-    """Revo's calls from `since` to now, newest first, page by page."""
+def fetch(since: datetime, session=None, max_pages=40, search=None, until=None) -> list:
+    """Revo's calls from `since` (to `until`, default now), newest first, page
+    by page. `search`: Revo's own search box (a caller number) - CH-291."""
     import requests
     key = _cfg('REVO_API_KEY', '').strip().strip("'\"")
     workspace = _cfg('REVO_WORKSPACE', '').strip()
@@ -115,10 +116,12 @@ def fetch(since: datetime, session=None, max_pages=40) -> list:
         # A day either side in Eastern dates: Revo filters by its workspace
         # day, and a window that crosses midnight must not fall between two.
         'date': (since.astimezone(ET) - timedelta(days=1)).date().isoformat(),
-        'dateTo': (datetime.now(ET) + timedelta(days=1)).date().isoformat(),
+        'dateTo': ((until or datetime.now(dt_timezone.utc)).astimezone(ET) + timedelta(days=1)).date().isoformat(),
         'timezone': tz_id,
         'per_page': 100,
     }
+    if search:
+        params['search'] = search
     headers = {'Authorization': f'Bearer {key}', 'Accept': 'application/json'}
     calls = []
     for page in range(1, max_pages + 1):
@@ -136,7 +139,7 @@ def fetch(since: datetime, session=None, max_pages=40) -> list:
             if call is None:
                 continue
             oldest = call.started if oldest is None else min(oldest, call.started)
-            if call.started >= since:
+            if call.started >= since and (until is None or call.started < until):
                 calls.append(call)
         last = payload.get('last_page')
         if not rows or (oldest is not None and oldest < since) or (last and page >= int(last)):

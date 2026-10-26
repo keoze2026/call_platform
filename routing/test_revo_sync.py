@@ -154,3 +154,19 @@ class RevoSyncTests(Base):
                                           'status': {'name': 'Completed'}, 'duration': 1, 'ttc': 12})
         self.assertEqual(rc.started.isoformat(), '2026-10-26T17:29:13+00:00')
         self.assertEqual(rc.answered_at.isoformat(), '2026-10-26T17:29:25+00:00')
+
+
+class RevoCallerTests(RevoSyncTests):
+    def test_listed_callers_show_both_sides_and_are_fixed(self):
+        row = self.ours()
+        out = self.run_cmd([self.revo(row)], '--apply', '--caller', '18704239446,15550001111',
+                           '--minutes', '30')
+        self.assertIn('8704239446: Revo 1 call(s), Avortyx 1', out)
+        self.assertIn('fixed', out)
+
+    def test_date_reads_the_whole_day(self):
+        from django.utils import timezone
+        row = self.ours()
+        day = timezone.localtime(row.created_at, revo_sync.ET).date().isoformat()
+        out = self.run_cmd([self.revo(row)], '--date', day)
+        self.assertIn('would fix', out)
