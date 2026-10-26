@@ -7470,3 +7470,14 @@ closed the path before the buyer's answer could come back.
   quiet time, then all calls. Rollback: database del avortyx cancel_hold.
 
 Tests: `routing/test_held_answer.py`.
+
+## CH-301 - Cancel hold: one script to switch it on, test it and switch it off
+**2026-10-27 · Asterisk / SIP relay**
+
+Lab passed 27 Oct (a: normal call through the relay; b: CANCEL sent 1.000 s
+later, once; c: buyer's answer 0.4 s into the hold reached the caller, was
+reported, CANCEL never sent). docs/kamailio/cancel_hold.sh:
+install (relay with the shared secret from .env, 5080/udp from the carrier IPs
+only, endpoint carrier-out, dialplan switch - all OFF), test-caller <number>,
+on, off (instant, no reload), status, log, check-backend, uninstall (restores
+pjsip.conf / extensions.conf from the backups it took).
