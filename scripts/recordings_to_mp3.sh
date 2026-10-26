@@ -42,7 +42,10 @@ flock -n 9 || { echo "$(date -Is) previous run still going, skipped"; exit 0; }
 command -v ffmpeg >/dev/null || { echo "$(date -Is) ffmpeg not installed: apt-get install -y ffmpeg" >&2; exit 1; }
 [ -d "$DIR" ] || { echo "$(date -Is) $DIR not found" >&2; exit 1; }
 
-secs() { ffprobe -v error -show_entries format=duration -of default=nw=1:nk=1 "$1" 2>/dev/null | cut -d. -f1; }
+# Length in whole seconds, measured by decoding the audio. Asterisk's WAV
+# headers can carry no length at all, so reading the header alone ("ffprobe
+# duration") gives N/A and every file failed the check (CH-282).
+secs() { nice -n 19 ffmpeg -nostdin -v error -i "$1" -f null -progress pipe:1 - 2>/dev/null | awk -F= '/^out_time_us=/{if ($2 ~ /^[0-9]+$/) t=$2} END{printf "%d", t/1000000}'; }
 
 converted=()
 failed=0
@@ -58,14 +61,17 @@ while IFS= read -r -d '' wav; do
             echo "$(date -Is) convert failed: $wav" >&2; rm -f "$mp3.part"; failed=$((failed+1)); continue
         fi
         a=$(secs "$wav"); b=$(secs "$mp3.part")
-        if [ -z "$b" ] || [ $(( ${a:-0} - ${b:-0} )) -gt 2 ] || [ $(( ${b:-0} - ${a:-0} )) -gt 2 ]; then
+        if [ "${a:-0}" -le 0 ] || [ "${b:-0}" -le 0 ] || [ $(( a - b )) -gt 2 ] || [ $(( b - a )) -gt 2 ]; then
             echo "$(date -Is) length mismatch ${a:-?}s vs ${b:-?}s, kept WAV: $wav" >&2; rm -f "$mp3.part"; failed=$((failed+1)); continue
         fi
         chmod 644 "$mp3.part"
         mv -f "$mp3.part" "$mp3"
     fi
     converted+=("$id")
-done < <(find "$DIR" -maxdepth 1 -type f -name '*.wav' -mmin +"$MIN_AGE_MIN" -print0 | head -z -n "$BATCH")
+done < <(find "$DIR" -maxdepth 1 -type f -name '*.wav' -mmin +"$MIN_AGE_MIN" -size +2k -print0 | head -z -n "$BATCH")
+# -size +2k: a WAV of a few bytes is a header with no audio (a call that
+# recorded nothing). There is nothing to convert or save, so it is left alone
+# and never takes a place in the batch (CH-282).
 
 [ -n "$DRY_RUN" ] && exit 0
 [ ${#converted[@]} -eq 0 ] && { [ $failed -gt 0 ] && echo "$(date -Is) nothing converted, $failed failed"; exit 0; }
