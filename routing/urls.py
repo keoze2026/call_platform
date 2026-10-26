@@ -13,4 +13,5 @@ urlpatterns = [
         path('asterisk/route/', asterisk_handler.route_incoming_call, name='asterisk_route'),
     path('asterisk/call-ended/', asterisk_handler.call_ended, name='asterisk_call_ended'),
     path('asterisk/active-channels/', asterisk_handler.active_channels, name='asterisk_active_channels'),
+    path('asterisk/held-answer/', asterisk_handler.held_answer_report, name='asterisk_held_answer'),
 ] 

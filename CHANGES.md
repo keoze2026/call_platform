@@ -7446,3 +7446,27 @@ CANCEL from us. Same result as CH-225: Completed, 1 second.
 The host cron runs /root/late_answers.py, a copy: after pulling,
 `cp docs/asterisk/late_answers.py /root/late_answers.py`.
 Tests: `routing/test_late_answer_capture.py`.
+
+## CH-296 - Cancel hold: an answer in the second after the caller hangs up is recorded
+**2026-10-27 · Routing / Asterisk / SIP relay - backend live, relay in lab**
+
+Long-term fix for "missed on Avortyx, Completed on the buyer's platform"
+(Sir, 27 Oct: "Implement the cancel hold... Build the 500 ms cancel hold for
+the cases where the answer never arrives"). On 26 Oct, 28 of 29 such calls had
+no 200 OK at our server at all: our CANCEL reached XOLO within 0.1 s and
+closed the path before the buyer's answer could come back.
+
+- A SIP relay (Kamailio, docs/kamailio/) between Asterisk and XOLO for
+  outbound calls holds each CANCEL for 1000 ms (sized on the 29 calls: 500 ms
+  surely catches 11, 1000 ms 21 + 8 likely). An answer in that moment comes
+  back to Asterisk like any answer, and the relay reports it.
+- Backend: POST /api/twilio/asterisk/held-answer/ (shared secret). Before the
+  hang-up report: remembered, and call_ended records the call Answered, 1 s.
+  After it: the missed call is made Completed, 1 s. Tagged "Answered during
+  cancel hold", paid and charged like any answered call.
+- Asterisk: endpoint carrier-out and a dialplan switch (AstDB
+  avortyx/cancel_hold, or one test caller); incoming calls untouched.
+- docs/kamailio/LAB-PLAN.md: lab tests with SIPp, then one test caller at a
+  quiet time, then all calls. Rollback: database del avortyx cancel_hold.
+
+Tests: `routing/test_held_answer.py`.

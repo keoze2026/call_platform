@@ -687,6 +687,37 @@ def settle_call_money(call_log, answered: bool, duration: int) -> bool:
 
 @csrf_exempt
 @require_http_methods(["POST"])
+def held_answer_report(request):
+    """CH-296: the SIP relay saw the buyer answer while it held our CANCEL.
+
+    Body: {"call_log_id": "...", "answered_at_epoch": 1793039171.26}.
+    """
+    if not _check_secret(request):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+    try:
+        data = json.loads(request.body.decode('utf-8', errors='replace') or '{}')
+        call_log = CallLog.objects.select_related('campaign', 'organization').get(id=data.get('call_log_id'))
+    except (ValueError, CallLog.DoesNotExist, ValidationError):
+        return JsonResponse({"error": "Call not found"}, status=404)
+    try:
+        answered_at = float(data.get('answered_at_epoch') or timezone.now().timestamp())
+    except (TypeError, ValueError):
+        answered_at = timezone.now().timestamp()
+    from routing import held_answer
+    if call_log.status in _LIVE_STATUSES:
+        # The usual order: the hang-up report is still on its way.
+        held_answer.remember(call_log.id, answered_at)
+        return JsonResponse({"recorded": "pending"})
+    if call_log.status == CallLog.Status.NO_ANSWER and call_log.block_reason == NOT_CONNECTED_LABEL:
+        from routing.late_answer import mark
+        held_answer.tag(call_log)
+        done = mark(call_log, {'answer_at': answered_at, 'cancel_at': answered_at})
+        return JsonResponse({"recorded": "completed" if done else False})
+    return JsonResponse({"recorded": False, "status": call_log.status})
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
 def call_ended(request):
     if not _check_secret(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
@@ -841,6 +872,18 @@ def call_ended(request):
                 'answered, %ss since it was created', call_log.id, elapsed,
             )
 
+    # CH-296: the buyer answered while the relay held our CANCEL. The relay
+    # reported it a moment before this hang-up: the switch saw only the cancel
+    # (DIALSTATUS CANCEL), but the buyer's platform counts the call answered.
+    held_at = None
+    if not answered and call_log.destination_number:
+        from routing import held_answer
+        held_at = held_answer.take(call_log.id)
+        if held_at:
+            answered = True
+            duration = max(duration, 1)
+            held_answer.tag(call_log)
+
     # Routing handed this call to the dialplan to dial a destination, and it was
     # still open when the hangup arrived. Read before the status changes below.
     handed_to_dial = (
@@ -878,6 +921,10 @@ def call_ended(request):
     if answered and call_log.block_reason in ('asterisk_gone', 'stale_timeout'):
         # No longer an orphan: it was a real call.
         call_log.block_reason = ''
+    if held_at:
+        from routing.held_answer import as_datetime
+        call_log.answered_at = min(as_datetime(held_at), ended_at)
+        call_log.ring_seconds = max(0, int((call_log.answered_at - call_log.created_at).total_seconds()))
     if answered and not call_log.answered_at:
         call_log.answered_at = ended_at - timezone.timedelta(seconds=duration)
     # Switch-measured ring: DIALEDTIME covers the whole Dial (ring + talk),
