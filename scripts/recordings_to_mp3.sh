@@ -61,7 +61,12 @@ while IFS= read -r -d '' wav; do
             echo "$(date -Is) convert failed: $wav" >&2; rm -f "$mp3.part"; failed=$((failed+1)); continue
         fi
         a=$(secs "$wav"); b=$(secs "$mp3.part")
-        if [ "${a:-0}" -le 0 ] || [ "${b:-0}" -le 0 ] || [ $(( a - b )) -gt 2 ] || [ $(( b - a )) -gt 2 ]; then
+        # Under one second of audio measures 0s on both sides (CH-303: 30 such
+        # WAVs per run were kept for ever and piled up). A WAV under 32 KB is at
+        # most 2 seconds of phone audio: 0s and 0s is a match, not a failure.
+        short=""
+        if [ "${a:-0}" -eq 0 ] && [ "${b:-0}" -eq 0 ] && [ -s "$mp3.part" ] && [ "$(stat -c %s "$wav")" -lt 32768 ]; then short=1; fi
+        if [ -z "$short" ] && { [ "${a:-0}" -le 0 ] || [ "${b:-0}" -le 0 ] || [ $(( a - b )) -gt 2 ] || [ $(( b - a )) -gt 2 ]; }; then
             echo "$(date -Is) length mismatch ${a:-?}s vs ${b:-?}s, kept WAV: $wav" >&2; rm -f "$mp3.part"; failed=$((failed+1)); continue
         fi
         chmod 644 "$mp3.part"

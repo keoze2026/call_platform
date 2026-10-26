@@ -7481,3 +7481,15 @@ install (relay with the shared secret from .env, 5080/udp from the carrier IPs
 only, endpoint carrier-out, dialplan switch - all OFF), test-caller <number>,
 on, off (instant, no reload), status, log, check-backend, uninstall (restores
 pjsip.conf / extensions.conf from the backups it took).
+
+## CH-303 - MP3 recordings: sub-second WAVs no longer kept for ever
+**2026-10-27 · Server (host script)**
+
+The MP3 job kept about 30 WAVs a run with "length mismatch 0s vs 0s": under one
+second of audio measures 0s on both sides, and 0s was treated as a failure, so
+those WAVs were tried again every run and piled up (6,655 WAVs on 27 Oct).
+A WAV under 32 KB (at most 2 seconds of phone audio) whose MP3 also measures
+0s now counts as a match and is converted like any other. Every other check
+is unchanged.
+
+Commit: see git log --grep CH-303.
