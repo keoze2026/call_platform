@@ -7432,3 +7432,17 @@ dry run unless `--apply`.
 Not Connected. When sync_revo corrects a hidden try, it is shown again and
 the tries after it become their own call, dated from their own start, so the
 log has the same two rows as Revo.
+
+## CH-294 - A buyer's answer that reached us a moment before our cancel counts
+**2026-10-26 · Asterisk / Routing**
+
+15712017397, 26 Oct 18:26:11Z (packet capture): the buyer's 200 OK arrived
+at .259 and our CANCEL left at .282, 23 ms later - the caller had just hung
+up. The switch ACKed and hung up (CDR: NO ANSWER); Revo shows Completed, 2 s.
+The late-answer check (CH-225) only looked for an answer after our cancel.
+It now takes one up to 1 s before it too: a really bridged call never has a
+CANCEL from us. Same result as CH-225: Completed, 1 second.
+
+The host cron runs /root/late_answers.py, a copy: after pulling,
+`cp docs/asterisk/late_answers.py /root/late_answers.py`.
+Tests: `routing/test_late_answer_capture.py`.

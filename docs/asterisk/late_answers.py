@@ -24,6 +24,14 @@ import sys
 
 # An answer more than this long after our cancel is not one that crossed it.
 CROSSED_WITHIN = 2.0
+# CH-294: nor one more than this long BEFORE it. 15712017397, 26 Oct 18:26:11Z:
+# the buyer's 200 OK reached us at .259 and our CANCEL left at .282 - 23 ms
+# later, because the caller had just hung up and the switch was already
+# tearing the call down. It ACKed the answer and sent BYE at once, so the CDR
+# says NO ANSWER while Revo shows Completed, 2 s. An answered call that was
+# really bridged never has a CANCEL from us, so a 200 OK with our CANCEL right
+# behind it is the same crossing, just the other way round.
+CROSSED_BEFORE = 1.0
 NEWEST_FILES = 2
 
 COMPACT = {'i': 'call-id', 'f': 'from', 't': 'to', 'c': 'content-type', 'l': 'content-length'}
@@ -194,10 +202,11 @@ def late_answers(paths):
             continue
         invite_at, us, caller, called = d['invite']
         cancel_at, cancel_src = d['cancel']
-        # Our own outgoing call, cancelled by us, answered after the cancel.
+        # Our own outgoing call, cancelled by us, answered right around the
+        # cancel (just after it, or a moment before it went out - CH-294).
         if cancel_src != us:
             continue
-        if not (cancel_at <= d['answer'] <= cancel_at + CROSSED_WITHIN):
+        if not (cancel_at - CROSSED_BEFORE <= d['answer'] <= cancel_at + CROSSED_WITHIN):
             continue
         yield {'caller': caller, 'called': called, 'invite_at': round(invite_at, 3),
                'cancel_at': round(cancel_at, 3), 'answer_at': round(d['answer'], 3)}
