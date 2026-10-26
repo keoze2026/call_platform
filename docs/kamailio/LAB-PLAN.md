@@ -10,10 +10,12 @@ Goal: when the caller hangs up while the buyer rings, hold our CANCEL for
 3. Asterisk: endpoint carrier-out + dialplan switch (drafts in this folder).
 
 ## Lab (on the server, no live traffic touched)
-1. `apt-get install -y kamailio kamailio-utils-modules sip-tester`
+1. Install without starting anything (the package would otherwise try to
+   start Kamailio on 5060, where Asterisk is):
+   `systemctl mask kamailio && apt-get update && apt-get install -y kamailio kamailio-utils-modules sip-tester`
    (http_client is in kamailio-utils-modules; sipp is sip-tester).
-2. Start Kamailio with the draft config on 127.0.0.1:5070 and a test port,
-   pointed at a local SIPp "buyer" instead of XOLO.
+2. `bash docs/kamailio/lab/lab.sh` - starts a lab relay on 127.0.0.1 only,
+   with SIPp as the caller and as the buyer (never XOLO), runs:
 3. SIPp caller -> Kamailio -> SIPp buyer, three scenarios:
    a. buyer answers, caller talks, BYE              -> passes through unchanged
    b. caller CANCELs, buyer never answers           -> CANCEL reaches the buyer
