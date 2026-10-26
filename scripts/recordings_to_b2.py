@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Copy finished call recordings (MP3) to Backblaze B2 (CH-304).
+"""Copy finished call recordings (MP3) to Backblaze B2 (CH-304), serve them
+from B2 once they are off the disk and remove old local copies (CH-305).
 
 Sir, 26 Oct: 200K calls a month at a 14-minute AHT will not fit on the server's
 disk. Backblaze B2 is approved. This is step 1: every finished MP3 is copied
@@ -27,6 +28,24 @@ B2_BUCKET.
     scripts/recordings_to_b2.py --verify 3    # download 3 back and compare
     scripts/recordings_to_b2.py --status      # copied / waiting
     cron: */10 * * * * /opt/call_platform/scripts/recordings_to_b2.py >> /var/log/recordings_to_b2.log 2>&1
+
+CH-305, step 2 (links fall back to B2, then old local copies go):
+
+    scripts/recordings_to_b2.py --nginx        # write nginx's B2 settings, check, reload
+    scripts/recordings_to_b2.py --delete-local-days 7
+
+--nginx writes /etc/nginx/avortyx-b2.conf: where the bucket is and a read-only
+download token for recordings/ (7 days; renewed daily by cron), then runs
+`nginx -t` and reloads nginx (a reload, not a restart: open downloads finish,
+calls are not involved). A failed check puts the previous file back.
+scripts/b2_nginx.sh sets rec.v0l1.com up to use it.
+
+--delete-local-days N removes a local MP3 only when all of these hold:
+  - the link fallback works right now: a test file that is only in B2
+    (recordings/b2-canary.mp3) plays through the public link
+  - it was copied (CH-304) and B2 still has it with the same size and SHA-1
+  - it is older than N days and unchanged since it was copied
+Otherwise nothing is deleted that run.
 """
 import argparse
 import base64
@@ -41,6 +60,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from urllib.parse import urlsplit
 
 ENV_FILE = os.environ.get('ENV_FILE', '/opt/call_platform/.env')
 DIR = os.environ.get('RECORDINGS_DIR', '/var/spool/asterisk/recordings')
@@ -50,6 +70,11 @@ MIN_AGE_MIN = int(os.environ.get('MIN_AGE_MIN', '10'))
 BATCH = int(os.environ.get('BATCH', '500'))
 PREFIX = 'recordings/'
 RETRIES = 3
+NGINX_SNIPPET = os.environ.get('NGINX_SNIPPET', '/etc/nginx/avortyx-b2.conf')
+CANARY = 'b2-canary.mp3'
+CANARY_BODY = b'AVORTYX B2 FALLBACK TEST - CH-305\n'
+TOKEN_SECONDS = 7 * 24 * 3600
+DELETE_PER_RUN = int(os.environ.get('DELETE_PER_RUN', '2000'))
 
 
 def now():
@@ -111,13 +136,14 @@ class B2:
             raise SystemExit(f'bucket {name!r} not found for this key')
         return buckets[0]['bucketId']
 
-    def upload(self, path, name, sha1, size, mtime_ms):
+    def upload(self, path, name, sha1, size, mtime_ms, data=None):
         last = None
         for attempt in range(RETRIES):
             if self._upload is None:
                 self._upload = self._call('b2_get_upload_url', {'bucketId': self.bucket_id})
-            with open(path, 'rb') as f:
-                data = f.read()
+            if path is not None:
+                with open(path, 'rb') as f:
+                    data = f.read()
             if len(data) != size:
                 raise B2Error(0, 'file changed while copying')
             headers = {
@@ -141,6 +167,14 @@ class B2:
                 raise
         raise last
 
+    def file_info(self, file_id):
+        return self._call('b2_get_file_info', {'fileId': file_id})
+
+    def download_token(self):
+        return self._call('b2_get_download_authorization', {
+            'bucketId': self.bucket_id, 'fileNamePrefix': PREFIX,
+            'validDurationInSeconds': TOKEN_SECONDS})['authorizationToken']
+
     def download(self, name):
         url = f'{self.download_url}/file/{urllib.parse.quote(self.bucket)}/{urllib.parse.quote(name)}'
         return _request(url, headers={'Authorization': self.token}, timeout=300)
@@ -159,7 +193,104 @@ def open_state():
     db = sqlite3.connect(STATE)
     db.execute('CREATE TABLE IF NOT EXISTS copied (name TEXT PRIMARY KEY, size INTEGER, sha1 TEXT,'
                ' file_id TEXT, copied_at INTEGER)')
+    cols = [r[1] for r in db.execute('PRAGMA table_info(copied)')]
+    if 'deleted_at' not in cols:
+        db.execute('ALTER TABLE copied ADD COLUMN deleted_at INTEGER')  # CH-305
+    db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
+    db.commit()
     return db
+
+
+def ensure_canary(db, b2):
+    """The test file the fallback is checked with: only in B2, never on disk."""
+    sha1 = hashlib.sha1(CANARY_BODY).hexdigest()
+    if db.execute("SELECT value FROM meta WHERE key = 'canary'").fetchone() == (sha1,):
+        return
+    b2.upload(None, PREFIX + CANARY, sha1, len(CANARY_BODY), int(time.time() * 1000), data=CANARY_BODY)
+    db.execute("INSERT OR REPLACE INTO meta VALUES ('canary', ?)", (sha1,))
+    db.commit()
+
+
+def fallback_works(base_url):
+    """Does a file that is only in B2 play through the public link now?"""
+    url = f'{base_url.rstrip("/")}/recordings/{CANARY}'
+    try:
+        return _request(url, timeout=30) == CANARY_BODY
+    except B2Error as e:
+        log(f'fallback check {url}: {e}')
+        return False
+
+
+def write_nginx(b2, reload=True):
+    """nginx's B2 settings: bucket path, host and a 7-day read token for recordings/."""
+    import subprocess
+    token = b2.download_token()
+    host = urlsplit(b2.download_url).netloc
+    text = (f'# Written by scripts/recordings_to_b2.py --nginx (CH-305) at {now()}.\n'
+            f'# Renewed daily by cron; do not edit. Read-only token for {PREFIX} in {b2.bucket}.\n'
+            f'rewrite ^/recordings/([A-Za-z0-9_.-]+)\\.(wav|mp3)$ /file/{urllib.parse.quote(b2.bucket)}/{PREFIX}$1.mp3 break;\n'
+            f'proxy_pass {b2.download_url};\n'
+            f'proxy_set_header Host {host};\n'
+            f'proxy_set_header Authorization "{token}";\n')
+    prev = NGINX_SNIPPET + '.prev'
+    had = os.path.exists(NGINX_SNIPPET)
+    if had:
+        os.replace(NGINX_SNIPPET, prev)
+    fd = os.open(NGINX_SNIPPET, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, 'w') as f:
+        f.write(text)
+    if not reload:
+        log(f'wrote {NGINX_SNIPPET} (token valid {TOKEN_SECONDS // 86400} days)')
+        return True
+    test = subprocess.run(['nginx', '-t'], capture_output=True, text=True)
+    if test.returncode != 0:
+        if had:
+            os.replace(prev, NGINX_SNIPPET)
+        log(f'nginx -t failed, previous settings kept: {test.stderr.strip()[-300:]}')
+        return False
+    subprocess.run(['systemctl', 'reload', 'nginx'], check=False)
+    log(f'wrote {NGINX_SNIPPET} and reloaded nginx (token valid {TOKEN_SECONDS // 86400} days)')
+    return True
+
+
+def delete_local(db, b2, days, base_url):
+    """Remove local MP3s that are safely in B2 and older than `days` (CH-305)."""
+    if not fallback_works(base_url):
+        log('B2 fallback is not answering through the public link: nothing deleted this run')
+        return 0
+    cutoff = time.time() - days * 86400
+    rows = db.execute('SELECT name, size, sha1, file_id FROM copied WHERE deleted_at IS NULL'
+                      ' ORDER BY copied_at').fetchall()
+    deleted = freed = 0
+    for name, size, sha1, file_id in rows:
+        if deleted >= DELETE_PER_RUN:
+            break
+        path = os.path.join(DIR, name)
+        try:
+            st = os.stat(path)
+        except FileNotFoundError:
+            db.execute('UPDATE copied SET deleted_at = ? WHERE name = ?', (int(time.time()), name))
+            continue
+        if st.st_mtime > cutoff or st.st_size != size:
+            continue
+        try:
+            info = b2.file_info(file_id)
+        except B2Error as e:
+            log(f'not deleted {name}: B2 did not confirm it ({e})')
+            continue
+        if int(info.get('contentLength', -1)) != size or info.get('contentSha1') != sha1:
+            log(f'not deleted {name}: B2 copy differs')
+            continue
+        os.remove(path)
+        db.execute('UPDATE copied SET deleted_at = ? WHERE name = ?', (int(time.time()), name))
+        deleted += 1
+        freed += size
+        if deleted % 100 == 0:
+            db.commit()
+    db.commit()
+    if deleted:
+        log(f'deleted {deleted} local copies older than {days} days ({freed / 1e9:.2f} GB freed); all in B2')
+    return deleted
 
 
 def waiting(db):
@@ -187,24 +318,41 @@ def main():
     ap.add_argument('--limit', type=int, default=BATCH)
     ap.add_argument('--verify', type=int, metavar='N', help='download N copied files back and compare')
     ap.add_argument('--status', action='store_true')
+    ap.add_argument('--nginx', action='store_true', help='write nginx\'s B2 settings, check and reload (CH-305)')
+    ap.add_argument('--no-reload', action='store_true', help='with --nginx: write only')
+    ap.add_argument('--delete-local-days', type=int, default=0, metavar='N',
+                    help='after copying, remove local MP3s older than N days that are safely in B2 (CH-305)')
     a = ap.parse_args()
 
-    lock = open('/tmp/recordings_to_b2.lock', 'w')
-    try:
-        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except BlockingIOError:
-        log('previous run still going, skipped')
+    if a.status:
+        # Read-only; works while a copy run holds the lock (CH-305).
+        db = open_state()
+        todo = waiting(db)
+        n, size = db.execute('SELECT COUNT(*), COALESCE(SUM(size), 0) FROM copied').fetchone()
+        gone = db.execute('SELECT COUNT(*) FROM copied WHERE deleted_at IS NOT NULL').fetchone()[0]
+        log(f'copied to B2: {n} files, {size / 1e9:.2f} GB (removed from disk: {gone}); '
+            f'waiting: {len(todo)} files, {sum(s for _, _, s in todo) / 1e9:.2f} GB')
         return 0
 
+    # The daily --nginx renewal must not be skipped because a copy run is
+    # going, so only copying takes the lock.
+    lock = open('/tmp/recordings_to_b2.lock', 'w')
+    if not a.nginx:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            log('previous run still going, skipped')
+            return 0
+
     db = open_state()
-    todo = waiting(db)
-    if a.status or a.dry_run:
+    db.execute('PRAGMA busy_timeout = 30000')
+    todo = waiting(db) if not a.nginx else []
+    if a.dry_run:
         n, size = db.execute('SELECT COUNT(*), COALESCE(SUM(size), 0) FROM copied').fetchone()
         log(f'copied to B2: {n} files, {size / 1e9:.2f} GB; waiting: {len(todo)} files, '
             f'{sum(s for _, _, s in todo) / 1e9:.2f} GB')
-        if a.dry_run:
-            for _, name, size in todo[:a.limit]:
-                print(f'  would copy {name} ({size} bytes)')
+        for _, name, size in todo[:a.limit]:
+            print(f'  would copy {name} ({size} bytes)')
         return 0
 
     env = read_env(ENV_FILE)
@@ -217,6 +365,14 @@ def main():
     except B2Error as e:
         log(f'B2 sign-in failed: {e}')
         return 1
+
+    if a.nginx:
+        try:
+            ensure_canary(db, b2)
+            return 0 if write_nginx(b2, reload=not a.no_reload) else 1
+        except B2Error as e:
+            log(f'nginx settings not written: {e}')
+            return 1
 
     if a.verify:
         rows = db.execute('SELECT name, size, sha1 FROM copied').fetchall()
@@ -252,7 +408,8 @@ def main():
                 log('10 failures this run, stopping until the next run')
                 break
             continue
-        db.execute('INSERT OR REPLACE INTO copied VALUES (?, ?, ?, ?, ?)',
+        db.execute('INSERT OR REPLACE INTO copied (name, size, sha1, file_id, copied_at)'
+                   ' VALUES (?, ?, ?, ?, ?)',
                    (name, st.st_size, sha1, r.get('fileId', ''), int(time.time())))
         db.commit()
         copied += 1
@@ -260,6 +417,12 @@ def main():
     left = len(todo) - copied
     if copied or failed or left:
         log(f'copied {copied} ({nbytes / 1e6:.1f} MB), failed {failed}, still waiting {left}')
+    if a.delete_local_days > 0:
+        base = env.get('RECORDING_BASE_URL') or 'https://rec.v0l1.com'
+        try:
+            delete_local(db, b2, a.delete_local_days, base)
+        except B2Error as e:
+            log(f'delete step stopped: {e}')
     return 1 if failed and not copied else 0
 
 

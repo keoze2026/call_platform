@@ -7508,3 +7508,25 @@ Nothing on the server is deleted and links do not change. Step 2 (separate):
 links fall back to B2, then old local copies are removed.
 
 Python standard library only; restarts nothing. Commit: see git log --grep CH-304.
+
+## CH-305 - Recordings: links fall back to B2, old local copies removed safely
+**2026-10-27 · Server (host scripts, nginx)**
+
+Step 2 of moving recordings to Backblaze B2 (step 1: CH-304).
+
+- `scripts/b2_nginx.sh install`: rec.v0l1.com serves a recording from disk as
+  before; one that is no longer on disk is fetched from the bucket, so every
+  link ever sent out keeps playing (old .wav links too). Backs up the live
+  site file, checks with `nginx -t`, reloads (not restarts) nginx and tests
+  disk, .wav, B2, seeking, CORS and 404; any failure puts the backup back.
+  `test` and `rollback` too.
+- `recordings_to_b2.py --nginx`: writes /etc/nginx/avortyx-b2.conf with a
+  read-only download token for recordings/ (7 days), renewed daily by cron;
+  a failed `nginx -t` keeps the previous file.
+- `recordings_to_b2.py --delete-local-days N`: removes a local MP3 only if
+  the fallback answers through the public link right now (a test file that
+  exists only in B2), B2 still has the file with the same size and SHA-1, and
+  it is older than N days and unchanged. Otherwise nothing is deleted.
+- `--status` no longer waits for a copy run to finish.
+
+Commit: see git log --grep CH-305.
