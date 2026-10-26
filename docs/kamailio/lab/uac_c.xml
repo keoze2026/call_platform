@@ -45,7 +45,7 @@
   </send>
   <recv response="200" optional="true" response_txn="cancel"/>
   <recv response="200" response_txn="invite" rrs="true"/>
-  <send>
+  <send ack_txn="invite">
     <![CDATA[
 
       ACK [next_url] SIP/2.0

@@ -7,6 +7,8 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 L=/root/hold-lab; rm -rf "$L"; mkdir -p "$L"; cd "$L" || exit 1
 command -v kamailio >/dev/null || { echo "kamailio not installed"; exit 1; }
 command -v sipp >/dev/null || { echo "sipp not installed"; exit 1; }
+pkill -f "sipp .*-p 506[12]" 2>/dev/null
+pkill -f "kamailio -f /root/hold-lab" 2>/dev/null
 sed -e 's|!PUBLIC_IP!156.67.25.167!|!PUBLIC_IP!127.0.0.1!|' \
     -e 's|!HELD_URL![^!]*!|!HELD_URL!http://127.0.0.1:8099/held!|' \
     "$HERE/../kamailio.cfg" > kamailio-lab.cfg
@@ -29,6 +31,7 @@ run() {  # $1 scenario letter
          -trace_err -error_file "uac_$1.err" > "uac_$1.out" 2>&1
     local UC=$?
     wait $SP; local SC=$?
+    pkill -f "sipp .*-p 506[12]" 2>/dev/null; sleep 0.5
     if [ $UC -eq 0 ] && [ $SC -eq 0 ]; then echo "PASS $1"; else echo "FAIL $1 (caller exit $UC, buyer exit $SC - see $L/uac_$1.err $L/uas_$1.err)"; fi
 }
 

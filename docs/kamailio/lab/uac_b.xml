@@ -45,7 +45,7 @@
   </send>
   <recv response="200" response_txn="cancel"/>
   <recv response="487" response_txn="invite"/>
-  <send>
+  <send ack_txn="invite">
     <![CDATA[
 
       ACK sip:18883413566@[remote_ip]:[remote_port] SIP/2.0
