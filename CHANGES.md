@@ -7493,3 +7493,18 @@ A WAV under 32 KB (at most 2 seconds of phone audio) whose MP3 also measures
 is unchanged.
 
 Commit: see git log --grep CH-303.
+
+## CH-304 - Recordings copied to Backblaze B2 (step 1: copy and check)
+**2026-10-27 · Server (host script)**
+
+Sir, 26 Oct: 200K calls a month at a 14-minute AHT will not fit on the
+server's disk; Backblaze B2 is approved. `scripts/recordings_to_b2.py` runs on
+the host every 10 minutes and copies every finished MP3 to the bucket as
+`recordings/<id>.mp3`, with the SHA-1 checked by B2 and again on its reply.
+Only a confirmed copy is recorded (`/var/lib/avortyx/b2.sqlite3`); a failure
+is tried again next run. `--verify N` downloads N copies back and compares.
+
+Nothing on the server is deleted and links do not change. Step 2 (separate):
+links fall back to B2, then old local copies are removed.
+
+Python standard library only; restarts nothing. Commit: see git log --grep CH-304.
