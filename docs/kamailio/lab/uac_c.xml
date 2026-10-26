@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="ISO-8859-1" ?>
 <!DOCTYPE scenario SYSTEM "sipp.dtd">
-<scenario name="c: caller cancels, buyer answers during the hold - answer reaches caller">
-  <send retrans="500" start_txn="invite">
+<scenario name="c: caller cancels, buyer answers during the hold - answer reaches caller (SIPp cannot tell the INVITE and CANCEL transactions apart - same branch - so replies are matched in order)">
+  <send retrans="500">
     <![CDATA[
 
       INVITE sip:18883413566@[remote_ip]:[remote_port] SIP/2.0
@@ -26,10 +26,10 @@
 
     ]]>
   </send>
-  <recv response="100" optional="true" response_txn="invite"/>
-  <recv response="180" response_txn="invite"/>
+  <recv response="100" optional="true"/>
+  <recv response="180"/>
   <pause milliseconds="1000"/>
-  <send retrans="500" start_txn="cancel">
+  <send retrans="500">
     <![CDATA[
 
       CANCEL sip:18883413566@[remote_ip]:[remote_port] SIP/2.0
@@ -43,9 +43,8 @@
 
     ]]>
   </send>
-  <recv response="200" optional="true" response_txn="cancel"/>
-  <recv response="200" response_txn="invite" rrs="true"/>
-  <send ack_txn="invite">
+  <recv response="200" rrs="true"/>
+  <send>
     <![CDATA[
 
       ACK [next_url] SIP/2.0
@@ -60,8 +59,8 @@
 
     ]]>
   </send>
-  <recv response="200" response_txn="cancel"/>
-  <send retrans="500" start_txn="bye">
+  <recv response="200"/>
+  <send retrans="500">
     <![CDATA[
 
       BYE [next_url] SIP/2.0
@@ -76,5 +75,5 @@
 
     ]]>
   </send>
-  <recv response="200" response_txn="bye"/>
+  <recv response="200"/>
 </scenario>
