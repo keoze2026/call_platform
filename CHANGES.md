@@ -7330,3 +7330,28 @@ Sir, 24 Oct:
 Rates set 24 Oct (Sir): customers pay $0.045 a minute (texora moved from $0.45). Migrations: billing 0009 and 0010, routing 0020, analytics 0023. Tests: `routing/test_user_billing.py`, `routing/test_user_charges.py`.
 
 Commit: see `git log --grep CH-255`.
+
+## CH-281 - Recordings saved as MP3: about five times smaller
+**2026-10-26 · Recordings / server storage**
+
+Sir, 26 Oct: increase server capacity. Recordings were WAV, about 1 MB a
+minute: 63 GB (9,897 files) by 26 Oct and 58 GB more a month on a 200 GB
+disk, so the disk would be full in about 7 weeks.
+
+- `scripts/recordings_to_mp3.sh` runs on the host every 5 minutes (cron).
+  A WAV not written to for 5 minutes (the call is over) becomes a 24 kbps
+  mono MP3 at low priority; the MP3's length is checked against the WAV's;
+  the call's link is switched to .mp3; only then is the WAV deleted. Any
+  failure keeps the WAV and the next run retries. 100 files a run, so the
+  backlog clears in a few hours. A 95 s test recording went from 1.52 MB to
+  0.29 MB.
+- `manage.py recordings_to_mp3 <ids>` switches the links (CallLog and the
+  CallRecord copy reports and exports read). It changes nothing else.
+- nginx (docs/nginx/rec.v0l1.com.conf): a .wav link whose WAV is gone is
+  answered with the .mp3, so links already sent out keep playing.
+
+Nothing restarts. Install: `apt-get install -y ffmpeg`, the cron line in the
+script header, and the nginx block (`nginx -t`, then a graceful reload).
+Tests: `routing/test_recordings_mp3.py`.
+
+Commit: see `git log --grep CH-281`.
