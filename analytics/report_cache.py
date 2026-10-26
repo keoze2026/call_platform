@@ -52,7 +52,9 @@ def closed_range_response(request, filters, name, compute):
     else:
         audience = f'role:{user.role}'
     raw = '|'.join(f'{f}={getattr(filters, f, None)}' for f in _KEY_FIELDS)
-    key = (f'reports:{name}:{user.organization_id}:{audience}:'
+    # v2 (CH-284): the call log gained `cost` and publishers `total_cost`;
+    # entries cached before that would show "-" for up to six hours.
+    key = (f'reports:v2:{name}:{user.organization_id}:{audience}:'
            f'{hashlib.sha256(raw.encode()).hexdigest()}')
 
     hit = cache.get(key)

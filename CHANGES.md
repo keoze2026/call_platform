@@ -7355,3 +7355,25 @@ script header, and the nginx block (`nginx -t`, then a graceful reload).
 Tests: `routing/test_recordings_mp3.py`.
 
 Commit: see `git log --grep CH-281`.
+
+## CH-284 - Call Summary: Cost on every tab, not only Campaign
+**2026-10-26 · Reports / Call Summary**
+
+Sir, 26 Oct: "Cost is only visible under campaign, rest all column empty".
+
+- Publisher: the summary worked out the cost and never sent it. It now sends
+  `total_cost` and `billable_minutes`, like Campaign and Buyer.
+- Every other tab (Dialed, Number Pool, Destination, Date, Caller Profile,
+  Caller Identity, Session Data) is totalled from the calls themselves, and
+  the call log carried no cost per call. Each call now carries `cost`: what it
+  was charged, or the estimate for a call before charging - the same rule as
+  the export's Cost column. The page already adds it up per row.
+- Live calls carry 0 (nothing is charged until the call ends).
+- Buyer and publisher logins still get no cost (masked, as before).
+- Past days are cached up to 6 hours; the cache key moved to `reports:v2`
+  so they show the cost at once.
+
+Needs `docker compose restart web` to load (a few seconds; do it when no calls
+are up). Tests: `analytics/test_summary_cost.py`.
+
+Commit: see `git log --grep CH-284`.

@@ -588,6 +588,22 @@ class AnalyticsService:
         return (minutes * rate * markup).quantize(Decimal('0.01'))
 
     @staticmethod
+    def _call_cost(r, rate, markup) -> Decimal:
+        """One call's cost: what it was charged, or the estimate for a call
+        that predates charging. Same rule as the Cost column of the export.
+
+        Sent on every call in the call log so the Call Summary can total Cost
+        on the tabs that have no backend summary (Dialed, Destination, Date,
+        Number Pool, Caller Profile, ...). Without it only Campaign, Buyer and
+        Caller Profile > Carrier had a cost, and every other tab showed "-".
+        """
+        if r.platform_cost:
+            return Decimal(r.platform_cost)
+        secs = int(r.duration_seconds or 0)
+        minutes = -(-secs // 60) if secs > 0 else 0
+        return AnalyticsService._cost_from_minutes(minutes, rate, markup)
+
+    @staticmethod
     def _cost(row, rate, markup) -> Decimal:
         """The cost to display: what was charged, or an estimate if nothing was.
 
@@ -1206,6 +1222,10 @@ class AnalyticsService:
                 'paid_calls':      r['paid_calls'],
                 'live_calls':      lc,
                 'total_duration_sec': r['total_duration_sec'],
+                # Computed above and never sent, so the Publisher tab's Cost
+                # column read "-" while Campaign showed the same calls' cost.
+                'total_cost':      AnalyticsService._cost(r, rate, markup),
+                'billable_minutes': int(r['billable_minutes'] or 0),
             })
 
         if live_counts:
@@ -1216,6 +1236,9 @@ class AnalyticsService:
                     'publisher_id': str(pid),
                     'publisher_name': pubs.get(pid, 'Unknown'),
                     'total_calls': lc,
+                    # Live only: nothing charged yet (same as campaign / buyer).
+                    'total_cost': Decimal('0'),
+                    'billable_minutes': 0,
                     'qualified_calls': 0,
                     'converted_calls': 0,
                     'conversion_rate': 0.0,
@@ -1302,7 +1325,11 @@ class AnalyticsService:
             .values_list('twilio_call_sid', 'destination_number')
         )
 
-        hist_formatted = [AnalyticsService._format_record(r, dest_map.get(r.twilio_call_sid)) for r in hist_items]
+        rate, markup = AnalyticsService._billing_rate(user.organization)
+        hist_formatted = [
+            AnalyticsService._format_record(r, dest_map.get(r.twilio_call_sid), rate=rate, markup=markup)
+            for r in hist_items
+        ]
         live_formatted = [AnalyticsService._format_live_log(r) for r in live_items]
 
         combined = sorted(hist_formatted + live_formatted, key=lambda x: x['created_at'], reverse=True)
@@ -1347,6 +1374,8 @@ class AnalyticsService:
             'revenue':          0,
             'payout':           0,
             'profit':           0,
+            # Not charged until it ends; the summaries leave it out the same way.
+            'cost':             0,
             'winning_bid':      None,
             'recording_url':    '',
             'started_at':       dt_start,
@@ -1361,8 +1390,10 @@ class AnalyticsService:
         }
 
     @staticmethod
-    def _format_record(r: CallRecord, destination_number: str = None) -> dict:
+    def _format_record(r: CallRecord, destination_number: str = None, rate=None, markup=None) -> dict:
         dest_num = destination_number or ''
+        if rate is None or markup is None:
+            rate, markup = AnalyticsService._billing_rate(r.organization)
         dt_start = r.started_at or r.created_at
         status_val = 'in-progress' if r.status in ['in_progress', 'in-progress'] else ('failed' if r.status in ['failed', 'no_answer', 'busy', 'canceled'] else r.status)
         return {
@@ -1396,6 +1427,7 @@ class AnalyticsService:
             'revenue':          r.dynamic_revenue,
             'payout':           r.dynamic_payout,
             'profit':           r.dynamic_profit,
+            'cost':             AnalyticsService._call_cost(r, rate, markup),
             'winning_bid':      r.winning_bid,
             'recording_url':    public_recording_url(r.recording_url),
             'carrier_name':     r.carrier_name,

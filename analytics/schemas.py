@@ -96,6 +96,10 @@ class CallRecordSchema(Schema):
     revenue:          Optional[Decimal] = None
     payout:           Optional[Decimal] = None
     profit:           Optional[Decimal] = None
+    # The call's telco cost (charged, or estimated before charging). Ninja
+    # drops undeclared keys, so without this the Call Summary had no per-call
+    # cost and only the tabs with a backend summary showed Cost.
+    cost:             Optional[Decimal] = None
     winning_bid:      Optional[Decimal]
     recording_url:    str
     started_at:       Optional[datetime]
