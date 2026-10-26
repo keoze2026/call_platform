@@ -170,3 +170,49 @@ class RevoCallerTests(RevoSyncTests):
         day = timezone.localtime(row.created_at, revo_sync.ET).date().isoformat()
         out = self.run_cmd([self.revo(row)], '--date', day)
         self.assertIn('would fix', out)
+
+
+class HiddenTryTests(Base):
+    """CH-292: a hidden earlier try that Revo shows answered is its own call."""
+
+    def setUp(self):
+        super().setUp()
+        for target, value in (('tasks.retire_used_number', None),
+                              ('routing.revo_sync._cfg', fake_cfg)):
+            p = mock.patch(target, value) if value else mock.patch(target)
+            p.start()
+            self.addCleanup(p.stop)
+        self.campaign.revenue_amount = Decimal('1.00')
+        self.campaign.min_call_duration = 0
+        self.campaign.save()
+
+    def test_the_answered_try_is_shown_again_and_the_next_is_its_own_call(self):
+        from analytics.models import CallRecord
+        first = self.call('a', caller='+12512230947', age=200, status=CallLog.Status.NO_ANSWER,
+                          destination='+18779642078')
+        CallLog.objects.filter(pk=first.pk).update(
+            block_reason='Not Connected', ended_at=first.created_at + timedelta(seconds=16),
+            retry_hidden=True)
+        second = self.call('b', caller='+12512230947', age=181, status=CallLog.Status.NO_ANSWER,
+                           destination='+18779642078')
+        CallLog.objects.filter(pk=second.pk).update(
+            block_reason='Not Connected', ended_at=second.created_at + timedelta(seconds=8),
+            retry_root=first.pk)
+        CallRecord.objects.filter(id=first.pk).delete()
+        first.refresh_from_db()
+        t = first.created_at + timedelta(seconds=4)
+        row = {'id': 7, 'created_at': t.strftime('%Y-%m-%d %H:%M:%S'), 'caller_number': '12512230947',
+               'called_number': '18779642078', 'status': {'name': 'Completed - With Conversion'},
+               'duration': 1, 'ttc': 12, 'live': 0}
+        session = mock.Mock()
+        session.get.return_value = Resp([row])
+        with mock.patch('requests.Session', return_value=session), \
+                mock.patch('tasks.mirror_call_record.delay', side_effect=RuntimeError('no broker')), \
+                self.captureOnCommitCallbacks(execute=True):
+            call_command('sync_revo', '--apply', stdout=StringIO())
+        first.refresh_from_db()
+        second.refresh_from_db()
+        self.assertEqual((first.status, first.retry_hidden), (CallLog.Status.COMPLETED, False))
+        self.assertIsNone(second.retry_root_id)
+        self.assertTrue(CallRecord.objects.filter(id=first.pk).exists())
+        self.assertTrue(CallRecord.objects.filter(id=second.pk).exists())

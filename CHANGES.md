@@ -7423,3 +7423,12 @@ Sir's list of 26 Oct (7 callers "missed in Avortyx, connected in Revo", one
 day; `--caller a,b,c` reads only those callers through Revo's search and
 prints our own rows of the day for each next to Revo's count. Same rules,
 dry run unless `--apply`.
+
+## CH-292 - A hidden try that Revo shows answered is its own call again
+**2026-10-26 · Routing / RevoCalls API**
+
+12512230947, 26 Oct: ours 10:06:22 was hidden as an earlier try of 10:06:41
+(CH-215 grouping); Revo has two calls - 10:06:26 Completed, 1s and 10:06:47
+Not Connected. When sync_revo corrects a hidden try, it is shown again and
+the tries after it become their own call, dated from their own start, so the
+log has the same two rows as Revo.

@@ -189,6 +189,30 @@ def verdict(rc: RevoCall, call):
     return 'fix', f'Revo answered {gap:.0f}s from our hang-up, talked {rc.duration}s'
 
 
+def _ungroup(call: CallLog) -> None:
+    """`call` was hidden as an earlier try of a grouped call (CH-215), but Revo
+    shows it answered: a call of its own (CH-292). 12512230947, 26 Oct: ours
+    10:06:22 (hidden) and 10:06:41 shown as one call; Revo has two - 10:06:26
+    Completed, 1s and 10:06:47 Not Connected. The answered try is shown again,
+    and the tries after it become their own call, dated from their own start,
+    so the log reads like Revo: two rows."""
+    root_id = call.retry_root_id or call.pk
+    later = list(CallLog.objects.filter(retry_root_id=root_id, created_at__gt=call.created_at)
+                 .order_by('created_at'))
+    call.retry_hidden = False  # saved with the rest of the fix
+    if not later:
+        return
+    first, rest = later[0], later[1:]
+    CallLog.objects.filter(pk=first.pk).update(retry_root=None)
+    if rest:
+        CallLog.objects.filter(pk__in=[c.pk for c in rest]).update(retry_root=first.pk)
+    # Re-mirror the row still shown, now dated from its own call's start.
+    shown = [c for c in later if not c.retry_hidden]
+    for c in shown:
+        c.refresh_from_db()
+        c.save()
+
+
 def apply_fix(call: CallLog, rc: RevoCall) -> bool:
     """Make `call` Completed with Revo's duration, paid and charged like any
     answered call. False when it is no longer a missed call."""
@@ -197,6 +221,8 @@ def apply_fix(call: CallLog, rc: RevoCall) -> bool:
     call.refresh_from_db()
     if call.status != CallLog.Status.NO_ANSWER or call.block_reason != NOT_CONNECTED_LABEL:
         return False
+    if call.retry_hidden:
+        _ungroup(call)
     duration = max(1, rc.duration)
     answered_at = min(rc.answered_at, call.ended_at) if call.ended_at else rc.answered_at
     call.status = CallLog.Status.COMPLETED
