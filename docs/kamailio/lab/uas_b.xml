@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="ISO-8859-1" ?>
 <!DOCTYPE scenario SYSTEM "sipp.dtd">
 <scenario name="buyer b: never answers, gets the CANCEL">
-  <recv request="INVITE" crlf="true"/>
+  <recv request="INVITE" crlf="true">
+    <action>
+      <ereg regexp=".*" search_in="hdr" header="Via:" occurrence="1" assign_to="via1"/>
+      <ereg regexp=".*" search_in="hdr" header="Via:" occurrence="2" assign_to="via2"/>
+    </action>
+  </recv>
   <send>
     <![CDATA[
 
@@ -37,7 +42,8 @@
     <![CDATA[
 
       SIP/2.0 487 Request Terminated
-      [last_Via:]
+      Via: [$via1]
+      Via: [$via2]
       [last_From:]
       [last_To:];tag=[pid]B[call_number]
       [last_Call-ID:]

@@ -60,7 +60,7 @@
 
     ]]>
   </send>
-  <recv response="200" optional="true" response_txn="cancel"/>
+  <recv response="200" response_txn="cancel"/>
   <send retrans="500" start_txn="bye">
     <![CDATA[
 
@@ -76,6 +76,5 @@
 
     ]]>
   </send>
-  <recv response="200" optional="true" response_txn="cancel"/>
   <recv response="200" response_txn="bye"/>
 </scenario>
