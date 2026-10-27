@@ -103,9 +103,9 @@ class NotificationService:
 
         pref, created = NotificationPreference.objects.get_or_create(
             user=user,
-            defaults={'popup_events': list(NotificationPreference.DEFAULT_POPUP_EVENTS)},
+            defaults={'popup_events': NotificationPreference.defaults_for(user)},
         )
-        return NotificationService.format_preferences(pref)
+        return NotificationService.format_preferences(pref, user)
 
     @staticmethod
     def update_preferences(user, body: dict) -> dict:
@@ -113,7 +113,7 @@ class NotificationService:
 
         pref, _ = NotificationPreference.objects.get_or_create(
             user=user,
-            defaults={'popup_events': list(NotificationPreference.DEFAULT_POPUP_EVENTS)},
+            defaults={'popup_events': NotificationPreference.defaults_for(user)},
         )
 
         fields = []
@@ -138,21 +138,29 @@ class NotificationService:
                     f"See GET /api/notifications/events"
                 )
             # Deduplicated, and ordered as the catalogue orders them so the list
-            # reads the same however the client sent it
-            order = [v for v, _ in NotificationRule.Event.choices]
+            # reads the same however the client sent it. A buyer or publisher
+            # login keeps only the types of its own access (CH-335).
+            order = NotificationPreference.allowed_events(user)
             pref.popup_events = [e for e in order if e in set(events)]
             fields.append('popup_events')
 
         if fields:
             pref.save(update_fields=fields + ['updated_at'])
 
-        return NotificationService.format_preferences(pref)
+        return NotificationService.format_preferences(pref, user)
 
     @staticmethod
-    def format_preferences(pref) -> dict:
+    def format_preferences(pref, user=None) -> dict:
+        from notifications.models import NotificationPreference
+        events = pref.popup_events or []
+        if user is not None:
+            # A partner login never gets a pop-up of the main account's alerts,
+            # even one saved before CH-335.
+            allowed = set(NotificationPreference.allowed_events(user))
+            events = [e for e in events if e in allowed]
         return {
             'popups_enabled': pref.popups_enabled,
-            'popup_events': pref.popup_events or [],
+            'popup_events': events,
             'sound_enabled': pref.sound_enabled,
             'updated_at': pref.updated_at.isoformat(),
         }

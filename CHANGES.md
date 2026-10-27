@@ -7703,3 +7703,26 @@ Tests: phone_numbers/test_routing_cost.py (+5). Needs `migrate` and the web
 restart. Portal half: CH-334 in Avortyx.
 
 Commit: see git log --grep CH-334.
+
+## CH-335 - Pop-up alerts: buyer and publisher logins get only their own
+**2026-10-28 · Notifications**
+
+Sir, 28 Oct: "Buyer and Publisher should only get according to their access
+in pop up alert, not as main account". A buyer login's Pop-up alerts listed
+all 15 alert types of the main account (campaign caps, low balance, AHT,
+Autopilot...).
+
+- `GET /api/notifications/events` gives a partner login only its own types
+  (NotificationPreference.PARTNER_EVENTS):
+  - buyer: New Call, Call Completed, Buyer Missed Call, Buyer Cap Reached,
+    Destination Cap Reached, Daily Summary;
+  - publisher: New Call, Call Completed, Call Missed, Publisher Cap Reached,
+    Daily Summary, TFN Deleted, TFN Not Working.
+  The main account and superusers keep all of them.
+- Preferences: a partner's saved list keeps only those types (also lists
+  saved before this change); new partner logins start with their cap alerts
+  on. Any login may change its own switches (partners were refused: the
+  PATCH asked for the workspace's Edit right).
+
+Tests: notifications/test_partner_popups.py (5). Needs the web restart.
+Portal half: CH-335 in Avortyx. Commit: see git log --grep CH-335.

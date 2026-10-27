@@ -98,6 +98,61 @@ class NotificationPreference(models.Model):
         NotificationRule.Event.LOW_BALANCE,
     ]
 
+    # CH-335 (Sir, 28 Oct): "Buyer and Publisher should only get according to
+    # their access in pop up alert, not as main account". A buyer login is
+    # offered only the alerts about its own calls, caps and destinations; a
+    # publisher login only its own calls, cap and TFNs. Campaign caps, the
+    # workspace's balance, campaign pauses, AHT and Autopilot belong to the
+    # main account.
+    PARTNER_EVENTS = {
+        'buyer': [
+            NotificationRule.Event.NEW_CALL,
+            NotificationRule.Event.CALL_COMPLETED,
+            NotificationRule.Event.BUYER_MISSED,
+            NotificationRule.Event.BUYER_CAP_REACHED,
+            NotificationRule.Event.DESTINATION_CAP_REACHED,
+            NotificationRule.Event.DAILY_SUMMARY,
+        ],
+        'publisher': [
+            NotificationRule.Event.NEW_CALL,
+            NotificationRule.Event.CALL_COMPLETED,
+            NotificationRule.Event.CALL_MISSED,
+            NotificationRule.Event.PUBLISHER_CAP_REACHED,
+            NotificationRule.Event.DAILY_SUMMARY,
+            NotificationRule.Event.NUMBER_DELETED,
+            NotificationRule.Event.NUMBER_NOT_WORKING,
+        ],
+    }
+    PARTNER_DEFAULTS = {
+        'buyer': [NotificationRule.Event.BUYER_CAP_REACHED, NotificationRule.Event.DESTINATION_CAP_REACHED],
+        'publisher': [NotificationRule.Event.PUBLISHER_CAP_REACHED],
+    }
+
+    @classmethod
+    def partner_kind(cls, user):
+        """'buyer' or 'publisher' for a partner login, else None (a superuser
+        is never a partner, as everywhere else)."""
+        if getattr(user, 'is_superuser', False):
+            return None
+        role = getattr(user, 'role', '')
+        return role if role in cls.PARTNER_EVENTS else None
+
+    @classmethod
+    def allowed_events(cls, user) -> list:
+        """The alert types this login may see and switch, in catalogue order."""
+        order = [v for v, _ in NotificationRule.Event.choices]
+        kind = cls.partner_kind(user)
+        if kind is None:
+            return order
+        allowed = {str(e) for e in cls.PARTNER_EVENTS[kind]}
+        return [v for v in order if v in allowed]
+
+    @classmethod
+    def defaults_for(cls, user) -> list:
+        kind = cls.partner_kind(user)
+        events = cls.PARTNER_DEFAULTS[kind] if kind else cls.DEFAULT_POPUP_EVENTS
+        return [str(e) for e in events]
+
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='notification_preference'

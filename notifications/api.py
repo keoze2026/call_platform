@@ -88,7 +88,9 @@ def list_event_types(request: HttpRequest):
     """
     from notifications.models import NotificationRule, NotificationPreference
 
-    defaults = set(NotificationPreference.DEFAULT_POPUP_EVENTS)
+    # CH-335: a buyer or publisher login sees only the alerts of its own access.
+    allowed = set(NotificationPreference.allowed_events(request.auth))
+    defaults = set(NotificationPreference.defaults_for(request.auth))
     return 200, [
         {
             'event': value,
@@ -96,6 +98,7 @@ def list_event_types(request: HttpRequest):
             'default_popup': value in defaults,
         }
         for value, label in NotificationRule.Event.choices
+        if value in allowed
     ]
 
 
@@ -111,8 +114,11 @@ def update_preferences(request: HttpRequest):
     """Update which alerts pop up. Send any subset of the fields.
 
     Body: {"popups_enabled": bool, "popup_events": [str], "sound_enabled": bool}
+
+    Only this user's own choices, so any login may change them (CH-335): a
+    buyer or publisher login is read-only for the workspace, and was refused
+    its own pop-up switches.
     """
-    require(request.auth, Capability.EDIT)
     import json as _json
     from notifications.services import NotificationService
 
