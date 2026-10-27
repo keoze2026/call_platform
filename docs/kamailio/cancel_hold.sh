@@ -7,6 +7,7 @@
 #   bash docs/kamailio/cancel_hold.sh off                # OFF for all calls (instant, no reload)
 #   bash docs/kamailio/cancel_hold.sh status
 #   bash docs/kamailio/cancel_hold.sh log                # the relay's hold lines
+#   bash docs/kamailio/cancel_hold.sh hold 3000          # set the hold (ms); restarts the relay, only with 0 calls live
 #   bash docs/kamailio/cancel_hold.sh check-backend      # the held-answer endpoint answers (after web restart)
 #   bash docs/kamailio/cancel_hold.sh uninstall          # put pjsip.conf / extensions.conf back, stop relay
 #
@@ -108,6 +109,7 @@ case "${1:-}" in
     off) ast "database del avortyx cancel_hold"; ast "database del avortyx cancel_hold_caller"; echo "OFF for all calls" ;;
     status)
         ast "database show avortyx"; systemctl is-active kamailio; ss -lunp | grep -E ":(5070|5080) "
+        grep -E '^#!substdef "!HOLD_MS' /etc/kamailio/kamailio.cfg | sed -E 's/.*HOLD_MS!([0-9]+)!.*/hold: \1 ms/'
         ast "pjsip show endpoint carrier-out" | grep -E "Endpoint:" | head -1 ;;
     check-backend)
         S=$(grep '^ASTERISK_SHARED_SECRET=' "$APP/.env" | cut -d= -f2- | tr -d "'\"")
@@ -115,6 +117,28 @@ case "${1:-}" in
           | curl -s -K - -X POST -d '{"call_log_id": "00000000-0000-0000-0000-000000000000"}' \
             -w '  HTTP %{http_code}\n' http://127.0.0.1:8000/api/twilio/asterisk/held-answer/
         echo '(expected: {"error": "Call not found"}  HTTP 404 - the endpoint is live)' ;;
+    hold)
+        # CH-315: the hold time. Measured 27 Oct on the 33 calls Revo had to
+        # correct (26-27 Oct): every buyer answer came 0 to 2 s after the
+        # caller hung up (Revo counts whole seconds); a 1000 ms hold misses
+        # every answer that comes later than 1 s.
+        ms=$(printf '%s' "${2:-}" | tr -cd '0-9')
+        { [ -n "$ms" ] && [ "$ms" -ge 500 ] && [ "$ms" -le 5000 ]; } || { echo "give the hold in ms, 500 to 5000 (e.g. 3000)"; exit 1; }
+        live=$(ast "core show channels count" | awk '/active call/{print $1}')
+        if [ "${live:-1}" != "0" ] && [ "${3:-}" != "--now" ]; then
+            echo "$live call(s) live: the relay restarts to load the new time. Run again when 0 calls are live."; exit 1
+        fi
+        C=/etc/kamailio/kamailio.cfg
+        cp -a "$C" "$C.bak-hold-$STAMP"
+        sed -i -E "s/^#!substdef \"!HOLD_MS![0-9]+!g\"/#!substdef \"!HOLD_MS!$ms!g\"/; s/^#!substdef \"!HOLD_US![0-9]+!g\"/#!substdef \"!HOLD_US!${ms}000!g\"/; s/^children=([0-9]|[12][0-9]|3[01])\b.*/children=32/" "$C"
+        grep -E '^#!substdef "!HOLD_(MS|US)|^children=' "$C"
+        if ! kamailio -c -f "$C" >/dev/null 2>&1; then
+            cp -a "$C.bak-hold-$STAMP" "$C"; echo "config check failed: old config kept, relay not touched"; exit 1
+        fi
+        systemctl restart kamailio && sleep 2
+        ss -lunp | grep -qE ":(5070|5080) " && echo "relay running with a ${ms} ms hold" || {
+            cp -a "$C.bak-hold-$STAMP" "$C"; systemctl restart kamailio
+            echo "relay did not come back: old config restored"; exit 1; } ;;
     log) journalctl -u kamailio --since "-60 min" --no-pager | grep "hold:" | sed 's/^.*hold:/hold:/' | tail -40 ;;
     uninstall)
         ast "database del avortyx cancel_hold"; ast "database del avortyx cancel_hold_caller"
