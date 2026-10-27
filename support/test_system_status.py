@@ -307,3 +307,75 @@ class StatusTests(TestCase):
                 mock.patch.object(L, 'parse_sip', side_effect=lambda m: m):
             st = hs._sip_file_stats('x')
         self.assertEqual(st['spam_callers'], {'17405551111': 2})
+
+    # ── CH-327: 0. Server, and portal changes as they happen ───────────────────
+
+    def watch_data(self, **over):
+        w = {'server': {'hostname': 'vmi3333575', 'label': 'Contabo VPS', 'ip': '156.67.25.167'},
+             'uptime_days': 23.0, 'boot_at': time.time() - 23 * 86400, 'steal_pct': 0.4, 'iowait_pct': 1.0,
+             'swap_used_pct': 0, 'swap_total_mb': 2048, 'rx_mbps': 12.0, 'tx_mbps': 9.0, 'net_errors': 0,
+             'ntp_synced': True, 'ntp_offset_ms': 3.0,
+             'blacklist': {'checked': 4, 'listed': []},
+             'services': [{'label': 'SIP engine', 'ok': True}, {'label': 'Database', 'ok': True}],
+             'ports': {'open': 6, 'new': []}, 'unknown_processes': [], 'unknown_outbound': 0,
+             'logs_watched': 6, 'backup_files': 3,
+             'ssh': {'logins_24h': 2, 'ips_24h': 1, 'root_login': 'prohibit-password', 'password_login': 'no'},
+             'sudo_24h': 0, 'deploy': {'head': 'abc123', 'count_24h': 1, 'last': [1, 'abc123', 'CH-327']},
+             'config': {'changed_24h': []}, 'env_changes_24h': 0, 'software_24h': 0,
+             'system_files': {'checked': 14, 'preload': False},
+             'events_24h': {}, 'red_by_kind_24h': {}}
+        w.update(over)
+        self.write_host(fake_host(watch=w))
+
+    def test_server_section_reads_the_watcher(self):
+        self.watch_data()
+        it = self.items()
+        self.assertEqual(it['Server'].detail, 'vmi3333575 · Contabo VPS · 156.67.25.167')
+        self.assertIn('steal 0.4%', it['CPU'].detail)
+        self.assertIn('I/O wait 1%', it['Disk'].detail)
+        self.assertEqual(it['Server IP'].status, S.OK)
+        self.assertEqual(it['Root/password login'].status, S.OK)
+        self.assertEqual(it['Services'].status, S.OK)
+        self.assertEqual(it['Deploys (24h)'].detail, '1 · last abc123 CH-327')
+
+    def test_what_the_server_cannot_see_is_white_not_green(self):
+        self.watch_data()
+        it = self.items()
+        for name in ('Reachable from outside', 'Contabo status · invoice · snapshots', 'Backup server', 'Failover'):
+            self.assertEqual(it[name].status, S.NA, name)
+        self.assertNotIn('Backup server', S.render(S.collect()).split('<b>0.')[0])
+
+    def test_root_password_login_and_red_events_are_flagged(self):
+        self.watch_data(ssh={'logins_24h': 3, 'ips_24h': 2, 'root_login': 'yes', 'password_login': 'yes'},
+                        events_24h={'ssh': 3, 'dump': 1, 'logs': 1}, red_by_kind_24h={'ssh': 1},
+                        ports={'open': 7, 'new': ['tcp/3306']},
+                        services=[{'label': 'SIP engine', 'ok': True}, {'label': 'Worker', 'ok': False}])
+        it = self.items()
+        self.assertEqual(it['Root/password login'].status, S.WARN)
+        self.assertIn('1 from a new IP', it['SSH logins (24h)'].detail)
+        self.assertEqual(it['Database exports / dumps'].status, S.DOWN)
+        self.assertEqual(it['Logs'].status, S.DOWN)
+        self.assertEqual(it['Open ports'].status, S.DOWN)
+        self.assertIn('down: Worker', it['Services'].detail)
+
+    def test_no_watcher_yet_says_so_and_keeps_cpu_ram_disk(self):
+        it = self.items()
+        self.assertEqual(it['Server watch'].status, S.WARN)
+        self.assertIn('CPU', it)
+
+    def test_portal_changes_are_sent_once_with_who_and_what(self):
+        from accounts.models import ActivityLog
+        u = User.objects.create(username='ops1', email='ops1@avortyx.io', organization=self.org, role='admin')
+        sent = []
+        self.assertEqual(S.portal_changes(sent.append), 0)        # first look: starting point only
+        ActivityLog.objects.create(user=u, action='record_updated', metadata={
+            'target_type': 'campaign_destination', 'target_name': '18005550100',
+            'changes': {'priority': {'old': '2', 'new': '1'}}})
+        ActivityLog.objects.create(user=u, action='record_updated', metadata={
+            'target_type': 'publisher', 'target_name': 'Pub'})       # not routing: not sent
+        ActivityLog.objects.create(user=u, action='login', metadata={})
+        self.assertEqual(S.portal_changes(sent.append), 1)
+        self.assertIn('🔀 <b>Routing changed</b>: campaign destination 18005550100 changed (priority 2→1)', sent[0])
+        self.assertIn('by ops1@avortyx.io', sent[0])
+        self.assertEqual(S.portal_changes(sent.append), 0)        # not again
+        self.assertIn('1 · by ops1', self.items()['Routing / priority / Campaign Group changes (24h)'].detail)

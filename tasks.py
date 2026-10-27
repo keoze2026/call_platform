@@ -893,6 +893,14 @@ def status_watch():
     return f'status warnings sent: {S.watch(S.post)}'
 
 
+@app.task(name='tasks.portal_change_alerts')
+def portal_change_alerts():
+    """CH-327: routing / priority, user and role, carrier changes made in the
+    portal, sent to the status chat within a minute (Sir, 28 Oct)."""
+    from support import system_status as S
+    return f'portal changes sent: {S.portal_changes(S.post)}'
+
+
 @app.task(name='tasks.send_scheduled_reports')
 def send_scheduled_reports():
     """Send the emailed digests that are due (CH-266)."""

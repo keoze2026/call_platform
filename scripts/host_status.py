@@ -66,6 +66,17 @@ def system():
 
 
 @part
+def watch():
+    """Section 0 of the report and the instant alerts (CH-327): what changed on
+    the server since a minute ago. scripts/host_watch.py; read-only too.
+    --print looks without sending any alert."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import host_watch
+    dry = '--print' in sys.argv
+    return host_watch.run(send=not dry, save=not dry)
+
+
+@part
 def asterisk():
     out = {}
     m = re.search(r'(\d+) active call', sh('asterisk -rx "core show channels count"'))

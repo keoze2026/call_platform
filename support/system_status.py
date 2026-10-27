@@ -35,7 +35,7 @@ import ssl
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from html import escape
 from urllib.parse import urlsplit
 
@@ -168,23 +168,37 @@ def check_portal():
 
 
 def check_server(h):
+    """CPU, RAM and disk, with the watcher's steal, swap and I/O wait (CH-327)."""
     if not host_fresh(h):
         age = f'last update {_ago(h["at"])}' if h.get('at') else 'never updated'
         return [Item('Server (host data)', WARN, f'host status file {age}: check the host_status cron',
                      key='host')]
     s = h.get('system', {})
+    w = _watch(h)
     items = []
     cpus = s.get('cpus') or 1
     load = s.get('load5', 0) / cpus
-    items.append(Item('CPU', DOWN if load > 1.5 else WARN if load > 0.85 else OK,
-                      f'load {s.get("load5")} / {cpus} cores'))
+    steal = w.get('steal_pct')
+    st = DOWN if load > 1.5 else WARN if load > 0.85 else OK
+    if steal is not None and steal >= 10:
+        st = _worst(st, WARN)
+    items.append(Item('CPU', st, f'load {s.get("load5")} / {cpus} cores'
+                      + (f' · steal {steal}%' if steal is not None else '')))
     avail = s.get('mem_avail_mb', 0) / max(1, s.get('mem_total_mb', 1)) * 100
-    items.append(Item('RAM', DOWN if avail < 5 else WARN if avail < 15 else OK,
-                      f'{s.get("mem_avail_mb", 0) / 1024:.1f} GB free of {s.get("mem_total_mb", 0) / 1024:.0f} GB',
-                      key='ram'))
+    swap = w.get('swap_used_pct')
+    st = DOWN if avail < 5 else WARN if avail < 15 else OK
+    if swap and swap >= 50:
+        st = _worst(st, WARN)
+    swap_txt = '' if swap is None else (' · no swap' if not w.get('swap_total_mb') else f' · swap {swap:g}%')
+    items.append(Item('RAM', st, f'{s.get("mem_avail_mb", 0) / 1024:.1f} GB free of '
+                      f'{s.get("mem_total_mb", 0) / 1024:.0f} GB' + swap_txt, key='ram'))
     used = s.get('disk_used_pct', 0)
-    items.append(Item('Disk', DOWN if used >= 90 else WARN if used >= 80 else OK,
-                      f'{used}% used · {s.get("disk_free_gb")} GB free', key='disk'))
+    io = w.get('iowait_pct')
+    st = DOWN if used >= 90 else WARN if used >= 80 else OK
+    if io is not None and io >= 20:
+        st = _worst(st, WARN)
+    items.append(Item('Disk', st, f'{used}% used · {s.get("disk_free_gb")} GB free'
+                      + (f' · I/O wait {io:g}%' if io is not None else ''), key='disk'))
     return items
 
 
@@ -697,10 +711,275 @@ def check_spikes():
     return [Item('Traffic', OK, f'{last:,} calls this hour (avg {avg:.0f})')]
 
 
+
+# ── 0. Server (CH-327; Sir, 28 Oct) ──────────────────────────────────────────
+# Read from scripts/host_watch.py, which the host_status cron runs every
+# minute; the same script sends the instant alerts. What the server cannot
+# see (the Contabo account, being unreachable, a backup server) shows white:
+# not set up, never a green nobody checked.
+
+def _watch(h) -> dict:
+    return (h or {}).get('watch') or {}
+
+
+def _events(w, kind) -> int:
+    return (w.get('events_24h') or {}).get(kind, 0)
+
+
+def _red(w, kind) -> int:
+    """Of those, the ones sent as red (a new IP, a change outside an update)."""
+    return (w.get('red_by_kind_24h') or {}).get(kind, 0)
+
+
+def _no_watch(h):
+    if not host_fresh(h):
+        return [Item('Server watch', WARN, 'no fresh host data: check the host_status cron')]
+    w = _watch(h)
+    if not w or w.get('skipped'):
+        return [Item('Server watch', WARN, 'not running yet (scripts/host_watch.py)')]
+    return None
+
+
+def check_server_host(h):
+    if not host_fresh(h):
+        return check_server(h)          # says the host data is stale, once
+    missing = _no_watch(h)
+    if missing:
+        return missing + check_server(h)
+    w = _watch(h)
+    srv = w.get('server') or {}
+    items = [Item('Server', OK, f'{srv.get("hostname", "?")} · {srv.get("label", "")} · {srv.get("ip", "")}'),
+             Item('Reachable from outside', NA, 'needs an outside monitor (not set up)')]
+    boot = w.get('boot_at')
+    up = w.get('uptime_days')
+    if boot:
+        rebooted = _events(w, 'reboot')
+        items.append(Item('Uptime', WARN if rebooted else OK,
+                          f'{up:g} days · last reboot {datetime.fromtimestamp(boot, dt_timezone.utc):%d %b %H:%M} UTC'
+                          + (' (unplanned? see alert)' if rebooted else '')))
+    items += check_server(h)
+    if 'rx_mbps' in w:
+        err = w.get('net_errors', 0)
+        items.append(Item('Network', WARN if err > 100 else OK,
+                          f'{w["rx_mbps"]:g} Mbps in / {w["tx_mbps"]:g} Mbps out · {err:,} errors'))
+    synced, off = w.get('ntp_synced'), w.get('ntp_offset_ms')
+    if synced is None and off is None:
+        items.append(Item('Time sync (NTP)', WARN, 'not known'))
+    else:
+        st = WARN if synced is False or (off is not None and off > 100) else OK
+        items.append(Item('Time sync (NTP)', st, ('synced' if synced else 'NOT synced')
+                          + (f' · offset {off:g} ms' if off is not None else '')))
+    bl = w.get('blacklist') or {}
+    if bl.get('checked'):
+        listed = bl.get('listed') or []
+        items.append(Item('Server IP', DOWN if listed else OK,
+                          f'listed on {", ".join(listed)}' if listed
+                          else f'not blacklisted ({bl["checked"]} lists checked)', key='blacklist'))
+    if w.get('errors'):
+        items.append(Item('Server watch', WARN, f'{len(w["errors"])} check(s) failed: '
+                          + ', '.join(sorted(w['errors']))[:120]))
+    return items
+
+
+def check_contabo(h):
+    return [Item('Contabo status · invoice · snapshots', NA, 'not connected (needs Contabo API access)'),
+            Item('Contabo panel logins · 2FA', NA, 'not visible to the server (Contabo emails these)')]
+
+
+def check_core_services(h):
+    missing = _no_watch(h)
+    if missing:
+        return []
+    w = _watch(h)
+    svc = w.get('services') or []
+    down = [s['label'] for s in svc if not s.get('ok')]
+    restarts = _events(w, 'restart')
+    items = [Item('Services', DOWN if down else OK,
+                  (f'{len(svc) - len(down)}/{len(svc)} running · down: {", ".join(down)}' if down
+                   else f'all {len(svc)} running') + ' (' + ', '.join(s['label'] for s in svc) + ')'),
+             Item('Restarts (24h)', WARN if restarts > 3 else OK, f'{restarts}')]
+    procs = w.get('unknown_processes') or []
+    items.append(Item('Unknown processes', DOWN if procs or _events(w, 'process') else OK,
+                      ', '.join(procs) if procs else 'none'))
+    ports = w.get('ports') or {}
+    new = ports.get('new') or []
+    items.append(Item('Open ports', DOWN if new else OK,
+                      f'new: {", ".join(new)}' if new else f'unchanged ({ports.get("open", 0)} open)'))
+    return items
+
+
+def _root_login(value):
+    return {'yes': 'root login ALLOWED', 'no': 'root login off',
+            'prohibit-password': 'root by key only', 'without-password': 'root by key only',
+            'forced-commands-only': 'root by key only'}.get(value or '', 'root login unknown')
+
+
+def check_access(h):
+    missing = _no_watch(h)
+    if missing:
+        return []
+    w = _watch(h)
+    ssh = w.get('ssh') or {}
+    new_ip = _red(w, 'ssh')
+    items = [Item('SSH logins (24h)', WARN if new_ip else OK,
+                  f'{ssh.get("logins_24h", 0)} · {ssh.get("ips_24h", 0)} IP(s)'
+                  + (f' · {new_ip} from a new IP' if new_ip else ''))]
+    root, pw = ssh.get('root_login'), ssh.get('password_login')
+    risky = root == 'yes' or pw == 'yes'
+    items.append(Item('Root/password login', WARN if risky else OK if root else WARN,
+                      f'{_root_login(root)} · password login {"ON" if pw == "yes" else "off" if pw else "unknown"}'))
+    items.append(Item('sudo commands (24h)', OK, f'{w.get("sudo_24h", 0)} (commands typed as root are not recorded)'))
+    d = w.get('deploy') or {}
+    last = d.get('last')
+    items.append(Item('Deploys (24h)', OK, f'{d.get("count_24h", 0)}'
+                      + (f' · last {last[1]} {last[2]}' if last else f' · running {d.get("head", "?")}')))
+    cfg = (w.get('config') or {}).get('changed_24h') or []
+    items.append(Item('Config files changed', WARN if cfg else OK,
+                      ', '.join(c.rsplit('/', 1)[-1] for c in cfg)[:150] if cfg else 'none'))
+    n = w.get('env_changes_24h', 0)
+    items.append(Item('.env / API keys', WARN if n else OK, f'{n} key(s) changed (24h)' if n else 'unchanged'))
+    n = w.get('software_24h', 0)
+    items.append(Item('Software installed or removed', OK, f'{n} package(s) (24h)' if n else 'none'))
+    for kind, name in (('users', 'New users / SSH keys'), ('firewall', 'Firewall rules'), ('cron', 'Cron jobs')):
+        n = _events(w, kind)
+        items.append(Item(name, WARN if n else OK, f'{n} change(s) (24h)' if n else 'unchanged'))
+    sf = w.get('system_files') or {}
+    bad = _red(w, 'sysfile')
+    items.append(Item('System files integrity', DOWN if bad or sf.get('preload') else OK,
+                      'MODIFIED outside a package update' if bad else '/etc/ld.so.preload present' if sf.get('preload')
+                      else f'OK ({sf.get("checked", 0)} checked)'))
+    return items
+
+
+def check_data_protection(h):
+    missing = _no_watch(h)
+    if missing:
+        return []
+    w = _watch(h)
+    items = []
+    n = _events(w, 'outbound')
+    items.append(Item('Outbound connections', DOWN if n else OK,
+                      f'{n} to unknown IPs (24h)' if n else 'known programs only'))
+    n = _events(w, 'dump')
+    items.append(Item('Database exports / dumps', DOWN if n else OK, f'{n} (24h)' if n else 'none'))
+    n = _events(w, 'download')
+    items.append(Item('Bulk recording downloads', DOWN if n else OK,
+                      f'{n} (24h)' if n else f'none · {w.get("downloads_hour", 0):,} recordings fetched this hour'))
+    n = _events(w, 'logs')
+    items.append(Item('Logs', DOWN if n else OK, f'{n} cleared or deleted (24h)' if n
+                      else f'intact ({w.get("logs_watched", 0)} watched)'))
+    n = _events(w, 'backup')
+    files = w.get('backup_files', 0)
+    if n:
+        items.append(Item('Backups', DOWN, f'{n} deleted or changed (24h)'))
+    elif files:
+        items.append(Item('Backups', OK, f'intact ({files} files)'))
+    else:
+        items.append(Item('Backups', NA, 'no backup files yet (see Database backup)'))
+    return items
+
+
+# What a person changes in the portal, by kind (accounts.activity_signals).
+PORTAL_ROUTING = {'routing_rule', 'campaign_destination', 'destination', 'buyer_campaign', 'campaign',
+                  'campaign_cap', 'campaign_schedule', 'campaign_group', 'buyer_cap', 'buyer_schedule'}
+PORTAL_USERS = {'user', 'role'}
+PORTAL_USER_ACTIONS = {'password_change', 'mfa_enabled', 'mfa_disabled', 'api_key_created', 'api_key_revoked'}
+PORTAL_CARRIER = {'carrier'}
+
+
+def _portal_kind(entry):
+    t = (entry.metadata or {}).get('target_type', '')
+    if t in PORTAL_ROUTING:
+        return 'routing'
+    if t in PORTAL_USERS or entry.action in PORTAL_USER_ACTIONS:
+        return 'users'
+    if t in PORTAL_CARRIER:
+        return 'carrier'
+    return ''
+
+
+def check_portal_admin(h=None):
+    from accounts.models import ActivityLog
+    since = timezone.now() - timedelta(hours=24)
+    counts = {'routing': [0, set()], 'users': [0, set()], 'carrier': [0, set()]}
+    for e in ActivityLog.objects.filter(created_at__gte=since).exclude(action__in=['login', 'logout']) \
+            .select_related('user')[:5000]:
+        k = _portal_kind(e)
+        if k:
+            counts[k][0] += 1
+            counts[k][1].add((e.user.email or '').split('@')[0])
+
+    def detail(k):
+        n, who = counts[k]
+        return f'{n} · by {", ".join(sorted(who)[:4])}' if n else 'none'
+    return [Item('Routing / priority / Campaign Group changes (24h)', OK, detail('routing')),
+            Item('User and role changes (24h)', OK, detail('users')),
+            Item('Carrier / SIP settings (24h)', WARN if counts['carrier'][0] else OK, detail('carrier'))]
+
+
+def check_resilience(h=None):
+    return [Item('Backup server', NA, 'not set up'), Item('Failover', NA, 'not set up')]
+
+
+# ── portal changes, sent as they happen (CH-327) ─────────────────────────────
+
+PORTAL_ICON = {'routing': '🔀', 'users': '👤', 'carrier': '📞'}
+PORTAL_TITLE = {'routing': 'Routing changed', 'users': 'User or role changed', 'carrier': 'Carrier / SIP setting changed'}
+
+
+def _portal_line(e) -> str:
+    md = e.metadata or {}
+    kind = _portal_kind(e)
+    verb = {'record_created': 'added', 'record_updated': 'changed', 'record_deleted': 'removed'}.get(
+        e.action, e.get_action_display().lower())
+    what = (md.get('target_type') or '').replace('_', ' ')
+    name = md.get('target_name') or ''
+    ch = md.get('changes') or {}
+    diff = ', '.join(f'{k.replace("_", " ")} {v.get("old")}→{v.get("new")}' for k, v in list(ch.items())[:4])
+    who = e.user.email if e.user_id else '?'
+    return (f'{PORTAL_ICON[kind]} <b>{PORTAL_TITLE[kind]}</b>: {escape(what)} {escape(name[:60])} {verb}'
+            + (f' ({escape(diff[:160])})' if diff else '') + f' · by {escape(who)} · '
+            f'{timezone.localtime(e.created_at, dt_timezone.utc):%H:%M} UTC')
+
+
+def portal_changes(send) -> int:
+    """New routing, user/role and carrier changes since the last look, one
+    message. The first look only sets the starting point."""
+    from accounts.models import ActivityLog
+    if not _cfg('PORTAL_CHANGE_ALERTS', True, cast=bool):
+        return 0
+    key = 'status:portal_changes_since'
+    since = cache.get(key)
+    now = timezone.now()
+    if not since:
+        cache.set(key, now.isoformat(), 30 * 86400)
+        return 0
+    from django.utils.dateparse import parse_datetime
+    start = parse_datetime(since)
+    qs = (ActivityLog.objects.filter(created_at__gt=start, created_at__lte=now)
+          .exclude(action__in=['login', 'logout']).select_related('user').order_by('created_at'))
+    lines = [_portal_line(e) for e in qs[:200] if _portal_kind(e)]
+    cache.set(key, now.isoformat(), 30 * 86400)
+    if not lines:
+        return 0
+    if len(lines) > 20:
+        lines = lines[:20] + [f'… and {len(lines) - 20} more (Settings → Activity)']
+    send('\n'.join(lines))
+    return len(lines)
+
+
 # ── putting it together ──────────────────────────────────────────────────────
 
 AREAS = [
-    ('1. Infrastructure', lambda h: check_dns_ssl() + check_portal() + check_server(h)
+    ('0. Server · Contabo', check_server_host),
+    ('0.1 Contabo account', check_contabo),
+    ('0.2 Core services', check_core_services),
+    ('0.3 Backend access and changes', check_access),
+    ('0.4 Data protection', check_data_protection),
+    ('0.5 Portal admin activity', check_portal_admin),
+    ('0.6 Resilience', check_resilience),
+    # CPU, RAM and disk moved to "0. Server" (Sir's layout, 28 Oct).
+    ('1. Infrastructure', lambda h: check_dns_ssl() + check_portal()
      + check_database() + check_backup(h)),
     ('2. Telephony and SIP', lambda h: check_trunk(h) + check_capacity(h) + check_audio(h)
      + check_call_stats() + check_pdd(h)),

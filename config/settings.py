@@ -431,6 +431,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.status_watch',
         'schedule': 900.0,  # every 15 minutes
     },
+    # CH-327: portal routing / user / carrier changes, sent as they happen.
+    'portal-change-alerts': {
+        'task': 'tasks.portal_change_alerts',
+        'schedule': 60.0,  # every minute
+    },
     # Buyers' own daily reports on Telegram, each at its own time (CH-258).
     'send-buyer-reports': {
         'task': 'tasks.send_buyer_reports',
