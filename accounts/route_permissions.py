@@ -74,6 +74,13 @@ RULES = [
           {'POST': 'edit-campaign', 'PATCH': 'edit-campaign', 'PUT': 'edit-campaign', 'DELETE': 'delete'}),
     _rule(r'^/campaigns(/.*)?$', 'campaigns', {'GET': 'view', 'POST': 'edit-campaign', 'PATCH': 'edit-campaign'}),
 
+    # Campaign Groups (CH-328): the grouping is campaign editing; a change
+    # applied through groups is "Edit Forward Calls To" in every campaign.
+    _rule(r'^/campaign-groups/apply$', 'call-flows', extra={'POST': [('campaigns', 'edit-forward')]}),
+    _rule(r'^/campaign-groups/[^/]+/destinations$', 'call-flows'),
+    _rule(r'^/campaign-groups(/[^/]+)?$', 'campaigns',
+          {'GET': 'view', 'POST': 'edit-campaign', 'PATCH': 'edit-campaign', 'DELETE': 'edit-campaign'}),
+
     # ── call flows (routing rules, IVR, queue) ───────────────────────────────
     # Where a rule forwards calls to is "Edit Forward Calls To" on a campaign.
     _rule(r'^/routing/rules/[^/]+/destinations(/.*)?$', 'call-flows',

@@ -935,7 +935,10 @@ def _portal_line(e) -> str:
     what = (md.get('target_type') or '').replace('_', ' ')
     name = md.get('target_name') or ''
     ch = md.get('changes') or {}
-    diff = ', '.join(f'{k.replace("_", " ")} {v.get("old")}→{v.get("new")}' for k, v in list(ch.items())[:4])
+    diff = ', '.join(f'{k.replace("_", " ")} {v.get("old")}→{v.get("new")}' if v.get('old') not in ('', None)
+                     else f'{k.replace("_", " ")} {v.get("new")}' for k, v in list(ch.items())[:4])
+    if md.get('group_action'):
+        diff = md['group_action'] + (f'; {diff}' if diff else '')
     who = e.user.email if e.user_id else '?'
     return (f'{PORTAL_ICON[kind]} <b>{PORTAL_TITLE[kind]}</b>: {escape(what)} {escape(name[:60])} {verb}'
             + (f' ({escape(diff[:160])})' if diff else '') + f' · by {escape(who)} · '
@@ -958,7 +961,9 @@ def portal_changes(send) -> int:
     start = parse_datetime(since)
     qs = (ActivityLog.objects.filter(created_at__gt=start, created_at__lte=now)
           .exclude(action__in=['login', 'logout']).select_related('user').order_by('created_at'))
-    lines = [_portal_line(e) for e in qs[:200] if _portal_kind(e)]
+    # Changes made through a Campaign Group come as the group's own line
+    # (campaigns/groups.py), not one per campaign.
+    lines = [_portal_line(e) for e in qs[:200] if _portal_kind(e) and not (e.metadata or {}).get('via_group')]
     cache.set(key, now.isoformat(), 30 * 86400)
     if not lines:
         return 0

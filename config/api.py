@@ -2,6 +2,7 @@ from ninja import NinjaAPI
 from accounts.api import router as accounts_router
 from accounts.partner_settings_api import router as partner_settings_router
 from campaigns.api import router as campaigns_router
+from campaigns.groups_api import router as campaign_groups_router
 from buyers.api import router as buyers_router
 from publishers.api import router as publishers_router
 from phone_numbers.api import router as phone_numbers_router
@@ -75,6 +76,7 @@ api.add_router("/accounts/", accounts_router)
 # after the accounts router so its own paths win where they overlap.
 api.add_router("/accounts/", partner_settings_router)
 api.add_router("/campaigns/", campaigns_router)
+api.add_router("/campaign-groups/", campaign_groups_router)
 api.add_router("/buyers/", buyers_router)
 api.add_router("/publishers/", publishers_router)
 api.add_router("/owner/", owner_router)

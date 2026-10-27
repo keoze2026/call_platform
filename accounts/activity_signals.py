@@ -32,6 +32,7 @@ TRACKED = {
     'buyers.Destination': ('destination', 'name'),
     'publishers.Publisher': ('publisher', 'name'),
     'campaigns.Campaign': ('campaign', 'name'),
+    'campaigns.CampaignGroup': ('campaign_group', 'name'),
     'routing.RoutingRule': ('routing_rule', 'name'),
     'routing.RuleDestination': ('campaign_destination', 'destination'),
     'phone_numbers.PhoneNumber': ('phone_number', 'number'),
@@ -86,6 +87,11 @@ def _write(instance, action, extra=None):
         return
 
     request = get_current_request()
+    # CH-328: a change made through a Campaign Group says so; the Telegram
+    # alert then sends the group's one line instead of one per campaign.
+    via = getattr(request, '_activity_via_group', None) if request is not None else None
+    if via:
+        extra['via_group'] = via
 
     try:
         ActivityLog.objects.create(

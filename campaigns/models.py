@@ -131,12 +131,48 @@ class Campaign(models.Model):
     pause_minute = models.IntegerField(default=0)
     auto_schedule_timezone = models.CharField(max_length=64, default='America/New_York')
 
+    # CH-328: the team's own grouping (internal; never shown to publishers or
+    # buyers). One group per campaign, so two groups never set different
+    # priorities for the same campaign's destination.
+    group = models.ForeignKey('CampaignGroup', on_delete=models.SET_NULL, null=True, blank=True,
+                              related_name='campaigns')
+
     class Meta:
         db_table = 'campaigns'
         ordering = ['-created_at']
 
     def __str__(self):
         return f"{self.name} ({self.status})"
+
+
+class CampaignGroup(models.Model):
+    """CH-328 (Sir, 28 Oct): 10-14 live campaigns and two or three people to
+    run them. Adding a buyer destination, removing one or changing its
+    priority meant the same edit in every campaign, one by one, during the
+    shift - and a missed one sends calls where they should not go.
+
+    A group is a set of campaigns the team edits as one: a destination added,
+    removed or re-prioritised on the group is changed in every campaign in it
+    (campaigns/groups.py). Routing itself is unchanged: the change lands in
+    each campaign's own destination list, exactly as if made by hand.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='campaign_groups')
+    name = models.CharField(max_length=100)
+    description = models.TextField(blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name='created_campaign_groups')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'campaign_groups'
+        ordering = ['name']
+        constraints = [models.UniqueConstraint(fields=['organization', 'name'],
+                                               name='unique_campaign_group_name_per_organization')]
+
+    def __str__(self):
+        return self.name
 
 
 class CampaignCap(models.Model):
