@@ -358,6 +358,18 @@ class StatusTests(TestCase):
         self.assertEqual(it['Open ports'].status, S.DOWN)
         self.assertIn('down: Worker', it['Services'].detail)
 
+    def test_unknown_processes_red_only_while_running(self):
+        self.watch_data(events_24h={'process': 4})
+        it = self.items()['Unknown processes']
+        self.assertEqual(it.status, S.WARN)
+        self.assertEqual(it.detail, 'none now · 4 alert(s) earlier (24h)')
+        self.watch_data(unknown_processes=['xmrig (98% CPU)'], events_24h={'process': 1})
+        it = self.items()['Unknown processes']
+        self.assertEqual(it.status, S.DOWN)
+        self.assertIn('xmrig', it.detail)
+        self.watch_data()
+        self.assertEqual(self.items()['Unknown processes'].detail, 'none')
+
     def test_no_watcher_yet_says_so_and_keeps_cpu_ram_disk(self):
         it = self.items()
         self.assertEqual(it['Server watch'].status, S.WARN)

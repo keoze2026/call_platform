@@ -7623,3 +7623,22 @@ Tests: support/test_system_status.py (13). Needs web, celery_worker and
 celery_beat restarts, and three cron lines on the host.
 
 Commit: see git log --grep CH-314.
+
+## CH-331 - Server alerts: one command to test them; "Unknown processes" red only while one runs
+**2026-10-28 · Status bot / server watch**
+
+- `bash scripts/host_watch_selftest.sh` (as root on the server, about 3
+  minutes): makes one harmless test change of each kind the watcher reports
+  (config file, .env key, firewall rule, cron job, user, package, sudo,
+  service restart, new port), waits for the watcher, undoes everything (also
+  on Ctrl+C) and lists which kinds it saw. Each one also arrives in the status
+  chat. Root's crontab is restored from a copy, never rebuilt. Asterisk, the
+  relay, the database and the web containers are not touched.
+- /status showed "🔴 Unknown processes: none" after alerts earlier in the day
+  (the runc/ps alerts fixed in CH-330). Now 🔴 only while an unknown process is
+  running; earlier alerts leave it 🟡 "none now · N alert(s) earlier (24h)".
+
+Tests: support/test_system_status.py (+1). No restart needed for the script;
+the /status change needs the web, celery_worker and celery_beat restart.
+
+Commit: see git log --grep CH-331.

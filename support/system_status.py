@@ -799,8 +799,14 @@ def check_core_services(h):
                    else f'all {len(svc)} running') + ' (' + ', '.join(s['label'] for s in svc) + ')'),
              Item('Restarts (24h)', WARN if restarts > 3 else OK, f'{restarts}')]
     procs = w.get('unknown_processes') or []
-    items.append(Item('Unknown processes', DOWN if procs or _events(w, 'process') else OK,
-                      ', '.join(procs) if procs else 'none'))
+    # CH-331: red only while one is running. Alerts earlier in the day leave it
+    # yellow and say so, instead of "🔴 none".
+    seen = _events(w, 'process')
+    if procs:
+        items.append(Item('Unknown processes', DOWN, ', '.join(procs)))
+    else:
+        items.append(Item('Unknown processes', WARN if seen else OK,
+                          f'none now · {seen} alert(s) earlier (24h)' if seen else 'none'))
     ports = w.get('ports') or {}
     new = ports.get('new') or []
     items.append(Item('Open ports', DOWN if new else OK,
