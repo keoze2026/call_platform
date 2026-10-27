@@ -63,6 +63,7 @@ class Command(BaseCommand):
             else:
                 revo_calls = revo_sync.fetch(since, until=until, max_pages=200 if o['date'] else 40)
         except Exception as exc:
+            _remember(error=str(exc))
             raise CommandError(f'Revo not read: {exc}')
         counts = {}
         for rc in sorted(revo_calls, key=lambda c: c.started):
@@ -91,6 +92,18 @@ class Command(BaseCommand):
                 self.stdout.write(f'    ours {when} -> {row.destination_number}  {row.status} '
                                   f'{row.duration or 0}s "{row.block_reason}"'
                                   + ('  (hidden retry)' if getattr(row, 'retry_hidden', False) else ''))
+        if o['apply'] and not o['date'] and not callers:
+            _remember(read=len(revo_calls), fixed=counts.get('fixed', 0), check=counts.get('check', 0))
         summary = ', '.join(f'{v} {k}' for k, v in sorted(counts.items())) or 'no calls'
         self.stdout.write(f'{timezone.now():%Y-%m-%d %H:%M:%S} UTC  Revo calls read: {len(revo_calls)}; {summary}'
                           + ('' if o['apply'] else '  [dry run]'))
+
+
+def _remember(**kw):
+    """The last automatic run, for the status bot (CH-314)."""
+    import time
+    from django.core.cache import cache
+    try:
+        cache.set('status:revo_sync', {'at': time.time(), **kw}, 86400)
+    except Exception:
+        pass

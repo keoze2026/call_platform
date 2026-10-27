@@ -877,6 +877,22 @@ def send_buyer_reports():
     return f"Buyer reports: {done['sent']} sent, {done['failed']} failed"
 
 
+@app.task(name='tasks.send_status_report')
+def send_status_report(chat_id, thread_id=''):
+    """/status in the bot (CH-314): every service, one status each."""
+    from support import system_status as S
+    S.post(S.render(S.collect()), chat=str(chat_id), thread=str(thread_id or ''))
+    return 'status sent'
+
+
+@app.task(name='tasks.status_watch')
+def status_watch():
+    """CH-314: warn before expiries, carrier balance, capacity, disk, the trunk
+    or backups become a problem - not only when someone runs /status."""
+    from support import system_status as S
+    return f'status warnings sent: {S.watch(S.post)}'
+
+
 @app.task(name='tasks.send_scheduled_reports')
 def send_scheduled_reports():
     """Send the emailed digests that are due (CH-266)."""

@@ -171,6 +171,7 @@ def register(request: HttpRequest, data: RegisterSchema):
 def login(request: HttpRequest, data: LoginSchema):
     from django_ratelimit.decorators import is_ratelimited
     if is_ratelimited(request, group="login", key='config.ratelimit.client_ip', rate="5/m", method="POST", increment=True):
+        _count_login_failure()
         return 429, {"detail": "Too many login attempts. Please wait 1 minute."}
     try:
         result, is_mfa = AuthService.login(
@@ -181,7 +182,20 @@ def login(request: HttpRequest, data: LoginSchema):
         )
         return 200, result
     except ValueError as e:
+        _count_login_failure()
         return 400, {"detail": str(e)}
+
+
+def _count_login_failure():
+    """Failed sign-ins per hour, for the status bot's Security check (CH-314)."""
+    from django.core.cache import cache
+    from django.utils import timezone as _tz
+    key = f'sec:login_fail:{_tz.now():%Y%m%d%H}'
+    try:
+        cache.add(key, 0, 26 * 3600)
+        cache.incr(key)
+    except Exception:
+        pass
 
 @router.post("/verify-mfa", response={200: TokenResponseSchema, 400: dict, 429: dict}, auth=None)
 def verify_mfa(request: HttpRequest, data: VerifyMFASchema):

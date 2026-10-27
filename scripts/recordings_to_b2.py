@@ -136,7 +136,7 @@ class B2:
             raise SystemExit(f'bucket {name!r} not found for this key')
         return buckets[0]['bucketId']
 
-    def upload(self, path, name, sha1, size, mtime_ms, data=None):
+    def upload(self, path, name, sha1, size, mtime_ms, data=None, content_type='audio/mpeg'):
         last = None
         for attempt in range(RETRIES):
             if self._upload is None:
@@ -149,7 +149,7 @@ class B2:
             headers = {
                 'Authorization': self._upload['authorizationToken'],
                 'X-Bz-File-Name': urllib.parse.quote(name),
-                'Content-Type': 'audio/mpeg',
+                'Content-Type': content_type,
                 'Content-Length': str(size),
                 'X-Bz-Content-Sha1': sha1,
                 'X-Bz-Info-src_last_modified_millis': str(mtime_ms),

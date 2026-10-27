@@ -7578,3 +7578,48 @@ alert and is never matched against Revo. One row per test.
 Tests: phone_numbers/test_tfn_test_report.py. Needs a web restart.
 
 Commit: see git log --grep CH-312.
+
+## CH-314 - Status bot (/status), automatic warnings, delivery report, nightly database backup
+**2026-10-27 · Server (web, celery, host scripts)**
+
+Issue 6 (Sir, 27 Oct): one command in the AVORTYX bot that checks every
+service, 🟢 Operational / 🟡 Degraded / 🔴 Down, with an overall line and a
+short reason for each warning; and warnings sent automatically before
+expiries, carrier balance and concurrent capacity become a problem.
+
+- `/status` (team chats only: the configured support/boss chats, or a linked
+  admin): nine areas - infrastructure (DNS, SSL, portal, CPU, RAM, disk,
+  database, backup), telephony (trunk, concurrent calls vs 400, jitter / loss
+  / round trip, ASR, PDD, failure rate), routing and delivery (delivery to
+  buyer TFNs vs 99.9%, ping/post, buyer endpoints, cancel-hold relay,
+  missed/unrouted last hour, Revo sync), TFNs (active, expiring, inbound
+  calls), fraud and validation (IPQS use and quota, carrier lookup,
+  RealValidito, spam filtering, duplicates), recording (recorded %, B2
+  storage, links answering), reporting (bot, EOD report, buyer reports,
+  email), subscriptions and billing (domain from RDAP, subscription dates,
+  carrier balance), security (failed logins, firewall and rate limits,
+  traffic spikes). Each check on its own; one failing reads "could not check".
+- Warnings every 15 minutes (celery beat `status-watch`) for watched items:
+  SSL, DNS, domain and subscription expiry, carrier balance, concurrent
+  capacity, disk, RAM, trunk, Asterisk, relay, backup, host data, database,
+  portal, bot, recording links, delivery, IPQS quota, inbound calls,
+  firewall. 🟡 repeats at most every 12 h, 🔴 every hour; "Back to normal"
+  when fixed.
+- `/balance 1267.41 [daily spend]`: the carrier has no API for its balance;
+  the team updates it and the bot warns when it runs low or goes stale.
+- `scripts/host_status.py` (host cron, every minute): what the container
+  cannot see - Asterisk calls, trunk, live audio quality, relay, firewall,
+  disk, recordings, backups, and the SIP capture (outbound calls, the
+  carrier's final answer, post-dial delay; finished hours read once).
+- `python manage.py delivery_report` (issue 5): delivery to buyer TFNs over
+  24 h and, per buyer number, the calls the carrier refused and why.
+- `scripts/db_backup_b2.py` (issue 2, host cron nightly): pg_dump, checked,
+  gzipped, copied to B2 (backups/db/), last 7 kept on the server.
+- Failed sign-ins are counted per hour; sync_revo records its last run.
+- `run/` (host status, subscriptions.json) is not in git;
+  docs/status/subscriptions.example.json shows the format.
+
+Tests: support/test_system_status.py (13). Needs web, celery_worker and
+celery_beat restarts, and three cron lines on the host.
+
+Commit: see git log --grep CH-314.

@@ -28,6 +28,11 @@ HELP_TEXT = (
     "<b>Support chats</b>\n"
     "Messages from customers on your portal\n\n"
     "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
+    "<b>COMMANDS</b>\n"
+    "/status \u2014 every service with its status (team only)\n"
+    "/balance 1267.41 \u2014 update the carrier balance (team only)\n"
+    "/id \u2014 this chat's ID\n\n"
+    "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n\n"
     "<b>REPLY TO A SUPPORT CHAT</b>\n"
     "Send the session ID, a space, then your message:\n\n"
     "<code>7xxxxxxx Thanks, let me look into that for you</code>\n\n"
@@ -106,6 +111,46 @@ def _handle_report_connect(chat_id: str, payload: str) -> bool:
         from html import escape
         _reply(chat_id, REPORT_CONNECTED_TEXT.format(buyer=escape(buyer.name)))
     return True
+
+
+def _handle_status(chat_id: str, message: dict) -> None:
+    """/status: answered at once, the full check follows in a few seconds
+    (run by a worker, or here if the worker queue is not reachable)."""
+    from support import system_status as S
+    if not S.allowed_chat(chat_id):
+        logger.warning('telegram /status refused for chat %s', chat_id)
+        return
+    thread = str(message.get('message_thread_id', '') or '')
+    S.post('⏳ Checking every service…', chat=chat_id, thread=thread)
+    try:
+        from tasks import send_status_report
+        send_status_report.delay(chat_id, thread)
+    except Exception:
+        import threading
+
+        def run():
+            S.post(S.render(S.collect()), chat=chat_id, thread=thread)
+        threading.Thread(target=run, daemon=True).start()
+
+
+def _handle_balance(chat_id: str, text: str) -> None:
+    """/balance 1267.41 [daily spend]: the carrier balance the status bot
+    watches (the carrier has no API for it). The team's chats only."""
+    from support import system_status as S
+    if not S.allowed_chat(chat_id):
+        return
+    parts = text.split()
+    try:
+        amount = float(parts[1].replace('$', '').replace(',', ''))
+        spend = float(parts[2].replace('$', '').replace(',', '')) if len(parts) > 2 else None
+    except (IndexError, ValueError):
+        _reply(chat_id, 'Send it like: <code>/balance 1267.41</code> or <code>/balance 1267.41 35</code> '
+                        '(amount, then average spend per day)')
+        return
+    b = S.set_balance(amount, spend)
+    _reply(chat_id, f"✅ Carrier balance set to <b>${b['amount']:,.2f}</b>"
+                    + (f", spend ${b['daily_spend']:,.0f}/day" if b.get('daily_spend') else '')
+                    + '. I will warn before it runs low.')
 
 
 def _handle_start(message: dict, text: str) -> bool:
@@ -212,6 +257,15 @@ def telegram_webhook(request: HttpRequest):
         chat_id = str(message.get('chat', {}).get('id', '') or '')
         if _command(text.split()[0]) == '/help':
             _reply(chat_id, HELP_TEXT)
+            return 200, {"ok": True}
+
+        # CH-314: every service with its status. The team's chats only.
+        if _command(text.split()[0]) == '/status':
+            _handle_status(chat_id, message)
+            return 200, {"ok": True}
+
+        if _command(text.split()[0]) == '/balance':
+            _handle_balance(chat_id, text)
             return 200, {"ok": True}
 
         # CH-310: our own "what is my chat ID" - no public bot needed.

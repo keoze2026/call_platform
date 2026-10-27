@@ -12,3 +12,5 @@ venv/
 recordings.txt
 tfns.txt
 FETCH_HEAD
+# Written on the server: host status for the bot, subscriptions and balance (CH-314)
+run/

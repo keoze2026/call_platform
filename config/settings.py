@@ -425,6 +425,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.send_scheduled_reports',
         'schedule': 300.0,  # every 5 minutes
     },
+    # CH-314: warnings for expiries, carrier balance, capacity, disk, trunk,
+    # backups... before they become a problem.
+    'status-watch': {
+        'task': 'tasks.status_watch',
+        'schedule': 900.0,  # every 15 minutes
+    },
     # Buyers' own daily reports on Telegram, each at its own time (CH-258).
     'send-buyer-reports': {
         'task': 'tasks.send_buyer_reports',
