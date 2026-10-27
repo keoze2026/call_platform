@@ -34,11 +34,12 @@ class RoutingCostTests(TestCase):
         RoutingRate.objects.create(key='termination', per_minute_cost='0.0040', monthly_fee='350.00')
         self.n = 0
 
-    def call(self, when, status='completed', duration=60, destination='+18667404516'):
+    def call(self, when, status='completed', duration=60, destination='+18667404516', hidden=False):
         self.n += 1
         row = CallLog.objects.create(
             organization=self.org, campaign=self.campaign, caller_number='+12025550100', called_number='+18774893790',
-            destination_number=destination, twilio_call_sid=f'sid-{self.n}', status=status, duration=duration)
+            destination_number=destination, twilio_call_sid=f'sid-{self.n}', status=status, duration=duration,
+            retry_hidden=hidden)
         CallLog.objects.filter(pk=row.pk).update(created_at=when)
 
     def get(self, **q):
@@ -89,3 +90,59 @@ class RoutingCostTests(TestCase):
         admin = User.objects.create(username='a', email='a@x.io', organization=self.org, role='admin', is_active=True)
         c = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(admin)}')
         self.assertEqual(c.get(URL).status_code, 403)
+
+    # ── CH-334 ────────────────────────────────────────────────────────────
+
+    def test_calls_are_counted_as_the_reports_count_them(self):
+        # A caller's call the sending platform retried: the hidden tries are
+        # not calls of their own, as in every report (CH-215).
+        when = datetime(2026, 10, 27, 9, 0, tzinfo=ET)
+        self.call(when, status='no_answer', duration=0, hidden=True)
+        self.call(when, status='no_answer', duration=0, hidden=True)
+        self.call(when, duration=600)
+        day = self.get(start='2026-10-27')['days'][0]
+        self.assertEqual((day['forwarded'], day['connected'], day['seconds']), (1, 1, 600))
+
+    def test_average_call_and_cost_per_call(self):
+        when = datetime(2026, 10, 27, 9, 0, tzinfo=ET)
+        self.call(when, duration=540)
+        self.call(when, duration=660)
+        t = self.get(start='2026-10-27')['totals']
+        self.assertEqual(t['aht_seconds'], 600)
+        self.assertEqual(t['cost_exact'], '0.0800')          # 20 min x $0.004
+        self.assertEqual(t['cost_per_call'], '0.0400')
+
+    def test_rounding_like_the_carrier_bills(self):
+        when = datetime(2026, 10, 27, 9, 0, tzinfo=ET)
+        self.call(when, duration=61)
+        self.call(when, duration=1)
+        self.assertEqual(self.get(start='2026-10-27')['totals']['billed_seconds'], 62)   # exact by default
+        r = self.api.patch(URL + '/rate', data=json.dumps({'billing_increment': 60}), content_type='application/json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['billing_increment'], 60)
+        t = self.get(start='2026-10-27')['totals']
+        self.assertEqual((t['seconds'], t['billed_seconds'], t['minutes']), (62, 180, '3.00'))
+        self.assertEqual(t['cost_exact'], '0.0120')           # 3 min x $0.004
+        bad = self.api.patch(URL + '/rate', data=json.dumps({'billing_increment': 7}), content_type='application/json')
+        self.assertEqual(bad.status_code, 400)
+
+    def test_company_profit_for_a_day(self):
+        # One day of October: the $350 monthly fee counts as 350 x 1/31.
+        self.call(datetime(2026, 10, 27, 9, 0, tzinfo=ET), duration=6000)    # 100 min x 0.004 = 0.40
+        self.call(datetime(2026, 10, 26, 9, 0, tzinfo=ET), duration=6000)    # another day
+        r = self.api.get('/api/owner/company-profit', {'start': '2026-10-27'})
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual((body['start'], body['end'], body['fee_share']), ('2026-10-27', '2026-10-27', '0.0323'))
+        self.assertEqual(body['summary']['routing_minutes'], '0.40')
+        self.assertEqual(body['summary']['routing_monthly_fee'], '11.29')    # 350 / 31
+        self.assertEqual(body['profit']['carrier_costs'], '11.69')
+        self.assertEqual(body['profit']['profit'], '-11.69')
+        whole = self.api.get('/api/owner/company-profit', {'start': '2026-10-01', 'end': '2026-10-31'}).json()
+        self.assertEqual(whole['fee_share'], '1.0000')
+        self.assertEqual(whole['summary']['routing_monthly_fee'], '350.00')
+
+    def test_company_profit_defaults_to_today(self):
+        with mock.patch('django.utils.timezone.now', return_value=datetime(2026, 10, 27, 15, 0, tzinfo=ET)):
+            body = self.api.get('/api/owner/company-profit').json()
+        self.assertEqual((body['start'], body['end']), ('2026-10-27', '2026-10-27'))

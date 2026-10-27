@@ -334,6 +334,10 @@ class RoutingRate(models.Model):
     name = models.CharField(max_length=100, default='XOLO TFN termination')
     per_minute_cost = models.DecimalField(max_digits=8, decimal_places=4, default=0)
     monthly_fee = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    # How the termination carrier rounds each call: 1 (exact seconds), 6, 30
+    # or 60, as Carrier.billing_increment (CH-334). Exact until its invoice
+    # shows otherwise.
+    billing_increment = models.PositiveSmallIntegerField(default=1)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):

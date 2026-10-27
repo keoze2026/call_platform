@@ -7674,3 +7674,32 @@ Tests: support/test_telegram_autodelete.py (9). Needs the web, celery_worker
 and celery_beat restart.
 
 Commit: see git log --grep CH-332.
+
+## CH-334 - Company profit for Today / any days; routing cost counted like the reports
+**2026-10-28 · Owner › Carrier Costs**
+
+Sir, 28 Oct, on Carrier Costs: the company profit "the way it's created for
+month - make same in today's sheet too", and on the routing cost: "metrics
+are wrong i think. 2770 calls just $93 cost?"
+
+- `GET /api/owner/company-profit?start=&end=` (Eastern days, default today):
+  the company profit for any days. Customer charges in those days minus the
+  carriers' bill for them: minutes as they happened, monthly fees (TFN fees,
+  monthly charges, routing fee) by the day - 1/31 of the month for a day of
+  October, the whole fee for the whole month. The month's /carrier-costs is
+  unchanged.
+- Routing cost counts calls as every report does: one per caller call; the
+  hidden tries of a call the sending platform retried (CH-215) are not
+  counted as calls (their talk seconds, if any, are still billed).
+- The routing rate has "Minutes billed" like the TFN carriers (exact, 6, 30
+  or 60 seconds per call, `billing_increment`, migration
+  phone_numbers 0020). Exact until XOLO's invoice shows rounding.
+- Each day and the total also give the average connected call
+  (`aht_seconds`) and the cost of one connected call (`cost_per_call`).
+  The $93.54 of 27 Oct was right for the rate set: 23,385.80 minutes x
+  $0.004 = $93.54, about 9 min 40 s and $0.039 a connected call.
+
+Tests: phone_numbers/test_routing_cost.py (+5). Needs `migrate` and the web
+restart. Portal half: CH-334 in Avortyx.
+
+Commit: see git log --grep CH-334.

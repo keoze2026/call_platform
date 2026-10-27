@@ -7,7 +7,7 @@ repository, and the portal's CHANGES.md for the screen side).
 **When Sir gives a new rule, add it here in the same change that builds it.**
 A rule that is waiting for his OK goes under "Waiting for Sir", not above.
 
-Last updated: 24 Oct 2026.
+Last updated: 28 Oct 2026.
 
 ---
 
@@ -49,11 +49,19 @@ Last updated: 24 Oct 2026.
   (Edit rates › Minutes billed: 6 / 30 / 60 s).
 - A TFN keeps the price it was added at; a new price applies to numbers
   added after it (CH-189).
-- Routing cost opens on **Today** (CH-253).
+- Routing cost opens on **Today** (CH-253). It counts calls as the reports
+  do, one per caller call (a retried call's hidden tries are not calls), and
+  rounds each call the way set under Edit rate (exact seconds until XOLO's
+  invoice shows otherwise) (CH-334).
 
 ### 1.3 Company profit (before tax) — CH-257
 - **Profit before tax = what customers were charged − what carriers charge
-  us**, by Eastern month, shown to the owner on Carrier Costs.
+  us**, shown to the owner on Carrier Costs. Today, Yesterday, This week,
+  This month or any dates, Eastern days; it opens on Today (CH-334, Sir 28
+  Oct: "make same in today's sheet too").
+- For days shorter than a month, monthly fees (TFN fees, monthly charges,
+  the routing fee) count **by the day**: a $350 month is $350 × 1/31 on a
+  day of October. Minutes count as they happened.
 - Customer charges: call minutes (with recording and VoIP Shield), VoIP
   Shield on missed/refused calls, rejected calls, TFN purchases, portal fees;
   refunds come off. Our own portal's charges to itself do not count.

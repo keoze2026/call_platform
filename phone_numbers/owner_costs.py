@@ -38,13 +38,28 @@ CENT = Decimal('0.01')
 EASTERN = ZoneInfo('America/New_York')
 
 
-def _billed(increment: int):
+def _billed(increment: int, connected=CONNECTED):
     """Connected seconds with each call rounded up to `increment` seconds."""
     if increment <= 1:
-        return Coalesce(Sum('duration', filter=CONNECTED), 0)
+        return Coalesce(Sum('duration', filter=connected), 0)
     rounded = ExpressionWrapper(
         (F('duration') + (increment - 1)) / increment * increment, output_field=IntegerField())
-    return Coalesce(Sum(rounded, filter=CONNECTED), 0)
+    return Coalesce(Sum(rounded, filter=connected), 0)
+
+
+def _month_share(first: date, last: date) -> Decimal:
+    """How much of a month's fixed fees falls in the days first..last (CH-334).
+
+    A fee of $350 a month is $350 for the whole month, $350 x 1/31 for one
+    day of October, $350 x 7/31 for a week of it. Days are counted per
+    calendar month, so a whole month is exactly 1."""
+    counts = {}
+    d = first
+    while d <= last:
+        counts[(d.year, d.month)] = counts.get((d.year, d.month), 0) + 1
+        d += timedelta(days=1)
+    return sum((Decimal(n) / Decimal(calendar.monthrange(y, m)[1]) for (y, m), n in counts.items()),
+               Decimal('0'))
 
 
 def _last10(number: str) -> str:
@@ -131,7 +146,15 @@ def _decimal(value: str, field: str, places: str) -> Decimal:
 def carrier_costs(request: HttpRequest, month: Optional[str] = None):
     require_owner(request)
     start, end, label = _month_bounds(month)
+    bill = _bill(start, end)
+    grand = bill.pop('grand')
+    return 200, {'month': label, **bill, 'profit': _company_profit(start, end, grand)}
 
+
+def _bill(start, end, share: Decimal = Decimal('1')) -> dict:
+    """The carriers' bill for start..end. `share` is the part of the monthly
+    fees (TFN fees, monthly charges, the routing fee) that falls in it: 1 for
+    a month, less for a day or a week (CH-334)."""
     carriers = list(Carrier.objects.select_related('organization').order_by('name', 'code'))
     numbers = list(
         PhoneNumber.objects
@@ -179,6 +202,7 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
             fee = n.tfn_price
         else:
             fee = carrier.number_monthly_cost if carrier else Decimal('0')
+        fee = fee * share
         minute_cost = (minutes * carrier.per_minute_cost) if carrier else Decimal('0')
         return {
             'id': str(n.id),
@@ -205,7 +229,7 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
         billed = sum(r['billed_seconds'] for r in rows_)
         fees = sum((Decimal(r['number_fee']) for r in rows_), Decimal('0'))
         mins = sum((Decimal(r['minute_cost']) for r in rows_), Decimal('0'))
-        portal = carrier.portal_monthly_fee if carrier else Decimal('0')
+        portal = (carrier.portal_monthly_fee if carrier else Decimal('0')) * share
         return {
             'numbers': len(rows_),
             'live': sum(1 for r in rows_ if not r['deleted']),
@@ -252,16 +276,18 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
     # Routing on to buyers (XOLO termination) for the same month (CH-254). It
     # had its own card and was left out of the total.
     rate = _routing_rate()
-    r = _routing_window(start, end)
-    routing_minutes = Decimal(r['seconds']) * Decimal(rate.per_minute_cost or 0) / Decimal(60)
-    routing_fee = Decimal(rate.monthly_fee or 0)
+    r = _routing_window(start, end, rate.billing_increment)
+    routing_minutes = Decimal(r['billed']) * Decimal(rate.per_minute_cost or 0) / Decimal(60)
+    routing_fee = Decimal(rate.monthly_fee or 0) * share
     routing = {
         **_rate_out(rate),
         'forwarded': r['forwarded'],
         'connected': r['connected'],
         'seconds': r['seconds'],
-        'minutes': str((Decimal(r['seconds']) / Decimal(60)).quantize(CENT)),
+        'billed_seconds': r['billed'],
+        'minutes': str((Decimal(r['billed']) / Decimal(60)).quantize(CENT)),
         'minute_cost': _money(routing_minutes),
+        'fee': _money(routing_fee),
         'total': _money(routing_minutes + routing_fee),
     }
     grand += routing_minutes + routing_fee
@@ -275,7 +301,7 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
         'minute_charges': add('minute_charges'),
         'carriers_total': add('monthly_bill'),
         'routing_minutes': routing['minute_cost'],
-        'routing_monthly_fee': routing['monthly_fee'],
+        'routing_monthly_fee': routing['fee'],
         'routing_total': routing['total'],
         'grand_total': _money(grand),
     }
@@ -294,15 +320,14 @@ def carrier_costs(request: HttpRequest, month: Optional[str] = None):
     if un_totals['numbers']:
         warnings.append({'kind': 'no_carrier', 'numbers': un_totals['numbers'], 'calls': un_totals['calls']})
 
-    return 200, {
-        'month': label,
+    return {
         'carriers': out,
         'grand_total': _money(grand),
         'unassigned': {'numbers': un_rows, 'totals': un_totals},
         'routing': routing,
         'summary': summary,
         'warnings': warnings,
-        'profit': _company_profit(start, end, grand),
+        'grand': grand,
     }
 
 
@@ -417,6 +442,11 @@ def assign_carrier(request: HttpRequest, data: AssignCarrierSchema):
 # --------------------------------------------------------------------------
 
 FORWARDED_CONNECTED = Q(status='completed')
+# One row per caller call, as every report counts them (CH-215): the earlier
+# tries of a call the sending platform retried are hidden there, so they are
+# not counted as calls here either. Their talk seconds, if any, are still
+# billed by the carrier and still counted.
+SHOWN = Q(retry_hidden=False)
 MAX_DAYS = 93
 
 
@@ -424,6 +454,7 @@ class RoutingRateUpdateSchema(Schema):
     name: Optional[str] = None
     per_minute_cost: Optional[str] = None
     monthly_fee: Optional[str] = None
+    billing_increment: Optional[int] = None
 
 
 def _routing_rate() -> RoutingRate:
@@ -436,21 +467,28 @@ def _rate_out(rate: RoutingRate) -> dict:
         'name': rate.name,
         'per_minute_cost': str(rate.per_minute_cost),
         'monthly_fee': _money(rate.monthly_fee),
+        'billing_increment': rate.billing_increment,
     }
 
 
-def _routing_window(lo, hi) -> dict:
-    """Calls forwarded to a buyer between lo and hi, and the connected seconds."""
-    return (
-        CallLog.objects
-        .filter(created_at__gte=lo, created_at__lt=hi)
-        .exclude(destination_number='')
-        .aggregate(
-            forwarded=Count('id'),
-            connected=Count('id', filter=FORWARDED_CONNECTED),
-            seconds=Coalesce(Sum('duration', filter=FORWARDED_CONNECTED), 0),
-        )
-    )
+def _forwarded(lo, hi):
+    """Calls forwarded to a buyer between lo and hi."""
+    return CallLog.objects.filter(created_at__gte=lo, created_at__lt=hi).exclude(destination_number='')
+
+
+def _routing_counts(increment: int) -> dict:
+    return {
+        'forwarded': Count('id', filter=SHOWN),
+        'connected': Count('id', filter=FORWARDED_CONNECTED & SHOWN),
+        'seconds': Coalesce(Sum('duration', filter=FORWARDED_CONNECTED), 0),
+        'billed': _billed(increment, FORWARDED_CONNECTED),
+    }
+
+
+def _routing_window(lo, hi, increment: int = 1) -> dict:
+    """Calls forwarded to a buyer between lo and hi, the connected seconds and
+    the seconds the carrier bills (each call rounded to `increment`)."""
+    return _forwarded(lo, hi).aggregate(**_routing_counts(increment))
 
 
 def _day(value: str, field: str) -> date:
@@ -460,69 +498,75 @@ def _day(value: str, field: str) -> date:
         raise HttpError(400, f"{field} must look like 2026-10-20.")
 
 
+def _days(start, end, default: date):
+    """(first, last, lo, hi): the Eastern days start..end inclusive."""
+    first = _day(start, 'start') if start else default
+    last = _day(end, 'end') if end else first
+    if last < first:
+        raise HttpError(400, "end must not be before start.")
+    if (last - first).days >= MAX_DAYS:
+        raise HttpError(400, f"Pick at most {MAX_DAYS} days.")
+    lo = datetime.combine(first, time.min, tzinfo=EASTERN)
+    hi = datetime.combine(last + timedelta(days=1), time.min, tzinfo=EASTERN)
+    return first, last, lo, hi
+
+
+def _minutes(seconds) -> str:
+    return str((Decimal(seconds) / Decimal(60)).quantize(CENT))
+
+
 @owner_router.get("/routing-cost", response={200: dict})
 def routing_cost(request: HttpRequest, start: Optional[str] = None, end: Optional[str] = None):
     """Routing cost per Eastern day, `start` to `end` inclusive (YYYY-MM-DD).
     Without dates: yesterday."""
     require_owner(request)
     today = timezone.now().astimezone(EASTERN).date()
-    first = _day(start, 'start') if start else today - timedelta(days=1)
-    last = _day(end, 'end') if end else first
-    if last < first:
-        raise HttpError(400, "end must not be before start.")
-    if (last - first).days >= MAX_DAYS:
-        raise HttpError(400, f"Pick at most {MAX_DAYS} days.")
-
-    lo = datetime.combine(first, time.min, tzinfo=EASTERN)
-    hi = datetime.combine(last + timedelta(days=1), time.min, tzinfo=EASTERN)
+    first, last, lo, hi = _days(start, end, today - timedelta(days=1))
     rate = _routing_rate()
     per_second = rate.per_minute_cost / Decimal(60)
 
     grouped = (
-        CallLog.objects
-        .filter(created_at__gte=lo, created_at__lt=hi)
-        .exclude(destination_number='')
+        _forwarded(lo, hi)
         .annotate(day=TruncDate('created_at', tzinfo=EASTERN))
         .values('day')
-        .annotate(
-            forwarded=Count('id'),
-            connected=Count('id', filter=FORWARDED_CONNECTED),
-            seconds=Coalesce(Sum('duration', filter=FORWARDED_CONNECTED), 0),
-        )
+        .annotate(**_routing_counts(rate.billing_increment))
     )
     by_day = {r['day']: r for r in grouped}
 
-    days = []
-    tot = {'forwarded': 0, 'connected': 0, 'seconds': 0}
-    d = first
-    while d <= last:
-        r = by_day.get(d, {'forwarded': 0, 'connected': 0, 'seconds': 0})
-        cost = Decimal(r['seconds']) * per_second
-        days.append({
-            'date': d.isoformat(),
+    def figures(r):
+        cost = Decimal(r['billed']) * per_second
+        return {
             'forwarded': r['forwarded'],
             'connected': r['connected'],
             'seconds': r['seconds'],
-            'minutes': str((Decimal(r['seconds']) / Decimal(60)).quantize(CENT)),
+            'billed_seconds': r['billed'],
+            # Average talk time of a connected call, and what one costs: so a
+            # low total can be read at a glance (Sir, 28 Oct: "2770 calls just
+            # $93 cost?" - 23,386 minutes x $0.004).
+            'aht_seconds': round(r['seconds'] / r['connected']) if r['connected'] else 0,
+            'minutes': _minutes(r['billed']),
             'cost': _money(cost),
             'cost_exact': str(cost.quantize(Decimal('0.0001'))),
-        })
+            'cost_per_call': str((cost / r['connected']).quantize(Decimal('0.0001'))) if r['connected'] else '0.0000',
+        }
+
+    days = []
+    tot = {'forwarded': 0, 'connected': 0, 'seconds': 0, 'billed': 0}
+    blank = dict(tot)
+    d = first
+    while d <= last:
+        r = by_day.get(d, blank)
+        days.append({'date': d.isoformat(), **figures(r)})
         for k in tot:
             tot[k] += r[k]
         d += timedelta(days=1)
 
-    total_cost = Decimal(tot['seconds']) * per_second
     return 200, {
         **_rate_out(rate),
         'start': first.isoformat(),
         'end': last.isoformat(),
         'days': days,
-        'totals': {
-            **tot,
-            'minutes': str((Decimal(tot['seconds']) / Decimal(60)).quantize(CENT)),
-            'cost': _money(total_cost),
-            'cost_exact': str(total_cost.quantize(Decimal('0.0001'))),
-        },
+        'totals': figures(tot),
     }
 
 
@@ -536,5 +580,36 @@ def update_routing_rate(request: HttpRequest, data: RoutingRateUpdateSchema):
         rate.per_minute_cost = _decimal(data.per_minute_cost, 'per_minute_cost', '0.0001')
     if data.monthly_fee is not None:
         rate.monthly_fee = _decimal(data.monthly_fee, 'monthly_fee', '0.01')
+    if data.billing_increment is not None:
+        if data.billing_increment not in Carrier.BILLING_INCREMENTS:
+            raise HttpError(400, "billing_increment must be 1, 6, 30 or 60 seconds.")
+        rate.billing_increment = data.billing_increment
     rate.save()
     return 200, _rate_out(rate)
+
+
+# --------------------------------------------------------------------------
+# Company profit for any days (CH-334). Sir, 28 Oct, on the month's profit
+# card: "make same in today's sheet too" - Today, Yesterday, This week, This
+# month or any dates, like the routing cost beside it. What customers were
+# charged in those days, minus the carriers' bill for them: minutes as they
+# happened, monthly fees by the day (a $350 month is $11.29 on a day of
+# October).
+# --------------------------------------------------------------------------
+
+@owner_router.get("/company-profit", response={200: dict})
+def company_profit(request: HttpRequest, start: Optional[str] = None, end: Optional[str] = None):
+    """Company profit before tax, `start` to `end` inclusive (Eastern days).
+    Without dates: today."""
+    require_owner(request)
+    today = timezone.now().astimezone(EASTERN).date()
+    first, last, lo, hi = _days(start, end, today)
+    share = _month_share(first, last)
+    bill = _bill(lo, hi, share)
+    return 200, {
+        'start': first.isoformat(),
+        'end': last.isoformat(),
+        'fee_share': str(share.quantize(Decimal('0.0001'))),
+        'summary': bill['summary'],
+        'profit': _company_profit(lo, hi, bill['grand']),
+    }
