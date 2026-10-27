@@ -130,6 +130,11 @@ MASKED_KEYS = {
         'dynamic_payout', 'dynamic_profit',
         'cost', 'total_cost', 'platform_cost', 'charged_cost',
         'balance', 'publisher_payout',
+        # CH-325 (Sir, 27 Oct): a buyer never sees TTC. Some buyers bill missed
+        # calls by TTC (e.g. only above 10 s), and our TTC differs from theirs
+        # by 2-5 s - the time the call takes to connect - so showing it invites
+        # disputes.
+        'ttc', 'avg_ttc',
     ),
     'publisher': (
         'revenue', 'profit', 'total_revenue', 'total_profit',
@@ -1478,6 +1483,8 @@ class AnalyticsService:
             drop.add('Profit')
         if 'cost' in hidden:
             drop.update(('Cost', 'Billed Minutes'))
+        if 'ttc' in hidden:
+            drop.add('TTC (s)')     # CH-325: never in a buyer's file
 
         return drop
 

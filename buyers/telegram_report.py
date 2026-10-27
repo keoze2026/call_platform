@@ -54,7 +54,8 @@ COLUMNS = (
     ('publisher', 'Publisher'),
     ('status', 'Status'),
     ('duration', 'Duration'),
-    ('ttc', 'TTC'),
+    # No TTC (CH-325, Sir): these files go to the buyer, and a buyer never sees
+    # TTC - it differs from their own by the 2-5 s a call takes to connect.
     ('fail_reason', 'Fail Reason'),
     ('qualified', 'Qualified'),
     ('converted', 'Converted'),

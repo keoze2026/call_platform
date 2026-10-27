@@ -252,9 +252,9 @@ class BuyerTelegramReportTests(TestCase):
         url = f'/api/buyers/{self.buyer.id}/telegram-report'
         body = self.api.get(url).json()
         keys = [c['key'] for c in body['columns']]
-        for k in ('call_id', 'state', 'carrier', 'campaign', 'ttc', 'converted', 'repeated', 'revenue'):
+        for k in ('call_id', 'state', 'carrier', 'campaign', 'converted', 'repeated', 'revenue'):
             self.assertIn(k, keys)
-        for k in ('payout', 'profit', 'cost', 'billed_minutes'):
+        for k in ('payout', 'profit', 'cost', 'billed_minutes', 'ttc'):   # no TTC for buyers (CH-325)
             self.assertNotIn(k, keys)
         self.assertEqual(body['included_columns'][:3], ['date', 'caller', 'destination'])
         r = self.api.patch(url, {'included_columns': ['caller', 'campaign', 'converted', 'bogus']},

@@ -102,3 +102,29 @@ class ClosedDayTests(TestCase):
 
     def test_today_never_closed(self):
         self.assertFalse(self.closed('2026-10-23T15:00:00', '2026-10-23'))
+
+
+@override_settings(ALLOWED_HOSTS=['*'],
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class BuyerNoTtcTests(TestCase):
+    """CH-325 (Sir, 27 Oct): a buyer login never sees TTC - screen, file or report."""
+
+    def test_a_buyer_is_not_told_the_ttc(self):
+        from analytics.services import AnalyticsService, mask_partner_money
+        buyer = User(role='buyer')
+        masked = mask_partner_money(buyer, [{'ttc': 14, 'avg_ttc': 12, 'duration_seconds': 60}])
+        self.assertIsNone(masked[0]['ttc'])
+        self.assertIsNone(masked[0]['avg_ttc'])
+        self.assertEqual(masked[0]['duration_seconds'], 60)
+        self.assertIn('TTC (s)', AnalyticsService.export_dropped_columns(buyer))
+
+    def test_staff_and_publishers_still_see_it(self):
+        from analytics.services import AnalyticsService, mask_partner_money
+        for role in ('admin', 'publisher'):
+            row = mask_partner_money(User(role=role), {'ttc': 14})
+            self.assertEqual(row['ttc'], 14)
+            self.assertNotIn('TTC (s)', AnalyticsService.export_dropped_columns(User(role=role)))
+
+    def test_the_buyer_telegram_report_offers_no_ttc(self):
+        from buyers.telegram_report import COLUMN_KEYS
+        self.assertNotIn('ttc', COLUMN_KEYS)
