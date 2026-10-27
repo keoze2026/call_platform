@@ -16,6 +16,10 @@ day for each, so "Revo 1, Avortyx 2" can be seen side by side):
     ... sync_revo --date 2026-10-26
     ... sync_revo --date 2026-10-26 --caller 18704239446,18622367681
 
+CH-316 (Sir): Revo Completed <= 2 s + ours missed + same caller and TFN +
+answer within 2 s of our hang-up -> "Answered at Hangup", counted as matched.
+The last line gives "Matched N of M".
+
 Run by host cron every minute once Sir has approved (--apply). Running it
 again changes nothing: a corrected call carries "revo:<id>" and is skipped.
 """
@@ -95,6 +99,14 @@ class Command(BaseCommand):
         if o['apply'] and not o['date'] and not callers:
             _remember(read=len(revo_calls), fixed=counts.get('fixed', 0), check=counts.get('check', 0))
         summary = ', '.join(f'{v} {k}' for k, v in sorted(counts.items())) or 'no calls'
+        # CH-316 (Sir): an Answered at Hangup call counts as matched.
+        matched = sum(counts.get(k, 0) for k in ('ok', 'done', 'fixed', 'would fix'))
+        hangup = sum(counts.get(k, 0) for k in ('done', 'fixed', 'would fix'))
+        compared = matched + counts.get('check', 0) + counts.get('skipped', 0)
+        if compared:
+            self.stdout.write(f'Matched {matched} of {compared} ({100 * matched / compared:.1f}%), '
+                              f'{hangup} of them Answered at Hangup; {counts.get("check", 0)} to check'
+                              + (f'; {counts["none"]} Revo call(s) never reached Avortyx' if counts.get('none') else ''))
         self.stdout.write(f'{timezone.now():%Y-%m-%d %H:%M:%S} UTC  Revo calls read: {len(revo_calls)}; {summary}'
                           + ('' if o['apply'] else '  [dry run]'))
 

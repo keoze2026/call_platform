@@ -46,6 +46,8 @@ def as_datetime(epoch: float) -> datetime:
 
 def tag(call) -> None:
     tags = [t for t in (call.tags if isinstance(call.tags, list) else []) if t]
-    if TAG not in tags:
-        tags.append(TAG)
+    # CH-316: Sir's name for these calls, the same as the ones Revo confirms.
+    for t in ('Answered at Hangup', TAG):
+        if t not in tags:
+            tags.append(t)
     call.tags = tags

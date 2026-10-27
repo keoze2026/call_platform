@@ -23,9 +23,16 @@ corrected call is Completed with Revo's duration, paid and charged like any
 answered call, and tagged "Completed by Revo" and "revo:<Revo id>", so it is
 visible in the log and never processed twice.
 
+CH-316, Sir's rule (27 Oct): Revo Completed, at most 2 seconds + ours missed
++ same caller and TFN + Revo's answer within 2 s of our hang-up -> "Answered
+at Hangup", counted as matched. On the 33 calls Revo corrected on 26-27 Oct
+every answer came within 2 s of our hang-up. The 2 s is between Revo's answer
+and our hang-up, not between the two start times: Revo's row starts when the
+call reaches Revo, a few seconds after ours (5 s on 18704239446).
+
 Settings (.env): REVO_API_KEY, REVO_WORKSPACE, optional REVO_API_BASE
 (default https://main-api.revocalls.com/api), REVO_TIMEZONE_ID (46, the
-workspace's), REVO_MAX_SECONDS (10), REVO_CROSS_SECONDS (3).
+workspace's), REVO_MAX_SECONDS (2), REVO_CROSS_SECONDS (2).
 """
 import logging
 from dataclasses import dataclass
@@ -39,6 +46,8 @@ logger = logging.getLogger(__name__)
 ET = ZoneInfo('America/New_York')
 NOT_CONNECTED_LABEL = 'Not Connected'
 TAG = 'Completed by Revo'
+# CH-316: the name Sir gave these calls; also set on answers our relay catches.
+HANGUP_TAG = 'Answered at Hangup'
 # Our row is written when routing starts; Revo's when the call reaches it,
 # after XOLO has set it up (5 seconds on 18704239446). Matched within this.
 REVO_AFTER_OURS = (timedelta(seconds=-2), timedelta(seconds=20))
@@ -163,8 +172,8 @@ def find_missed(rc: RevoCall):
 
 def verdict(rc: RevoCall, call):
     """('fix', why) when our call should become Completed, else (kind, why)."""
-    max_seconds = _cfg('REVO_MAX_SECONDS', 10, cast=int)
-    cross = _cfg('REVO_CROSS_SECONDS', 3, cast=int)
+    max_seconds = _cfg('REVO_MAX_SECONDS', 2, cast=int)
+    cross = _cfg('REVO_CROSS_SECONDS', 2, cast=int)
     if call is None:
         return 'none', 'no call of ours matches'
     tags = call.tags if isinstance(call.tags, list) else []
@@ -183,10 +192,10 @@ def verdict(rc: RevoCall, call):
         return 'check', f'Revo talked {rc.duration}s - not a crossing, check by hand'
     if not call.ended_at:
         return 'check', 'ours has no end time'
-    gap = abs((call.ended_at - rc.answered_at).total_seconds())
-    if gap > cross:
-        return 'check', f'Revo answered {gap:.0f}s away from our hang-up'
-    return 'fix', f'Revo answered {gap:.0f}s from our hang-up, talked {rc.duration}s'
+    gap = (rc.answered_at - call.ended_at).total_seconds()
+    if abs(gap) > cross:
+        return 'check', f'Revo answered {gap:+.1f}s from our hang-up (over {cross}s)'
+    return 'fix', f'Answered at Hangup: Revo answered {gap:+.1f}s from our hang-up, talked {rc.duration}s'
 
 
 def _ungroup(call: CallLog) -> None:
@@ -231,11 +240,11 @@ def apply_fix(call: CallLog, rc: RevoCall) -> bool:
     call.answered_at = answered_at
     call.ring_seconds = max(0, int((answered_at - call.created_at).total_seconds()))
     tags = [t for t in (call.tags if isinstance(call.tags, list) else []) if t]
-    for t in (TAG, f'revo:{rc.id}'):
+    for t in (HANGUP_TAG, TAG, f'revo:{rc.id}'):
         if t not in tags:
             tags.append(t)
     call.tags = tags
-    note = f'Completed by Revo report: Revo call {rc.id}, "{rc.status}", {rc.duration}s, TTC {rc.ttc}s.'
+    note = f'Answered at Hangup (Revo report): Revo call {rc.id}, "{rc.status}", {rc.duration}s, TTC {rc.ttc}s.'
     call.notes = f'{call.notes}\n{note}'.strip() if call.notes else note
     settle_call_money(call, True, duration)  # saves the row; Reports mirror it
     try:

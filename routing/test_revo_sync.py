@@ -87,6 +87,8 @@ class RevoSyncTests(Base):
                          (CallLog.Status.COMPLETED, 1, ''))
         self.assertEqual(row.revenue, Decimal('1.00'))
         self.assertIn('Completed by Revo', row.tags)
+        self.assertIn('Answered at Hangup', row.tags)
+        self.assertIn('Matched 1 of 1 (100.0%), 1 of them Answered at Hangup', out)
         self.assertIn('revo:22852950', row.tags)
         self.assertLessEqual(row.answered_at, row.ended_at)
 
@@ -126,6 +128,18 @@ class RevoSyncTests(Base):
         self.assertIn('check', out)
         row.refresh_from_db()
         self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+
+    def test_sirs_limits_revo_over_2_seconds_or_answer_over_2_seconds_away(self):
+        row = self.ours()
+        out = self.run_cmd([self.revo(row, duration=3)], '--apply')   # talked 3s on Revo
+        self.assertIn('check', out)
+        self.assertIn('Matched 0 of 1', out)
+        row.refresh_from_db()
+        self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
+        out = self.run_cmd([self.revo(row, ttc=14)], '--apply')       # answered 3s after our hang-up
+        self.assertIn('over 2s', out)
+        out = self.run_cmd([self.revo(row, ttc=13, duration=2)], '--apply')  # 2s after, talked 2s
+        self.assertIn('1 fixed', out)
 
     def test_a_refused_call_is_not_a_crossing(self):
         row = self.ours(reason='No Answer')

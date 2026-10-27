@@ -45,6 +45,7 @@ class HeldAnswerTests(Base):
         self.assertEqual((row.status, row.duration, row.block_reason),
                          (CallLog.Status.COMPLETED, 1, ''))
         self.assertIn('Answered during cancel hold', row.tags)
+        self.assertIn('Answered at Hangup', row.tags)
         self.assertEqual(row.revenue, Decimal('1.00'))
         self.assertIsNotNone(row.answered_at)
 
