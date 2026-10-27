@@ -38,6 +38,8 @@ DOWNLOAD_REPORTS = 'download_reports'
 # the buyer page lists its own toggles.
 # CH-322 (Sir, 27 Oct): ON for every new publisher - they may test their own
 # TFNs from the start; the admin can still switch it off per publisher.
+# CH-323 (Sir, 27 Oct): "Give everything same for all publisher and buyer" -
+# Block Numbers is on for all of them too (scripts: uniform_partner_permissions).
 TFN_TEST = 'tfn_test'
 
 PERMISSIONS = [
@@ -63,7 +65,8 @@ PERMISSIONS = [
         'key': BLOCK_NUMBERS,
         'label': 'Block Numbers',
         'description': 'Reject calls from specific phone numbers.',
-        'default': False,
+        # CH-323 (Sir, 27 Oct): every publisher and buyer has the same options.
+        'default': True,
     },
     {
         'key': DOWNLOAD_REPORTS,
