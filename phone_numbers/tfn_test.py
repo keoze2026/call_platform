@@ -3,6 +3,8 @@
 Two halves. The real call proves the carrier still delivers the number to us.
 The platform check proves the number, its campaign and its routing would take
 the call. A test creates no CallLog row, takes no fee and never rings a buyer.
+CH-312: a test call that reaches our phone system is shown in the reports
+(CallRecord only), caller ID "Test" - see record_test_call.
 
 CH-239, the test call from TFN Check: the carrier refuses calls from our trunk
 to our own numbers, so a test placed through it never rang and the page never
@@ -85,23 +87,30 @@ def evaluate(phone, caller: str):
 def evaluate_steps(phone, caller: str):
     """(passed, reason, steps). The steps are what a user watching the test sees,
     so they name no campaign, buyer or rule; `reason` keeps the full story."""
+    passed, reason, steps, _ = _evaluate(phone, caller)
+    return passed, reason, steps
+
+
+def _evaluate(phone, caller: str):
+    """evaluate_steps plus the routing decision (buyer and destination) when
+    routing ran - the test call's report row names them (CH-312)."""
     if phone is None:
-        return False, 'Number is not on the platform', [_step('number', False, 'Number is not on the platform')]
+        return False, 'Number is not on the platform', [_step('number', False, 'Number is not on the platform')], None
     if phone.status != 'active':
         return False, f'Number is {phone.status}, not active', [
-            _step('number', False, f'Number is {phone.status}, not active')]
+            _step('number', False, f'Number is {phone.status}, not active')], None
     steps = [_step('number', True, 'Number is live')]
     campaign = phone.campaign
     if not campaign:
         steps.append(_step('campaign', False, 'Number is not attached to a campaign'))
-        return False, 'Number is not attached to a campaign', steps
+        return False, 'Number is not attached to a campaign', steps, None
     if campaign.status != 'active':
         steps.append(_step('campaign', False, f'Its campaign is {campaign.status}, not active'))
-        return False, f'Campaign "{campaign.name}" is {campaign.status}, not active', steps
+        return False, f'Campaign "{campaign.name}" is {campaign.status}, not active', steps, None
     steps.append(_step('campaign', True, 'On an active campaign'))
     if campaign.routing_type == 'rtb':
         steps.append(_step('routing', True, 'Campaign is live (bidding is not simulated)'))
-        return True, 'Number and campaign are active (RTB routing is not simulated)', steps
+        return True, 'Number and campaign are active (RTB routing is not simulated)', steps, None
 
     from routing.engine import RoutingEngine
     from routing.trace import RouteTrace
@@ -119,14 +128,14 @@ def evaluate_steps(phone, caller: str):
     except Exception:
         logger.exception('tfn_test routing check crashed for %s', phone.number)
         steps.append(_step('routing', False, 'Routing check failed with an internal error'))
-        return False, 'Routing check failed with an internal error', steps
+        return False, 'Routing check failed with an internal error', steps, None
     if not decision or decision.get('error') or not decision.get('destination'):
         why = (decision or {}).get('error') or 'no destination'
         steps.append(_step('routing', False, f'Routing would not forward the call: {why}'))
-        return False, f'Routing would refuse the call: {why}', steps
+        return False, f'Routing would refuse the call: {why}', steps, decision
     buyer = decision.get('buyer')
     steps.append(_step('routing', True, 'Routing OK: a buyer line is ready to take the call'))
-    return True, 'Number, campaign and routing are live' + (f' (buyer {buyer.name})' if buyer else ''), steps
+    return True, 'Number, campaign and routing are live' + (f' (buyer {buyer.name})' if buyer else ''), steps, decision
 
 
 def _finish(test_id, passed: bool, reason: str, mode=None) -> bool:
@@ -154,11 +163,65 @@ def handle_inbound(called: str, caller: str) -> bool:
             .select_related('phone_number__campaign').order_by('-started_at').first())
     if test is None:
         return False
-    phone = PhoneNumber.objects.select_related('campaign').filter(pk=test.phone_number_id).first()
-    passed, reason, steps = evaluate_steps(phone, caller)
+    phone = PhoneNumber.objects.select_related('campaign', 'publisher').filter(pk=test.phone_number_id).first()
+    passed, reason, steps, decision = _evaluate(phone, caller)
     add_steps(test.pk, _step('reached', True, 'Reached our phone system'), *steps)
     _finish(test.pk, passed, ('Call reached the platform. ' + reason) if passed else reason)
+    try:
+        record_test_call(test, phone, called, passed, reason, decision)
+    except Exception:
+        logger.exception('tfn test %s: report row not written', test.pk)
     return True
+
+
+TEST_CALLER = 'Test'
+TEST_REASON = 'TFN Test'
+
+
+def record_test_call(test, phone, called, passed, reason, decision=None):
+    """CH-312 (Sir, 27 Oct): a TFN test call shows in the reports, caller ID
+    "Test", so the publisher - and the buyer it would go to - see it land with
+    their own eyes.
+
+    Written straight to the reports table (CallRecord), never to CallLog: caps,
+    routing, alerts, Revo matching and billing all read CallLog, so a test
+    call counts against no cap, moves no money and raises no alert. It reads
+    as a not-connected call: "TFN Test" when the number, campaign and routing
+    would take the call; "TFN Test failed: <why>" when not. One row per test."""
+    from analytics.models import CallRecord
+    if phone is None:
+        return None
+    sid = f'tfntest-{test.pk}'
+    if CallRecord.objects.filter(twilio_call_sid=sid).exists():
+        return None
+    buyer = (decision or {}).get('buyer') if passed else None
+    dest = (decision or {}).get('destination') if passed else None
+    dest_number = ''
+    if dest is not None:
+        dest_number = ''.join(c for c in str(getattr(dest, 'tfn', '') or getattr(dest, 'number', '') or dest)
+                              if c.isdigit())[-11:]
+    campaign = phone.campaign
+    publisher = getattr(phone, 'publisher', None)
+    now = timezone.now()
+    why = '' if passed else f' failed: {reason}'
+    return CallRecord.objects.create(
+        organization_id=phone.organization_id,
+        twilio_call_sid=sid,
+        caller_number=TEST_CALLER,
+        called_number=(phone.number or str(called))[:20],
+        destination_number=dest_number,
+        campaign=campaign,
+        campaign_name=campaign.name if campaign else '',
+        buyer_id=getattr(buyer, 'id', None),
+        buyer_name=getattr(buyer, 'name', '') or '',
+        publisher_id=getattr(publisher, 'id', None),
+        publisher_name=getattr(publisher, 'name', '') or '',
+        status=CallRecord.Status.NO_ANSWER,
+        block_reason=(TEST_REASON + why)[:100],
+        duration_seconds=0,
+        started_at=now,
+        ended_at=now,
+    )
 
 
 def _after_real_call(test_id) -> None:

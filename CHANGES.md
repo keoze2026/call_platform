@@ -7556,3 +7556,25 @@ Tests: buyers/test_telegram_connect.py (10). Needs a web and celery restart
 to load, when no calls are live.
 
 Commit: see git log --grep CH-310.
+
+## CH-312 - TFN test calls show in the reports, caller ID "Test"
+**2026-10-27 · Server**
+
+Issue 4 (Sir, 27 Oct): "Whenever someone runs a TFN test, they should see the
+call land in their report. Publishers and buyers don't trust the results until
+they see them with their own eyes."
+
+A test call that reaches our phone system (TFN Check > Test call, the daily
+tests) now writes one row to the reports: caller ID **Test**, the TFN dialed,
+its campaign and publisher, and - when the routing would take the call - the
+buyer and destination it would go to. Fail reason "TFN Test", or "TFN Test
+failed: <why>". The publisher sees it in its reports; the buyer sees it too
+when the call would have gone to it.
+
+Written to the reports table only (CallRecord), never to CallLog, so it counts
+against no cap, moves no money (0 revenue, 0 payout, 0 cost), raises no
+alert and is never matched against Revo. One row per test.
+
+Tests: phone_numbers/test_tfn_test_report.py. Needs a web restart.
+
+Commit: see git log --grep CH-312.
