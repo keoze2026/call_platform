@@ -270,10 +270,12 @@ class Command(BaseCommand):
                else {}),
         }
         url = f'https://api.telegram.org/bot{token}/sendMessage'
+        from support.telegram_autodelete import remember
 
         try:
             r = requests.post(url, data={**base, 'text': text, 'parse_mode': 'HTML'}, timeout=15)
             if r.status_code == 200:
+                remember(chat, r.content, 'eod')   # CH-332: deleted after a week
                 return True
             # Telegram could not read the formatting. The figures matter more
             # than the styling, so send them plain rather than not at all.
@@ -281,6 +283,7 @@ class Command(BaseCommand):
                 self.stderr.write(f'Telegram refused the formatting, sending plain: {r.text[:200]}')
                 r = requests.post(url, data={**base, 'text': self._plain(text)}, timeout=15)
                 if r.status_code == 200:
+                    remember(chat, r.content, 'eod')
                     return True
             # Logged with Telegram's own reason: "chat not found" and "bot was
             # blocked" need different people to fix them.

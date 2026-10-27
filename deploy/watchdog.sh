@@ -37,12 +37,15 @@ send() {
     token=$(grep -m1 '^TELEGRAM_BOT_TOKEN=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
     chat=$(grep -m1 '^TELEGRAM_SUPPORT_CHAT_ID=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
     [ -n "$token" ] && [ -n "$chat" ] || { echo "no telegram credentials"; return; }
-    curl -s -o /dev/null --max-time 10 \
+    # CH-332: Telegram's answer is noted so the alert is deleted after a week.
+    curl -s --max-time 10 \
         -X POST "https://api.telegram.org/bot${token}/sendMessage" \
         -d "chat_id=${chat}" \
         --data-urlencode "text=${text}" \
         -d "parse_mode=HTML" \
-        -d "disable_web_page_preview=true"
+        -d "disable_web_page_preview=true" \
+        | python3 "$APP_DIR/support/telegram_autodelete.py" --remember "$chat" watchdog >/dev/null 2>&1
+    return 0
 }
 
 # Alert once per fault, and again when it clears. Without this a two-hour outage

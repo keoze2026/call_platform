@@ -893,6 +893,30 @@ def status_watch():
     return f'status warnings sent: {S.watch(S.post)}'
 
 
+@app.task(name='tasks.telegram_autodelete')
+def telegram_autodelete():
+    """CH-332: the bot's notifications are deleted from the team's Telegram
+    group after a week (Sir, 28 Oct). TELEGRAM_AUTODELETE_DAYS changes the
+    week, 0 switches it off."""
+    import time
+    from django.conf import settings
+    from django.core.cache import cache
+    from support.telegram_autodelete import prune
+    done = prune(getattr(settings, 'TELEGRAM_BOT_TOKEN', ''))
+    done['at'] = time.time()
+    last = cache.get('telegram_autodelete') or {}
+    # The day's totals, for /status.
+    if last.get('day') == time.strftime('%Y-%m-%d'):
+        for k in ('deleted', 'refused'):
+            done[k + '_today'] = last.get(k + '_today', 0) + done.get(k, 0)
+    else:
+        for k in ('deleted', 'refused'):
+            done[k + '_today'] = done.get(k, 0)
+    done['day'] = time.strftime('%Y-%m-%d')
+    cache.set('telegram_autodelete', done, 3 * 86400)
+    return f'telegram auto-delete: {done}'
+
+
 @app.task(name='tasks.portal_change_alerts')
 def portal_change_alerts():
     """CH-327: routing / priority, user and role, carrier changes made in the

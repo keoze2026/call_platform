@@ -561,6 +561,31 @@ def check_bot():
                  key='bot')]
 
 
+def check_autodelete():
+    """CH-332: the bot's notifications leave the group after a week. Works
+    only while the bot is an admin there with "Delete messages"."""
+    from support import telegram_autodelete as A
+    name = 'Telegram auto-delete'
+    keep = A.days()
+    if keep <= 0:
+        return [Item(name, NA, 'switched off (TELEGRAM_AUTODELETE_DAYS=0)')]
+    chat, _ = status_chat()
+    if not chat.startswith('-'):
+        return [Item(name, NA, 'the status chat is a private chat: Telegram allows no deleting there after 48 h')]
+    last = cache.get('telegram_autodelete') or {}
+    done = f"after {keep} days · {last.get('deleted_today', 0)} deleted today · " \
+           f"{len(A.entries())} waiting"
+    can = A.bot_can_delete(getattr(settings, 'TELEGRAM_BOT_TOKEN', ''), chat)
+    if can == 'no':
+        return [Item(name, WARN, 'the bot is not an admin with "Delete messages" in the group: '
+                                 'notifications older than 48 h cannot be deleted (a group admin can fix it)')]
+    if can != 'yes':
+        return [Item(name, WARN, 'could not ask Telegram whether the bot may delete · ' + done)]
+    if last and time.time() - last.get('at', 0) > 3 * 3600:
+        return [Item(name, WARN, f"the hourly clean-up last ran {_ago(last['at'])} · " + done)]
+    return [Item(name, OK, done)]
+
+
 def _eod_detail(line: str) -> str:
     """'2026-10-27T03:05:07Z daily status run: checks=720 failed=0'
     -> 'last run 27 Oct, 03:05 UTC · 720 checks · 0 failed'."""
@@ -999,7 +1024,8 @@ AREAS = [
     ('4. TFN management', lambda h: check_tfns() + check_tfn_provider(h)),
     ('5. Fraud and validation', lambda h: check_ipqs() + check_cnam() + check_realvalidito() + check_filters()),
     ('6. Recording and storage', lambda h: check_recordings(h)),
-    ('7. Reporting and notifications', lambda h: check_bot() + check_reports(h) + check_email()),
+    ('7. Reporting and notifications', lambda h: check_bot() + check_autodelete() + check_reports(h)
+                                                + check_email()),
     ('8. Subscriptions and billing', lambda h: check_subscriptions() + check_carrier_balance()),
     ('9. Security', lambda h: check_logins() + check_firewall(h) + check_spikes()),
 ]
@@ -1122,6 +1148,7 @@ def status_chat():
 
 def post(text, chat=None, thread=None):
     import requests
+    from support.telegram_autodelete import remember
     token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
     if chat is None:
         chat, thread = status_chat()
@@ -1133,10 +1160,13 @@ def post(text, chat=None, thread=None):
         if thread:
             body['message_thread_id'] = thread
         try:
-            ok = requests.post(f'https://api.telegram.org/bot{token}/sendMessage', json=body, timeout=10).ok and ok
+            r = requests.post(f'https://api.telegram.org/bot{token}/sendMessage', json=body, timeout=10)
         except Exception:  # noqa: BLE001
             logger.exception('status message not sent')
             return False
+        ok = r.ok and ok
+        if r.ok:
+            remember(chat, r.content, 'status')   # CH-332: deleted after a week
     return ok
 
 

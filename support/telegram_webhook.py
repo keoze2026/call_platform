@@ -121,6 +121,9 @@ def _handle_status(chat_id: str, message: dict) -> None:
         logger.warning('telegram /status refused for chat %s', chat_id)
         return
     thread = str(message.get('message_thread_id', '') or '')
+    # CH-332: the /status itself goes from the group with the answer, after a week.
+    from support.telegram_autodelete import remember_incoming
+    remember_incoming(chat_id, message.get('message_id'))
     S.post('⏳ Checking every service…', chat=chat_id, thread=thread)
     try:
         from tasks import send_status_report

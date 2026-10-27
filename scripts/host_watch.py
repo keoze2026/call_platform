@@ -784,9 +784,24 @@ def telegram(text) -> bool:
                                  data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
     try:
         with urllib.request.urlopen(req, timeout=10) as resp:
-            return resp.status == 200
+            ok = resp.status == 200
+            answer = resp.read()
     except Exception:  # noqa: BLE001
         return False
+    _remember(chat, answer)
+    return ok
+
+
+def _remember(chat, answer):
+    """CH-332: noted so it is deleted from the chat after a week."""
+    try:
+        import sys
+        if APP not in sys.path:
+            sys.path.insert(0, APP)
+        from support.telegram_autodelete import remember
+        remember(chat, answer, 'server')
+    except Exception:  # noqa: BLE001
+        pass
 
 
 REPEAT = int(os.environ.get('CRITICAL_REPEAT_SECONDS', '900'))

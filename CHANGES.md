@@ -7642,3 +7642,35 @@ Tests: support/test_system_status.py (+1). No restart needed for the script;
 the /status change needs the web, celery_worker and celery_beat restart.
 
 Commit: see git log --grep CH-331.
+
+## CH-332 - The bot's Telegram notifications are deleted after a week
+**2026-10-28 · Status bot / Telegram**
+
+Sir asked for notifications to be deleted after one week. The group's own
+auto-delete timer needs a group admin, so the bot does it itself:
+
+- Every notification the bot sends to the team's group is noted with its
+  message id in `run/telegram_sent.jsonl`: server alerts
+  (scripts/host_watch.py), status warnings, portal changes and /status answers
+  (support/system_status.py `post`, plus the /status command itself), the EOD
+  report and the watchdog's outage alerts. Support chats, buyers' reports and
+  private chats are not touched.
+- Celery beat `telegram-autodelete` (every hour) deletes the ones older than
+  7 days. A message already gone is dropped; one Telegram refuses is tried
+  again daily and given up after 30 days.
+- Telegram lets a bot delete its messages older than 48 hours only when it is
+  an admin of the group with **Delete messages**. A group admin has to give
+  the bot that right once. /status, section 7, "Telegram auto-delete" says
+  whether it has it, how many were deleted today and how many are waiting.
+- .env (optional): `TELEGRAM_AUTODELETE_DAYS` (default 7, 0 = off),
+  `TELEGRAM_AUTODELETE_KEEP=eod` to keep e.g. the EOD reports (kinds: server,
+  status, eod, watchdog, command).
+- By hand: `python3 support/telegram_autodelete.py` (noted / due) and
+  `--prune` (delete what is due now).
+
+Only messages sent after the update are deleted; older ones stay.
+
+Tests: support/test_telegram_autodelete.py (9). Needs the web, celery_worker
+and celery_beat restart.
+
+Commit: see git log --grep CH-332.

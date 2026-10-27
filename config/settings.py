@@ -436,6 +436,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.portal_change_alerts',
         'schedule': 60.0,  # every minute
     },
+    # CH-332: the bot's notifications leave the Telegram group after a week.
+    'telegram-autodelete': {
+        'task': 'tasks.telegram_autodelete',
+        'schedule': 3600.0,  # every hour
+    },
     # Buyers' own daily reports on Telegram, each at its own time (CH-258).
     'send-buyer-reports': {
         'task': 'tasks.send_buyer_reports',
