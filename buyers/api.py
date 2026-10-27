@@ -40,6 +40,8 @@ def _my_report_out(r) -> dict:
         # Set up by the workspace: whether a chat and time are there yet. The
         # chat ID itself is not shown back.
         "set_up": bool(r.enabled and r.chat_id),
+        # CH-310: a Telegram chat is connected (the buyer can connect it itself).
+        "chat_connected": bool(r.chat_id),
         "send_time": r.send_time.strftime('%H:%M'),
         "no_recording_link": r.no_recording_link,
         "bot": bot_username(),
@@ -105,6 +107,17 @@ def set_my_telegram_report(request: HttpRequest, data: MyTelegramReportSchema):
     r.buyer_approved_by = (request.auth.email or '')[:254] if data.approved else ''
     r.save(update_fields=['buyer_approved', 'buyer_approved_at', 'buyer_approved_by', 'updated_at'])
     return 200, _my_report_out(r)
+
+
+@router.post("/my/telegram-report/connect-link", response={200: dict, 403: dict})
+def my_telegram_connect_link(request: HttpRequest):
+    """CH-310: the buyer connects its own Telegram chat - a link to our bot,
+    for a private chat or a group. No chat ID to look up or send to anyone."""
+    from buyers.telegram_connect import make_link
+    buyer = _my_buyer(request)
+    if buyer is None:
+        return 403, {"detail": "Only a buyer's own login has this."}
+    return 200, make_link(buyer)
 
 
 # Plain dict rather than BuyerOutSchema so the `invite` block reaches the
@@ -681,3 +694,34 @@ def send_telegram_report_now(request: HttpRequest, buyer_id: str):
     r.save(update_fields=['last_sent_at', 'last_result', 'updated_at'])
     return 200, _telegram_report_out(r)
 
+
+
+@router.post("/{buyer_id}/telegram-report/connect-link", response={200: dict, 404: dict})
+def telegram_connect_link(request: HttpRequest, buyer_id: str):
+    """CH-310: a connect link to send the buyer. When the buyer opens it (or
+    adds our bot to a group with it), its chat is saved here by our bot."""
+    from buyers.telegram_connect import make_link
+    require(request.auth, Capability.MEMBERS)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    return 200, make_link(r.buyer)
+
+
+@router.post("/{buyer_id}/telegram-report/send-test", response={200: dict, 400: dict, 404: dict})
+def send_telegram_report_test(request: HttpRequest, buyer_id: str):
+    """CH-310: send this buyer's report to the admin's OWN Telegram (linked in
+    Settings), to see exactly what the buyer gets. Nothing goes to the buyer."""
+    from buyers.telegram_report import ReportError, send_report
+    require(request.auth, Capability.MEMBERS)
+    r = _telegram_report(request, buyer_id)
+    if r is None:
+        return 404, {"detail": "Buyer not found"}
+    mine = (getattr(request.auth, 'telegram_chat_id', '') or '').strip()
+    if not mine:
+        return 400, {"detail": "Link your own Telegram first: Settings > Profile > Telegram."}
+    try:
+        result = send_report(r, test_chat=mine)
+    except ReportError as e:
+        return 400, {"detail": str(e)}
+    return 200, {"detail": f'{result} to your Telegram (test).'}

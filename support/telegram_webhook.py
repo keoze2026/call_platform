@@ -68,6 +68,46 @@ def _reply(chat_id: str, html: str) -> None:
         logger.exception('telegram reply to %s failed', chat_id)
 
 
+REPORT_CONNECTED_TEXT = (
+    "\u2705 <b>Connected</b>\n\n"
+    "Daily call reports for <b>{buyer}</b> will be sent to this chat: a short summary "
+    "and one Excel file per destination.\n\n"
+    "They start once the report is switched on and approved in the Avortyx portal."
+)
+
+REPORT_LINK_EXPIRED_TEXT = (
+    "This connect link has expired or was already used. "
+    "Please ask for a new one from the Avortyx portal."
+)
+
+ADDED_TO_GROUP_TEXT = (
+    "\U0001F44B <b>Avortyx Bot added</b>\n\n"
+    "To receive a buyer's daily report in this group, open the connect link from the "
+    "Avortyx portal. This group's chat ID is <code>{chat_id}</code>."
+)
+
+
+def _command(word: str) -> str:
+    """'/start@AVSPTBOT' -> '/start': in a group Telegram adds the bot's name."""
+    return word.split('@', 1)[0].lower()
+
+
+def _handle_report_connect(chat_id: str, payload: str) -> bool:
+    """CH-310: '/start rpt_<code>' connects a buyer's daily report to this
+    chat (private, or a group the bot was added to with the link)."""
+    from buyers.telegram_connect import PREFIX, connect
+    if not payload.startswith(PREFIX):
+        return False
+    buyer = connect(payload, chat_id)
+    if buyer is None:
+        logger.warning('telegram report connect with unknown or used code from chat %s', chat_id)
+        _reply(chat_id, REPORT_LINK_EXPIRED_TEXT)
+    else:
+        from html import escape
+        _reply(chat_id, REPORT_CONNECTED_TEXT.format(buyer=escape(buyer.name)))
+    return True
+
+
 def _handle_start(message: dict, text: str) -> bool:
     """Complete a profile link from '/start <code>'.
 
@@ -80,11 +120,14 @@ def _handle_start(message: dict, text: str) -> bool:
     from accounts.models import TelegramLinkCode
 
     parts = text.split(maxsplit=1)
-    if parts[0] != '/start':
+    if _command(parts[0]) != '/start':
         return False
 
     chat_id = str(message.get('chat', {}).get('id', '') or '')
     handle = (message.get('from', {}).get('username', '') or '')
+
+    if len(parts) == 2 and _handle_report_connect(chat_id, parts[1].strip()):
+        return True
 
     if len(parts) < 2:
         logger.info('telegram /start with no code from chat %s', chat_id)
@@ -149,14 +192,31 @@ def telegram_webhook(request: HttpRequest):
     # Always answer 200: a non-200 makes Telegram retry the same update forever.
     try:
         data = json.loads(request.body)
+        # CH-310: the bot was added to a group - say hello and give its chat ID.
+        member = data.get('my_chat_member') or {}
+        if member:
+            chat = member.get('chat', {}) or {}
+            status = (member.get('new_chat_member', {}) or {}).get('status', '')
+            old = (member.get('old_chat_member', {}) or {}).get('status', '')
+            if chat.get('type') in ('group', 'supergroup') and status in ('member', 'administrator') \
+                    and old in ('left', 'kicked', ''):
+                _reply(str(chat.get('id', '')), ADDED_TO_GROUP_TEXT.format(chat_id=chat.get('id', '')))
+            return 200, {"ok": True}
+
         message = data.get('message', {}) or {}
         text = (message.get('text') or '').strip()
 
         if not text:
             return 200, {"ok": True}
 
-        if text.split()[0].lower() in ('/help', '/help@avortyxbot'):
-            _reply(str(message.get('chat', {}).get('id', '') or ''), HELP_TEXT)
+        chat_id = str(message.get('chat', {}).get('id', '') or '')
+        if _command(text.split()[0]) == '/help':
+            _reply(chat_id, HELP_TEXT)
+            return 200, {"ok": True}
+
+        # CH-310: our own "what is my chat ID" - no public bot needed.
+        if _command(text.split()[0]) == '/id':
+            _reply(chat_id, f"This chat's ID is <code>{chat_id}</code>")
             return 200, {"ok": True}
 
         if _handle_start(message, text):

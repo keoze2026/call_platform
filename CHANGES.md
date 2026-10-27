@@ -7530,3 +7530,29 @@ Step 2 of moving recordings to Backblaze B2 (step 1: CH-304).
 - `--status` no longer waits for a copy run to finish.
 
 Commit: see git log --grep CH-305.
+
+## CH-310 - Buyer reports connect to Telegram through our own bot
+**2026-10-27 · Server**
+
+Issue 3 (automated reports, trial on our own bot). A buyer had to find its
+Telegram chat ID with a public bot (@userinfobot) and send it to us.
+
+- `POST /api/buyers/{id}/telegram-report/connect-link` (admin) and
+  `POST /api/buyers/my/telegram-report/connect-link` (the buyer itself): a link
+  to our bot, for a private chat (`?start=rpt_<code>`) or a group
+  (`?startgroup=rpt_<code>`). Opening it saves the chat on the buyer's report
+  by itself. One use, 7 days, kept in the cache (no migration). Connecting
+  does not switch the report on or approve it.
+- The bot (support/telegram_webhook.py): `/start rpt_<code>` connects the
+  report (also `/start@AVSPTBOT ...` in a group) and confirms with the buyer's
+  name; `/id` answers the chat's ID; added to a group, it says hello with the
+  group's ID. Profile linking (`/start <code>`) is unchanged.
+- `POST /api/buyers/{id}/telegram-report/send-test`: the buyer's report to
+  the admin's own linked Telegram, marked TEST, to see it exactly as the
+  buyer would. Nothing goes to the buyer, so no approval is needed for it.
+- Route table: the new admin routes are administration, like the report.
+
+Tests: buyers/test_telegram_connect.py (10). Needs a web and celery restart
+to load, when no calls are live.
+
+Commit: see git log --grep CH-310.

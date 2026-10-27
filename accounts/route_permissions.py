@@ -111,7 +111,8 @@ RULES = [
     _rule(r'^/buyers/[^/]+/access$', ADMIN),
     # A buyer's Telegram report (CH-258) sends call data to an outside chat:
     # administration, like the buyer's access.
-    _rule(r'^/buyers/[^/]+/telegram-report(/send)?$', ADMIN),
+    # Its connect link and the test send to one's own Telegram too (CH-310).
+    _rule(r'^/buyers/[^/]+/telegram-report(/send|/send-test|/connect-link)?$', ADMIN),
     # Every buyer's report status, for Automated Reports (CH-261).
     _rule(r'^/buyers/telegram-reports$', ADMIN),
     _rule(r'^/buyers(/.*)?$', 'buyers'),

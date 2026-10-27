@@ -272,12 +272,16 @@ def _telegram(method: str, data: dict, files=None):
     return r
 
 
-def send_report(report, now=None) -> str:
+def send_report(report, now=None, test_chat=None) -> str:
     """Build and send the report now. Returns what was sent; raises
-    ReportError when it could not be sent."""
-    if not report.chat_id.strip():
+    ReportError when it could not be sent.
+
+    `test_chat` (CH-310): send it to that chat instead - a staff member's own
+    Telegram, to see the report exactly as the buyer would. Nothing goes to
+    the buyer, so the buyer's approval is not needed for it."""
+    if test_chat is None and not report.chat_id.strip():
         raise ReportError('No Telegram chat ID is set for this buyer.')
-    if not report.buyer_approved:
+    if test_chat is None and not report.buyer_approved:
         raise ReportError('The buyer has not approved Telegram reports yet. They turn it on in their '
                           'own Settings > Scheduled Reports.')
     now = now or timezone.now()
@@ -285,6 +289,8 @@ def send_report(report, now=None) -> str:
     files = build_reports(report, start, end)
 
     lines = [f'AVORTYX | Daily Report', f'{report.buyer.name} · {day:%a %d %b %Y} (EST)', '']
+    if test_chat is not None:
+        lines.insert(0, 'TEST - sent to you only, not to the buyer')
     if files:
         for dest, _, _, st in files:
             lines.append(f'{dest.name}: {st["calls"]} calls, {st["connected"]} connected')
@@ -293,7 +299,7 @@ def send_report(report, now=None) -> str:
                      f'{sum(f[3]["connected"] for f in files)} connected')
     else:
         lines.append('No calls on your destinations for this period.')
-    chat = report.chat_id.strip()
+    chat = str(test_chat).strip() if test_chat is not None else report.chat_id.strip()
     _telegram('sendMessage', {'chat_id': chat, 'text': '\n'.join(lines), 'disable_web_page_preview': 'true'})
 
     for dest, header, rows, st in files:
