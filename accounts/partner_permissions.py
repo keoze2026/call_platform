@@ -35,7 +35,9 @@ BLOCK_NUMBERS = 'block_numbers'
 DOWNLOAD_REPORTS = 'download_reports'
 # CH-240 (Sir, 24 Oct): a publisher may open TFN Check and test-call the TFNs
 # allotted to them, and only those. Publishers only - buyers have no TFNs, and
-# the buyer page lists its own toggles. Off until the admin switches it on.
+# the buyer page lists its own toggles.
+# CH-322 (Sir, 27 Oct): ON for every new publisher - they may test their own
+# TFNs from the start; the admin can still switch it off per publisher.
 TFN_TEST = 'tfn_test'
 
 PERMISSIONS = [
@@ -73,7 +75,7 @@ PERMISSIONS = [
         'key': TFN_TEST,
         'label': 'TFN Test Calls',
         'description': 'Can check and test-call their own TFNs on TFN Check.',
-        'default': False,
+        'default': True,
     },
 ]
 

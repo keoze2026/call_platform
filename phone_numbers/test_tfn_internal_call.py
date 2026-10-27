@@ -171,7 +171,14 @@ class PublisherSwitchTests(Base):
             return client.post('/api/numbers/check/test', data=json.dumps({'number': '18774893792'}),
                                content_type='application/json')
 
-    def test_off_by_default(self):
+    def test_on_for_a_new_publisher(self):
+        # CH-322 (Sir, 27 Oct): every new publisher may test its own TFNs.
+        self.assertEqual(self.pub.permissions, {})
+        self.assertEqual(self.start(self.pub_client).status_code, 202)
+
+    def test_the_admin_can_still_switch_it_off(self):
+        self.pub.permissions = {'tfn_test': False}
+        self.pub.save(update_fields=['permissions'])
         self.assertEqual(self.start(self.pub_client).status_code, 403)
 
     def test_switched_on_they_test_their_own_number(self):
