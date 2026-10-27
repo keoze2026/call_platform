@@ -141,11 +141,63 @@ class HostWatchTests(SimpleTestCase):
         self.assertIn('Database export / dump running', self.sent[0])
         with mock.patch.object(self.hw, 'sh', return_value='python3 /opt/call_platform/scripts/db_backup_b2.py\n'
                                                            'pg_dump -U call_platform\n'):
-            self.run_checks(self.hw.check_dumps)          # the nightly backup
-        self.assertEqual(len(self.sent), 1)
+            self.run_checks(self.hw.check_dumps)          # the nightly backup: not alerted
+        self.assertEqual(len(self.sent), 2)
+        self.assertIn('Resolved', self.sent[1])           # the unknown dump is gone
 
     def test_message_puts_red_first_and_stays_short(self):
         events = [('cron', False, 'cron line')] + [('port', True, f'red {i}') for i in range(30)]
         text = self.hw.message(events)
-        self.assertTrue(text.startswith('🔴 <b>Avortyx server alert</b>\nred 0'))
+        self.assertTrue(text.startswith('🔴 <b>Avortyx server alert</b> · '))
+        self.assertIn('\nred 0\n', text)
         self.assertIn('… and 6 more', text)
+
+    def test_a_critical_condition_repeats_every_15_minutes_then_resolves(self):
+        listen = 'tcp LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1,fd=6))\n'
+        more = listen + 'tcp LISTEN 0 5 0.0.0.0:3306 0.0.0.0:* users:(("mysqld",pid=3,fd=6))\n'
+        clock = [1_000_000.0]
+        with mock.patch.object(self.hw.time, 'time', side_effect=lambda: clock[0]):
+            with mock.patch.object(self.hw, 'sh', return_value=listen):
+                self.run_checks(self.hw.check_ports)
+            with mock.patch.object(self.hw, 'sh', return_value=more):
+                self.run_checks(self.hw.check_ports)          # first alert
+                clock[0] += 600
+                self.run_checks(self.hw.check_ports)          # 10 min: quiet
+                clock[0] += 400
+                self.run_checks(self.hw.check_ports)          # 16 min: again
+            with mock.patch.object(self.hw, 'sh', return_value=listen):
+                self.run_checks(self.hw.check_ports)          # closed: resolved
+        self.assertEqual(len(self.sent), 3)
+        self.assertIn('New port opened', self.sent[0])
+        self.assertIn('🔁 Still not resolved (16 min)', self.sent[1])
+        self.assertIn('✅ Resolved', self.sent[2])
+
+    def test_accept_stops_the_repeats_and_approves_the_ports(self):
+        more = ('tcp LISTEN 0 511 0.0.0.0:443 0.0.0.0:* users:(("nginx",pid=1,fd=6))\n'
+                'tcp LISTEN 0 5 0.0.0.0:3306 0.0.0.0:* users:(("mysqld",pid=3,fd=6))\n')
+        with mock.patch.object(self.hw, 'sh', return_value=more):
+            self.run_checks(self.hw.check_ports)
+            self.hw.accept()
+            rep = self.run_checks(self.hw.check_ports)
+        self.assertEqual(rep['ports']['new'], [])
+        self.assertEqual(self.sent, [])
+
+    def test_short_lived_helpers_never_count_as_unknown_processes(self):
+        ps = ('3131068 root 150.0 0 runc:[2:INIT]\n'
+              '3131054 root 50.0 1 runc\n'
+              '3141708 root 300.0 0 ps\n'
+              '4000000 root 99.0 30 xmrig\n')             # hot but only 30 s old
+        with mock.patch.object(self.hw, 'sh', return_value=ps):
+            self.run_checks(self.hw.check_processes)
+            self.run_checks(self.hw.check_processes)
+        self.assertEqual(self.sent, [])
+
+    def test_an_unknown_process_busy_for_minutes_is_red(self):
+        ps = '4000000 root 99.0 600 xmrig\n'
+        with mock.patch.object(self.hw, 'sh', return_value=ps):
+            self.run_checks(self.hw.check_processes)
+            self.run_checks(self.hw.check_processes)
+            self.run_checks(self.hw.check_processes)
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('Unknown process running</b>: xmrig · 99% CPU · user root · pid 4000000 · running 10 min',
+                      self.sent[0])

@@ -16,8 +16,12 @@ values in particular are hashed, and an alert names the key, never its value.
 
 The first run only takes the picture (no alerts), so switching it on does not
 send a flood. To look without sending or saving: python3 scripts/host_watch.py --look
-To accept the current state as the new normal (after a planned
-change), delete the state file: rm /var/lib/avortyx/host_watch_state.json
+After a planned change (a port opened on purpose):
+python3 scripts/host_watch.py --accept
+Critical conditions that are still true (a service down, a new port open, an
+unknown process, a dump running, the IP blacklisted) are sent again every 15
+minutes until they are gone, then "Resolved".
+To start again from nothing: rm /var/lib/avortyx/host_watch_state.json
 
 What it cannot see, and says so in the report instead of showing green:
   - the server being unreachable: if the server is down it cannot send
@@ -124,8 +128,14 @@ class Run:
         self.state = state
         self.first = not state.get('at')
         self.events = []        # (kind, red, text)
+        self.ongoing = {}       # key -> text: critical conditions still true now
         self.report = {}
         self.now = time.time()
+
+    def still(self, key, text):
+        """A critical condition that is true right now. Sent again every
+        15 minutes until it is gone (Sir's spec), then "Resolved"."""
+        self.ongoing[key] = text
 
     def event(self, kind, text, red=False):
         self.events.append((kind, red, text))
@@ -149,7 +159,8 @@ def check_uptime(r):
     boot = int(r.now - up)
     prev = r.state.get('boot')
     if prev and abs(boot - prev) > 120:
-        r.event('reboot', f'⚠️ <b>Server rebooted</b>: up again since {hhmm(boot)}', red=True)
+        r.event('reboot', f'⚠️ <b>Unexpected reboot</b>: up again since {hhmm(boot)} '
+                          f'(was up {(r.now - prev) / DAY:.1f} days)')
     r.state['boot'] = boot
     r.report['uptime_days'] = round(up / DAY, 1)
     r.report['boot_at'] = boot
@@ -221,6 +232,8 @@ def check_blacklist(r):
     last = r.state.get('bl') or {}
     if r.now - last.get('at', 0) < 3600:
         r.report['blacklist'] = last
+        for z in last.get('listed') or []:
+            r.still(f'bl:{z}', f'🔴 <b>Server IP blacklisted</b>: {last.get("ip")} on {z}')
         return
     ip = OUR_IPS[0]
     rev = '.'.join(reversed(ip.split('.')))
@@ -232,6 +245,8 @@ def check_blacklist(r):
         if out and out[0].startswith('127.') and not out[0].startswith('127.255.255.'):
             listed.append(zone)
     now = {'at': r.now, 'ip': ip, 'listed': listed, 'checked': checked}
+    for z in listed:
+        r.still(f'bl:{z}', f'🔴 <b>Server IP blacklisted</b>: {ip} on {z}')
     new = [z for z in listed if z not in (last.get('listed') or [])]
     if new:
         r.event('blacklist', f'🔴 <b>Server IP blacklisted</b>: {ip} on {", ".join(new)}', red=True)
@@ -272,6 +287,8 @@ def check_services(r):
     for key, cur in now.items():
         before = seen.get(key)
         if before:
+            if not cur['ok']:
+                r.still(f'svc:{key}', f'🔴 <b>Service down</b>: {cur["label"]}')
             if before['ok'] and not cur['ok']:
                 r.event('down', f'🔴 <b>Service down</b>: {cur["label"]} stopped ({hhmm()})', red=True)
             elif not before['ok'] and cur['ok']:
@@ -308,6 +325,7 @@ def check_ports(r):
     new = {k: v for k, v in ports.items() if k not in approved}
     alerted = set(r.state.get('ports_alerted') or [])
     for k, prog in sorted(new.items()):
+        r.still(f'port:{k}', f'🔴 <b>New port open</b>: {k} by {html.escape(prog)}')
         if k not in alerted:
             r.event('port', f'🔴 <b>New port opened</b>: {k} by {html.escape(prog)}', red=True)
             alerted.add(k)
@@ -315,27 +333,47 @@ def check_ports(r):
     r.report['ports'] = {'open': len(ports), 'new': sorted(new)}
 
 
+# Short-lived helpers that always show a high CPU figure: ps works out %CPU
+# over a process's whole life, so anything a second old reads 100-300%.
+# runc starts and stops containers (the crash-looping ivr-platform ones
+# every few seconds).
+SHORT_LIVED = ('runc', 'ps', 'docker-init', 'pgrep', 'ss', 'journalctl', 'git', 'sshd', 'sha256sum')
+MIN_AGE = 120   # seconds a process must have been running
+
+
 def check_processes(r):
-    """A program nobody knows using CPU for two minutes running."""
+    """A program nobody knows, the same process (same PID) using over 50% CPU
+    and running for 2 minutes or more. Not alerted for a name alone: the
+    first version flagged runc and ps, which live for a second (28 Oct)."""
     hot = {}
-    for line in sh('ps -eo pid=,user=,pcpu=,comm= --sort=-pcpu').splitlines()[:15]:
-        f = line.split(None, 3)
-        if len(f) < 4:
+    for line in sh('ps -eo pid=,user=,pcpu=,etimes=,comm= --sort=-pcpu').splitlines()[:20]:
+        f = line.split(None, 4)
+        if len(f) < 5:
             continue
-        pid, user, cpu, comm = f[0], f[1], float(f[2]), f[3].strip()
-        if cpu < 50 or comm in KNOWN_PROGRAMS or comm.startswith(('kworker', 'systemd', 'containerd')):
+        pid, user, comm = f[0], f[1], f[4].strip()
+        try:
+            cpu, age = float(f[2]), int(f[3])
+        except ValueError:
             continue
-        hot[comm] = {'pid': pid, 'user': user, 'cpu': cpu}
+        if cpu < 50 or age < MIN_AGE:
+            continue
+        if comm in KNOWN_PROGRAMS or comm.split(':')[0] in SHORT_LIVED or comm.startswith(
+                ('kworker', 'systemd', 'containerd', 'runc')):
+            continue
+        hot[pid] = {'comm': comm, 'user': user, 'cpu': cpu, 'age': age}
     before = r.state.get('hot') or {}
     alerted = set(r.state.get('hot_alerted') or [])
-    for comm, p in hot.items():
-        if comm in before and comm not in alerted:
-            r.event('process', f'🔴 <b>Unknown process running</b>: {html.escape(comm)} · {p["cpu"]:.0f}% CPU · '
-                               f'user {html.escape(p["user"])} · pid {p["pid"]}', red=True)
-            alerted.add(comm)
+    for pid, p in hot.items():
+        if pid not in before:
+            continue          # seen once: wait for the next minute
+        r.still(f'proc:{pid}', f'🔴 <b>Unknown process running</b>: {html.escape(p["comm"])} (pid {pid})')
+        if pid not in alerted:
+            r.event('process', f'🔴 <b>Unknown process running</b>: {html.escape(p["comm"])} · {p["cpu"]:.0f}% CPU · '
+                               f'user {html.escape(p["user"])} · pid {pid} · running {p["age"] // 60} min', red=True)
+            alerted.add(pid)
     r.state['hot'] = hot
     r.state['hot_alerted'] = sorted(alerted & set(hot))
-    r.report['unknown_processes'] = sorted(hot)
+    r.report['unknown_processes'] = sorted({p['comm'] for k, p in hot.items() if k in before})
 
 
 def check_outbound(r):
@@ -372,6 +410,7 @@ def check_dumps(r):
     ours = 'db_backup_b2.py' in ps
     dumps = [a for a in ps.splitlines() if re.search(r'\bpg_dump(all)?\b', a) and 'grep' not in a]
     if dumps and not ours:
+        r.still('dump', '🔴 <b>Database export / dump running</b>')
         key = digest('\n'.join(sorted(dumps)))
         if key != r.state.get('dump_seen'):
             r.event('dump', f'🔴 <b>Database export / dump running</b> (not the nightly backup): '
@@ -589,7 +628,7 @@ def check_env(r):
     log = [x for x in (r.state.get('env_log') or []) if x[0] > r.now - DAY]
     names = [f'{k} (changed)' for k in changed] + [f'{k} (added)' for k in added] + [f'{k} (removed)' for k in removed]
     if names:
-        r.event('env', f'🔑 <b>.env / API key changed</b>: {html.escape(", ".join(names)[:300])} · {hhmm()}')
+        r.event('env', f'🔑 <b>.env / API key changed</b>: {html.escape(", ".join(names)[:300])} · {hhmm()}', red=True)
         log.append([int(r.now), len(names)])
     r.state['env_log'] = log
     r.report['env_changes_24h'] = sum(x[1] for x in log)
@@ -673,7 +712,7 @@ def check_firewall(r):
     r.state['fw_text'] = lines
     if added or removed:
         what = [f'added: {lines[k]}' for k in added][:4] + [f'removed: {before.get(k, "?")}' for k in removed][:4]
-        r.event('firewall', f'🛡 <b>Firewall changed</b>: {html.escape("; ".join(what))} · {hhmm()}', red=bool(removed))
+        r.event('firewall', f'🛡 <b>Firewall rule changed</b>: {html.escape("; ".join(what))} · {hhmm()}', red=True)
     r.report['firewall_rules'] = len(lines)
 
 
@@ -750,9 +789,32 @@ def telegram(text) -> bool:
         return False
 
 
+REPEAT = int(os.environ.get('CRITICAL_REPEAT_SECONDS', '900'))
+
+
+def follow_up(r, state):
+    """Critical conditions still true: again every 15 minutes; gone: Resolved."""
+    open_ = state.get('ongoing') or {}
+    out = []
+    for k, text in r.ongoing.items():
+        if k not in open_:
+            open_[k] = {'text': text, 'since': int(r.now), 'last': int(r.now)}   # its first alert went already
+        elif r.now - open_[k]['last'] >= REPEAT:
+            mins = int((r.now - open_[k]['since']) // 60)
+            out.append(('repeat', True, f'🔁 Still not resolved ({mins} min): {text}'))
+            open_[k]['last'] = int(r.now)
+    for k in [k for k in open_ if k not in r.ongoing]:
+        if not k.startswith('svc:'):          # a service says "running again" itself
+            out.append(('resolved', False, f'✅ Resolved: {open_[k]["text"]}'))
+        del open_[k]
+    state['ongoing'] = open_
+    return out
+
+
 def message(events) -> str:
     red = any(e[1] for e in events)
-    head = '🔴 <b>Avortyx server alert</b>' if red else '🔔 <b>Avortyx server</b>'
+    host = html.escape(socket.gethostname())
+    head = f'🔴 <b>Avortyx server alert</b> · {host}' if red else f'🔔 <b>Avortyx server</b> · {host}'
     lines = [e[2] for e in sorted(events, key=lambda e: not e[1])]
     if len(lines) > 25:
         lines = lines[:25] + [f'… and {len(lines) - 25} more']
@@ -795,7 +857,9 @@ def run(send=True, checks=None, save=True):
             errors[check.__name__] = f'{type(e).__name__}: {str(e)[:100]}'
     # Alerts not delivered last time (Telegram down) go with this run's.
     pending = state.get('pending') or []
-    events = [] if r.first else r.events
+    events = [] if r.first else r.events + follow_up(r, state)
+    if r.first:
+        follow_up(r, state)
     if send and (events or pending):
         text = message([tuple(e) for e in pending] + events)
         state['pending'] = [] if telegram(text) else ([list(e) for e in pending] + [list(e) for e in events])[-50:]
@@ -807,7 +871,8 @@ def run(send=True, checks=None, save=True):
     if save:
         save_state(state)
     r.report['events_24h'] = {k: sum(1 for x in log if x[1] == k) for k in EVENT_KINDS}
-    r.report['red_24h'] = sum(1 for x in log if x[2])
+    r.report['red_24h'] = sum(1 for x in log if x[2] and x[1] in EVENT_KINDS)
+    r.report['open_critical'] = sorted(v['text'] for v in (state.get('ongoing') or {}).values())
     r.report['red_by_kind_24h'] = {k: sum(1 for x in log if x[1] == k and x[2]) for k in EVENT_KINDS}
     r.report['server'] = {'hostname': socket.gethostname(), 'ip': OUR_IPS[0], 'label': SERVER_LABEL}
     r.report['first_run'] = r.first
@@ -816,7 +881,20 @@ def run(send=True, checks=None, save=True):
     return r.report
 
 
+def accept():
+    """After a planned change: today's open ports become the approved list
+    and open alerts stop repeating."""
+    state = load_state()
+    for k in ('ports_ok', 'ports_alerted', 'ongoing', 'hot', 'hot_alerted'):
+        state.pop(k, None)
+    save_state(state)
+    return 'Accepted: current ports approved, open alerts cleared. The next run takes the picture again.'
+
+
 if __name__ == '__main__':
     import sys
+    if '--accept' in sys.argv:
+        print(accept())
+        sys.exit(0)
     look = '--look' in sys.argv
     print(json.dumps(run(send=not look, save=not look), indent=1))
