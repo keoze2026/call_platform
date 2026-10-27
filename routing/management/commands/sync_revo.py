@@ -73,6 +73,8 @@ class Command(BaseCommand):
         for rc in sorted(revo_calls, key=lambda c: c.started):
             call = revo_sync.find_missed(rc)
             kind, why = revo_sync.verdict(rc, call)
+            if kind == 'check' and not rc.completed and revo_sync.next_try_connected(rc, revo_calls):
+                kind, why = 'ok', "Revo's first try did not connect, its next try did - same call"
             if kind == 'fix':
                 if o['apply']:
                     kind = 'fixed' if revo_sync.apply_fix(call, rc) else 'skipped'

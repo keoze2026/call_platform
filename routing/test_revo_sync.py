@@ -141,6 +141,19 @@ class RevoSyncTests(Base):
         out = self.run_cmd([self.revo(row, ttc=13, duration=2)], '--apply')  # 2s after, talked 2s
         self.assertIn('1 fixed', out)
 
+    def test_a_revo_retry_that_connected_is_matched_not_checked(self):
+        # 5125360701, 27 Oct: Revo 8:27:44 Not Connected, 8:27:51 Completed 2781s; ours Completed 2779s.
+        row = self.ours(status=CallLog.Status.COMPLETED, reason='')
+        CallLog.objects.filter(pk=row.pk).update(duration=2779)
+        first = self.revo(row, rid=1, status='Call Not Connected - With Conversion', duration=0, ttc=5, after=5)
+        second = self.revo(row, rid=2, duration=2781, ttc=4, after=12)
+        out = self.run_cmd([first, second], '--apply')
+        self.assertIn('Matched 2 of 2 (100.0%)', out)
+        self.assertNotIn('check', out.split('Matched')[0])
+        # without the connected retry it is still listed
+        out = self.run_cmd([first], '--apply')
+        self.assertIn('1 check', out)
+
     def test_a_refused_call_is_not_a_crossing(self):
         row = self.ours(reason='No Answer')
         out = self.run_cmd([self.revo(row)], '--apply')

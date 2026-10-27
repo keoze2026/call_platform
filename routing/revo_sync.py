@@ -198,6 +198,16 @@ def verdict(rc: RevoCall, call):
     return 'fix', f'Answered at Hangup: Revo answered {gap:+.1f}s from our hang-up, talked {rc.duration}s'
 
 
+def next_try_connected(rc: RevoCall, revo_calls) -> bool:
+    """CH-317: Revo tried a buyer line, it did not connect, and Revo's next try
+    for the same caller and number, within a minute, did. 5125360701, 27 Oct:
+    Revo 8:27:44 Not Connected (5 s), 8:27:51 Completed 2781 s; ours one call,
+    Completed 2779 s. That is one call on both sides, not a mismatch."""
+    return any(o.id != rc.id and o.completed and o.caller == rc.caller and o.called == rc.called
+               and timedelta(0) < o.started - rc.started <= timedelta(seconds=60)
+               for o in revo_calls)
+
+
 def _ungroup(call: CallLog) -> None:
     """`call` was hidden as an earlier try of a grouped call (CH-215), but Revo
     shows it answered: a call of its own (CH-292). 12512230947, 26 Oct: ours
