@@ -87,14 +87,15 @@ class StatusTests(TestCase):
         for area in ('Infrastructure', 'Telephony', 'routing and delivery', 'TFN management', 'Fraud',
                      'Recording', 'Reporting', 'Subscriptions', 'Security'):
             self.assertIn(area, text)
-        self.assertTrue('All systems operational' in text or 'require' in text)
-        self.assertLess(len(text), 4096)
+        self.assertTrue('All systems operational' in text or 'need attention' in text)
+        for part in S.split_message(text):
+            self.assertLess(len(part), 4096)
 
     def test_a_delivery_below_target_is_degraded_with_the_reason(self):
-        it = self.items()['Delivery to buyer TFNs']
+        it = self.items()['Delivery rate']
         self.assertEqual(it.status, S.WARN)
         self.assertIn('99.8%', it.detail)
-        self.assertIn('608', it.detail)
+        self.assertIn('2 rejected as spam (SIP 608)', it.detail)
 
     def test_capacity_and_disk_thresholds(self):
         h = fake_host()
@@ -103,8 +104,8 @@ class StatusTests(TestCase):
         self.write_host(h)
         it = self.items()
         self.assertEqual(it['Concurrent calls'].status, S.DOWN)
-        self.assertIn('380 now of 400', it['Concurrent calls'].detail)
-        self.assertEqual(it['Server disk'].status, S.DOWN)
+        self.assertIn('380 / 400', it['Concurrent calls'].detail)
+        self.assertEqual(it['Disk'].status, S.DOWN)
 
     def test_relay_down_while_on_is_red(self):
         h = fake_host()
@@ -126,6 +127,7 @@ class StatusTests(TestCase):
             it = self.items()
         self.assertEqual(it['RealValidito'].status, S.WARN)
         self.assertIn('expires in 5 days', it['RealValidito'].detail)
+        self.assertIn('(5 days)', it['SSL avortyx.io'].detail)
         self.assertEqual(it['SSL avortyx.io'].status, S.WARN)
         self.assertEqual(it['Carrier balance (XOLO)'].status, S.WARN)   # 3 days of spend left
 
@@ -143,8 +145,8 @@ class StatusTests(TestCase):
             CallLog.objects.create(organization=self.org, caller_number=f'+1555000000{i}',
                                    called_number='+18443754175', destination_number=dest, status=status,
                                    block_reason=reason, twilio_call_sid=f's{i}')
-        it = self.items()['Missed / unrouted (last hour)']
-        self.assertIn('3 incoming: 1 not sent to a buyer (1× No Destination), 1 sent but not answered', it.detail)
+        it = self.items()['Routing (last hour)']
+        self.assertIn('3 inbound · 1 unrouted (1× No Destination) · 1 unanswered', it.detail)
 
     def test_warnings_go_out_once_and_say_when_fixed(self):
         sent = []
@@ -153,10 +155,10 @@ class StatusTests(TestCase):
         self.write_host(h)
         S.watch(sent.append)
         S.watch(sent.append)          # same state within the cool-down: nothing new
-        self.assertEqual(sum('Server disk' in m for m in sent), 1)
+        self.assertEqual(sum('Disk' in m for m in sent), 1)
         self.write_host(fake_host())
         S.watch(sent.append)
-        self.assertTrue(any('Back to normal' in m and 'Server disk' in m for m in sent))
+        self.assertTrue(any('Back to normal' in m and 'Disk' in m for m in sent))
 
     def test_only_the_team_may_ask(self):
         self.assertTrue(S.allowed_chat('-100777'))
@@ -194,4 +196,114 @@ class StatusTests(TestCase):
         for _ in range(3):
             c.post('/api/accounts/login', json.dumps({'email': 'x@y.io', 'password': 'no'}),
                    content_type='application/json')
-        self.assertIn('3 in the last 24 h', self.items()['Failed login attempts'].detail)
+        self.assertIn('3 (24h)', self.items()['Failed logins'].detail)
+
+    # ── CH-326: Sir's layout and thresholds (28 Oct) ──────────────────────────
+
+    def calls(self, sent, completed, hours_ago=0):
+        when = timezone.now() - timedelta(hours=hours_ago)
+        for i in range(sent):
+            c = CallLog.objects.create(organization=self.org, caller_number=f'+1555{hours_ago:03d}{i:04d}',
+                                       called_number='+18443754175', destination_number='18005550100',
+                                       status='completed' if i < completed else 'no_answer',
+                                       twilio_call_sid=f's{hours_ago}-{i}')
+            CallLog.objects.filter(pk=c.pk).update(created_at=when)
+
+    def test_asr_well_under_the_week_is_yellow(self):
+        self.calls(100, 90, hours_ago=30)        # the week: 90%
+        self.calls(20, 12)                       # last hour: 60%
+        it = self.items()['ASR']
+        self.assertEqual(it.status, S.WARN)
+        self.assertIn('60% last hour (12/20)', it.detail)
+
+    def test_asr_close_to_the_week_is_green(self):
+        self.calls(100, 90, hours_ago=30)
+        self.calls(20, 16)                       # 80%: within 15 points of ~88%
+        self.assertEqual(self.items()['ASR'].status, S.OK)
+
+    def test_traffic_at_twice_the_usual_is_yellow(self):
+        for d in range(1, 8):
+            self.calls(10, 10, hours_ago=24 * d)
+        self.calls(25, 25)
+        it = self.items()['Traffic']
+        self.assertEqual(it.status, S.WARN)
+        self.assertIn('2.5× usual', it.detail)
+
+    def test_no_backup_at_all_is_red(self):
+        self.write_host(fake_host(backups={}))
+        it = self.items()['Database backup']
+        self.assertEqual(it.status, S.DOWN)
+        self.assertIn('no backup completed yet', it.detail)
+
+    def test_sms_is_white_and_never_counted(self):
+        it = self.items()['SMS alerts']
+        self.assertEqual(it.status, S.NA)
+        text = S.render(S.collect())
+        self.assertIn('⚪️ SMS alerts: not in use', text)
+        attention = text.split('<b>1. Infrastructure</b>')[0]
+        self.assertNotIn('SMS', attention)
+
+    def test_needs_attention_comes_first_red_on_top(self):
+        self.write_host(fake_host(backups={}))
+        text = S.render(S.collect())
+        head = text.split('<b>1. Infrastructure</b>')[0]
+        self.assertIn('critical)', head)
+        self.assertIn('<b>Needs attention</b>', head)
+        first = head.split('<b>Needs attention</b>')[1].strip().splitlines()[0]
+        self.assertTrue(first.startswith('🔴 Database backup: no backup completed yet'), first)
+        self.assertIn('🟢 Portal: online · ', text)
+
+    def test_a_missing_backup_is_repeated_every_6_hours_not_hourly(self):
+        self.write_host(fake_host(backups={}))
+        sent = []
+        S.watch(sent.append)
+        from django.core.cache import cache
+        k = 'status:alert:backup'
+        cache.set(k, {'status': S.DOWN, 'at': time.time() - 2 * 3600}, 3600)
+        S.watch(sent.append)
+        self.assertEqual(sum('Database backup' in m for m in sent), 1)
+        cache.set(k, {'status': S.DOWN, 'at': time.time() - 7 * 3600}, 3600)
+        S.watch(sent.append)
+        self.assertEqual(sum('Database backup' in m for m in sent), 2)
+
+    def test_eod_line_reads_plainly(self):
+        self.assertEqual(S._eod_detail('2026-10-27T03:05:07Z daily status run: checks=720 failed=0'),
+                         'last run 27 Oct, 03:05 UTC · 720 checks · 0 failed')
+
+    def test_a_long_report_goes_as_several_messages_cut_between_lines(self):
+        text = '\n'.join(f'🟢 Line {i}: ' + 'x' * 80 for i in range(120))
+        parts = S.split_message(text)
+        self.assertGreater(len(parts), 1)
+        self.assertTrue(all(len(p) <= 4000 for p in parts))
+        self.assertEqual('\n'.join(parts), text)
+
+    def test_spam_refusals_say_how_many_caller_ids(self):
+        h = fake_host()
+        h['sip']['day'].update({'spam_callers': {'17405551111': 2}, 'spam_caller_count': 1})
+        self.write_host(h)
+        self.assertIn('2 rejected as spam (SIP 608) from 1 caller ID', self.items()['Delivery rate'].detail)
+
+    def test_spam_caller_ids_are_read_from_the_capture(self):
+        import importlib.util
+        import sys
+        from django.conf import settings as dj
+        base = str(dj.BASE_DIR)
+        sys.path.insert(0, os.path.join(base, 'docs', 'asterisk'))
+        import late_answers as L
+        spec = importlib.util.spec_from_file_location('hs326', os.path.join(base, 'scripts', 'host_status.py'))
+        hs = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(hs)
+        ours = sorted(hs.OUR_IPS)[0]
+        pkts = []
+        for i, (code, caller) in enumerate((('608', '17405551111'), ('608', '17405551111'), ('200', '13125550000'))):
+            cid = f'c{i}'
+            pkts.append((float(i), f'{ours}:5060', '45.79.4.41:5060',
+                         {'kind': 'request', 'method': 'INVITE', 'call_id': cid,
+                          'uri': 'sip:18005550100@x', 'to': '', 'from': f'<sip:{caller}@y>'}))
+            pkts.append((i + 0.5, '45.79.4.41:5060', f'{ours}:5060',
+                         {'kind': 'response', 'code': code, 'call_id': cid, 'cseq_method': 'INVITE',
+                          'method': '', 'uri': '', 'to': '', 'from': ''}))
+        with mock.patch.object(L, 'udp_payloads', return_value=pkts), \
+                mock.patch.object(L, 'parse_sip', side_effect=lambda m: m):
+            st = hs._sip_file_stats('x')
+        self.assertEqual(st['spam_callers'], {'17405551111': 2})

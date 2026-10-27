@@ -33,3 +33,16 @@ class Command(BaseCommand):
             who = f'{d.buyer.name if d and d.buyer_id else "?"} / {d.name if d else "not a destination"}'
             why = ', '.join(f'{c} {S.REJECT_NAMES.get(c, "")} x{n}' for c, n in v['codes'].items())
             self.stdout.write(f'  {num}  {who}: {v["rejected"]} of {v["total"]} refused ({why})')
+        # CH-326: 607/608 are refusals for the CALLER ID's spam label. We pass
+        # the real caller's number through, so these are the consumers'
+        # numbers, not ours: they cannot be registered by us, only seen.
+        spam = day.get('spam_callers') or {}
+        if spam:
+            total = sum(n for c, n in day.get('codes', {}).items() if c in ('607', '608'))
+            self.stdout.write(f'\nRefused as spam (607/608): {total} calls from '
+                              f'{day.get("spam_caller_count", len(spam))} caller IDs. Top caller IDs:')
+            for num, n in spam.items():
+                self.stdout.write(f'  {num}  x{n}')
+        elif any(c in ('607', '608') for c in day.get('codes', {})):
+            self.stdout.write('\nRefused as spam (607/608): caller IDs not read yet - they fill in '
+                              'over the next hours (one capture hour per minute).')

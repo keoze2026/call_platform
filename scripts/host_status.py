@@ -164,7 +164,7 @@ def _sip_file_stats(path):
         if m['kind'] == 'request' and m['method'] == 'INVITE' and cid not in calls:
             outbound = src.split(':')[0] in OUR_IPS
             calls[cid] = {'t': ts, 'out': outbound, 'dest': L.user_digits(m['uri'] or m['to'])[-11:],
-                          'ring': None, 'final': None}
+                          'caller': L.user_digits(m['from'] or '')[-11:], 'ring': None, 'final': None}
             continue
         c = calls.get(cid)
         if not c or m['kind'] != 'response' or m['cseq_method'] != 'INVITE':
@@ -174,7 +174,7 @@ def _sip_file_stats(path):
             c['ring'] = ts - c['t']
         if code[:1] in '2456' and code != '100' and c['final'] is None and not code.startswith('1'):
             c['final'] = code
-    st = {'inbound': 0, 'outbound': 0, 'codes': {}, 'pdd': [], 'dest': {}}
+    st = {'inbound': 0, 'outbound': 0, 'codes': {}, 'pdd': [], 'dest': {}, 'spam_callers': {}}
     for c in calls.values():
         if not c['out']:
             st['inbound'] += 1
@@ -189,7 +189,15 @@ def _sip_file_stats(path):
         if code in REJECTED:
             d['rejected'] += 1
             d['codes'][code] = d['codes'].get(code, 0) + 1
+        # 607/608: refused for the caller ID's spam label. Which caller IDs,
+        # so the team can see whether it is a few numbers or many (CH-326).
+        if code in SPAM_CODES and c.get('caller'):
+            sc = st['spam_callers']
+            sc[c['caller']] = sc.get(c['caller'], 0) + 1
     return st
+
+
+SPAM_CODES = {'607', '608'}
 
 
 @part
@@ -199,12 +207,18 @@ def sip():
         return {'captures': 0}
     os.makedirs(STATS_DIR, exist_ok=True)
     per = []
+    reread_done = False
     for i, f in enumerate(files):
         cache = os.path.join(STATS_DIR, os.path.basename(f) + '.json')
         current = i == len(files) - 1
         if not current and os.path.exists(cache):
-            per.append(json.load(open(cache)))
-            continue
+            saved = json.load(open(cache))
+            # Hours read before CH-326 have no caller IDs: read one of them
+            # again per run, so the day fills in without one long run.
+            if 'spam_callers' in saved or reread_done:
+                per.append(saved)
+                continue
+            reread_done = True
         try:
             st = _sip_file_stats(f)
         except Exception as e:  # noqa: BLE001
@@ -215,8 +229,10 @@ def sip():
         per.append(st)
 
     def total(parts):
-        out = {'inbound': 0, 'outbound': 0, 'codes': {}, 'pdd': [], 'dest': {}}
+        out = {'inbound': 0, 'outbound': 0, 'codes': {}, 'pdd': [], 'dest': {}, 'spam_callers': {}}
         for p in parts:
+            for k, v in p.get('spam_callers', {}).items():
+                out['spam_callers'][k] = out['spam_callers'].get(k, 0) + v
             out['inbound'] += p.get('inbound', 0)
             out['outbound'] += p.get('outbound', 0)
             out['pdd'] += p.get('pdd', [])
@@ -238,6 +254,8 @@ def sip():
         # Only the numbers with refusals, worst first, to keep the file small.
         out['dest'] = dict(sorted(((k, v) for k, v in out['dest'].items() if v['rejected']),
                                   key=lambda x: -x[1]['rejected'])[:20])
+        out['spam_caller_count'] = len(out['spam_callers'])
+        out['spam_callers'] = dict(sorted(out['spam_callers'].items(), key=lambda x: -x[1])[:30])
         return out
     return {'captures': len(files), 'last_hour': total(per[-1:]), 'day': total(per),
             'newest': os.path.basename(files[-1])}
