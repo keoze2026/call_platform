@@ -5,6 +5,7 @@ Portal (logged in, mounted at /api/numbers/check/ before the numbers router so
     POST   /api/numbers/check/              {numbers, test?}  check, optionally queue test calls
     POST   /api/numbers/check/test          {number}  one test call, watched step by step (CH-239)
     GET    /api/numbers/check/test/{id}     that test call's steps and result
+    GET    /api/numbers/check/today         every test call since 12 AM Eastern (CH-341)
     GET    /api/numbers/check/links         the workspace's share links
     POST   /api/numbers/check/links         {name, publisher_id?}  make one
     DELETE /api/numbers/check/links/{id}    cancel one
@@ -171,6 +172,63 @@ def get_test_call(request: HttpRequest, test_id: str):
     except (TfnTest.DoesNotExist, ValidationError, ValueError):
         return 404, {'detail': 'Test not found'}
     return 200, _test_out(t)
+
+
+@router.get("/today", response={200: dict, 403: dict})
+def tests_today(request: HttpRequest):
+    """Every test call since 12 AM Eastern (Sir, 28 Oct): the history stays
+    on TFN Check until the next Eastern midnight, so anyone can see how many
+    times each TFN was tested today and with what result. A publisher login
+    sees its own numbers only."""
+    from datetime import timedelta
+    from accounts.workspace_permissions import require_perm
+    from .models import TfnTest
+
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    allowed, publisher = _scope(request.auth)
+    if not allowed:
+        return 403, {'detail': 'Your account has no numbers to check'}
+    since = tfn_check.eastern_day_start()
+    qs = (TfnTest.objects.filter(organization=request.auth.organization, created_at__gte=since)
+          .select_related('requested_by').order_by('-created_at'))
+    if publisher is not None:
+        qs = qs.filter(phone_number__publisher=publisher)
+
+    staff = publisher is None
+
+    def by(t):
+        if t.trigger != TfnTest.Trigger.MANUAL:
+            return t.get_trigger_display()
+        u = t.requested_by
+        if u is None:
+            return ''
+        if u.id == request.auth.id:
+            return 'You'
+        if staff:
+            return (u.get_full_name() or u.email or '').strip()
+        return 'Avortyx'
+
+    tests, numbers = [], {}
+    for t in qs[:1000]:
+        row = _test_out(t)
+        row['trigger'] = t.trigger
+        row['by'] = by(t)
+        tests.append(row)
+        n = numbers.setdefault(row['number'], {'number': row['number'], 'tests': 0, 'passed': 0,
+                                               'failed': 0, 'last_at': row['created_at'],
+                                               'last_status': t.status})
+        n['tests'] += 1
+        if t.status == TfnTest.Status.PASSED:
+            n['passed'] += 1
+        elif t.status == TfnTest.Status.FAILED:
+            n['failed'] += 1
+    return 200, {
+        'since': since.isoformat(),
+        'resets_at': (since + timedelta(days=1)).isoformat(),
+        'total': len(tests),
+        'numbers': sorted(numbers.values(), key=lambda n: n['last_at'], reverse=True),
+        'tests': tests,
+    }
 
 
 @router.get("/links", response={200: list})

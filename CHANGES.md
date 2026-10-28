@@ -7743,3 +7743,22 @@ min and their cost, then expense of that day".
 
 Tests: phone_numbers/test_carrier_bill.py (+1). Needs the web restart.
 Portal half: CH-336 in Avortyx. Commit: see git log --grep CH-336.
+
+## CH-341 - TFN Check: today's test calls kept until 12 AM Eastern
+**2026-10-28 · TFN Check**
+
+Sir, 28 Oct: "make sure TFN check history of checking remains until 12 AM EST,
+so any consumer can see how many times TFNs were tested."
+
+- `GET /api/numbers/check/today`: every test call since 12 AM Eastern (all
+  kinds: Test call, morning and automatic tests), per number (tests, passed,
+  failed, last result) and one row per test (time, result, steps, who ran it).
+  Starts again at the next Eastern midnight. A publisher login sees its own
+  numbers only; a buyer has none. Who ran it: "You", the staff member's name
+  (staff only), "Avortyx" for a publisher, or Morning / Automatic.
+- The TFN Check results also give each number `tests_today` /
+  `tests_today_passed` / `tests_today_failed` since 12 AM Eastern - on the
+  portal and on share links - never for a number that is not ours.
+
+Tests: phone_numbers/test_tfn_check.py (+1). Needs the web restart.
+Portal half: CH-341 in Avortyx. Commit: see git log --grep CH-341.

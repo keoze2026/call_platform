@@ -184,6 +184,28 @@ class ApiTests(TestCase):
         run.assert_called_once()
         self.assertEqual(TfnTest.objects.get().trigger, 'manual')
 
+    def test_todays_tests_stay_until_eastern_midnight(self):
+        # CH-341: the history runs from 12 AM Eastern; yesterday's test is gone.
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        et = ZoneInfo('America/New_York')
+        now = datetime(2026, 10, 28, 10, 0, tzinfo=et)
+        for when, status in ((datetime(2026, 10, 27, 23, 59, tzinfo=et), 'passed'),
+                             (datetime(2026, 10, 28, 0, 1, tzinfo=et), 'passed'),
+                             (datetime(2026, 10, 28, 9, 0, tzinfo=et), 'failed')):
+            t = TfnTest.objects.create(organization=self.org, phone_number=self.phone,
+                                       number=self.phone.number, status=status, requested_by=self.owner)
+            TfnTest.objects.filter(pk=t.pk).update(created_at=when)
+        with mock.patch('django.utils.timezone.now', return_value=now):
+            body = self.api.get('/api/numbers/check/today').json()
+            r = self.post('/api/numbers/check/', {'numbers': '8888910563'}).json()['results'][0]
+        self.assertEqual(body['total'], 2)
+        self.assertEqual(body['numbers'][0]['tests'], 2)
+        self.assertEqual((body['numbers'][0]['passed'], body['numbers'][0]['failed']), (1, 1))
+        self.assertEqual(body['tests'][0]['by'], 'You')
+        self.assertTrue(body['since'].startswith('2026-10-28T00:00:00'))
+        self.assertEqual((r['tests_today'], r['tests_today_passed'], r['tests_today_failed']), (2, 1, 1))
+
     def test_a_check_needs_a_login(self):
         r = Client().post('/api/numbers/check/', data='{}', content_type='application/json')
         self.assertEqual(r.status_code, 401)

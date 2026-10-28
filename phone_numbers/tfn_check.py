@@ -128,6 +128,33 @@ def _pick(rows):
     return sorted(rows, key=lambda n: (rank(n), -(n.updated_at.timestamp() if n.updated_at else 0)))[0]
 
 
+def eastern_day_start(now=None):
+    """12:00 AM Eastern today (CH-341): TFN test history and counts run
+    from here and start again at the next Eastern midnight."""
+    from datetime import datetime, time as dtime
+    from zoneinfo import ZoneInfo
+    et = ZoneInfo('America/New_York')
+    local = (now or timezone.now()).astimezone(et)
+    return datetime.combine(local.date(), dtime.min, tzinfo=et)
+
+
+def tests_today_counts(organization, publisher=None, now=None) -> dict:
+    """{last10: {'tests', 'passed', 'failed'}} for test calls since 12 AM Eastern."""
+    from phone_numbers.models import TfnTest
+    qs = TfnTest.objects.filter(organization=organization, created_at__gte=eastern_day_start(now))
+    if publisher is not None:
+        qs = qs.filter(phone_number__publisher=publisher)
+    out = {}
+    for number, status in qs.values_list('number', 'status'):
+        c = out.setdefault(last10(number), {'tests': 0, 'passed': 0, 'failed': 0})
+        c['tests'] += 1
+        if status == TfnTest.Status.PASSED:
+            c['passed'] += 1
+        elif status == TfnTest.Status.FAILED:
+            c['failed'] += 1
+    return out
+
+
 def check(organization, raw, publisher=None) -> dict:
     """Judge each pasted number. `publisher` limits the answer to that
     publisher's numbers (a publisher link, or a publisher login)."""
@@ -173,8 +200,17 @@ def check(organization, raw, publisher=None) -> dict:
             if key in wanted and key not in last_test:
                 last_test[key] = t
 
+        today = tests_today_counts(organization, publisher, now)
         for d in numbers:
-            results.append(_judge(d, rows.get(d), last_call.get(d), last_test.get(d), now))
+            r = _judge(d, rows.get(d), last_call.get(d), last_test.get(d), now)
+            # How many times the number was tested since 12 AM Eastern (CH-341);
+            # never for a number that is not ours (or not this publisher's).
+            if r['status'] != NOT_FOUND:
+                c = today.get(d, {})
+                r['tests_today'] = c.get('tests', 0)
+                r['tests_today_passed'] = c.get('passed', 0)
+                r['tests_today_failed'] = c.get('failed', 0)
+            results.append(r)
 
     summary = {code: 0 for code in ORDER}
     for r in results:
