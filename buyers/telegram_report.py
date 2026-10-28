@@ -148,8 +148,9 @@ def fail_reason_label(reason: str) -> str:
     low = raw.lower()
     if 'duplicate' in low:
         return 'Duplicate Call'
-    if 'callerid blocked' in low or 'caller id blocked' in low:
-        return 'Callerid Blocked'
+    from routing.comments import CALLER_ID_BLOCKED, is_caller_block
+    if is_caller_block(raw):          # CH-349: every blocked caller ID
+        return CALLER_ID_BLOCKED
     if 'cap reached' in low or 'overflow' in low:
         return 'Overflow Missed'
     if 'destination missed' in low or 'no destination' in low:

@@ -61,7 +61,7 @@ class BlockMatchesTests(TestCase):
     def test_the_label_reads_callerid_blocked_whichever_way_it_was_written(self):
         self.block('+16283585660')
         self.assertEqual(
-            RoutingEngine.block_label(CALLER, str(self.org.id)), 'Callerid Blocked')
+            RoutingEngine.block_label(CALLER, str(self.org.id)), 'CallerId Blocked')
 
     def test_whitelist_matches_the_same_way(self):
         self.block('+16283585660')

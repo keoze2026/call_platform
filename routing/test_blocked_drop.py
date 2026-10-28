@@ -2,7 +2,7 @@
 
 Sir: once a caller ID is blocked it must never show on the portal - no red
 missed row, however many times the spammer dials - and any comment for it
-reads "Callerid Blocked", never "Caller is blacklisted".
+reads "CallerId Blocked" (CH-349), never "Caller is blacklisted".
 
 Run:  python manage.py test routing.test_blocked_drop
 """
@@ -59,7 +59,7 @@ class BlockedCallerDropTests(TestCase):
     def test_a_blocked_caller_is_dropped_with_no_row(self):
         self.block()
         out, route, fee = self.dial()
-        self.assertEqual(out, {'action': 'hangup', 'reason': 'Callerid Blocked'})
+        self.assertEqual(out, {'action': 'hangup', 'reason': 'CallerId Blocked'})
         self.assertFalse(CallLog.objects.exists())
         route.assert_not_called()
         fee.assert_not_called()
@@ -146,11 +146,11 @@ class BlockedLabelTests(TestCase):
 
     def test_a_number_from_the_blocked_numbers_page_reads_callerid_blocked(self):
         self.add('scope=number')
-        self.assertEqual(self.label(), 'Callerid Blocked')
+        self.assertEqual(self.label(), 'CallerId Blocked')
 
     def test_a_manual_block_reads_callerid_blocked(self):
         self.add('manual')
-        self.assertEqual(self.label(), 'Callerid Blocked')
+        self.assertEqual(self.label(), 'CallerId Blocked')
 
     def test_never_caller_is_blacklisted(self):
         for reason in ('scope=number', 'manual', '', 'other'):
@@ -163,7 +163,7 @@ class BlockedLabelTests(TestCase):
         buyer = Buyer.objects.create(organization=self.org, name='B1')
         self.add('spam', buyer=buyer)
         self.add('scope=number')
-        self.assertEqual(self.label(), 'Callerid Blocked')
+        self.assertEqual(self.label(), 'CallerId Blocked')
 
 
 class CampaignBlockTests(TestCase):
@@ -187,7 +187,12 @@ class CampaignBlockTests(TestCase):
     def test_an_automatic_do_not_call_block_on_the_campaign_refuses_with_its_reason(self):
         Blacklist.objects.create(organization_id=self.org.id, phone_number='+12056298894',
                                  campaign=self.c03, reason='auto_detected')
-        self.assertEqual(self.route(self.c03, '+12056298894')['error'], 'Caller is on a do-not-call register')
+        out = self.route(self.c03, '+12056298894')
+        # CH-349: the comment is "CallerId Blocked"; the reason stays as detail,
+        # and an automatic block stays a failed row (auto_block).
+        self.assertEqual(out['error'], 'CallerId Blocked')
+        self.assertEqual(out['block_detail'], 'Caller is on a do-not-call register')
+        self.assertTrue(out['auto_block'])
 
     def test_another_campaigns_block_does_not_refuse_this_campaign(self):
         Blacklist.objects.create(organization_id=self.org.id, phone_number='+12056298894',
@@ -200,3 +205,22 @@ class CampaignBlockTests(TestCase):
         Blacklist.objects.create(organization_id=self.org.id, phone_number='+12056298894', reason='scope=number')
         for c in (self.c03, self.c14):
             self.assertEqual(self.route(c, '+12056298894')['error'], RoutingEngine.BLOCKED_CALLER_LABEL)
+
+
+class DoNotCallCommentTests(BlockedCallerDropTests):
+    """CH-349: a caller refused for a do-not-call block is a failed row whose
+    comment reads "CallerId Blocked"."""
+
+    def test_a_do_not_call_block_reads_callerid_blocked_and_stays_failed(self):
+        self.block(reason='auto_detected')
+        decision = {'destination': None, 'rule': None, 'error': 'CallerId Blocked',
+                    'auto_block': True, 'block_detail': 'Caller is on a do-not-call register'}
+        with mock.patch('tasks.enrich_call_carrier.delay'), mock.patch('tasks.charge_rejected_call.delay'), \
+                mock.patch.object(RoutingEngine, 'route_call', return_value=decision):
+            r = Client().post('/api/twilio/asterisk/route/',
+                              data=json.dumps({'caller_number': SPAMMER, 'called_number': TFN,
+                                               'asterisk_call_id': 'sid-dnc'}),
+                              content_type='application/json', HTTP_X_ASTERISK_SECRET=SECRET)
+        self.assertEqual(r.json()['action'], 'hangup')
+        row = CallLog.objects.get()
+        self.assertEqual((row.status, row.block_reason), ('failed', 'CallerId Blocked'))

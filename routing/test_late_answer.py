@@ -85,7 +85,7 @@ class LateAnswerTests(Base):
         self.assertEqual(row.status, CallLog.Status.NO_ANSWER)
 
     def test_a_blocked_or_refused_call_is_not_touched(self):
-        row = self.missed('a', reason='Callerid Blocked')
+        row = self.missed('a', reason='CallerId Blocked')
         self.run_cmd([self.event(row)], '--apply')
         row.refresh_from_db()
         self.assertEqual(row.status, CallLog.Status.NO_ANSWER)

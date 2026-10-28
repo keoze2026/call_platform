@@ -820,7 +820,7 @@ def charge_rejected_call(call_log_id):
         return 'call not found'
 
     # Only a refusal. A call that routed is charged by call_ended.
-    # A blocked caller is recorded as missed ("Callerid Blocked") but is still
+    # A blocked caller is recorded as missed ("CallerId Blocked") but is still
     # a refusal, so it keeps paying the fee it paid as a failed row.
     from routing.engine import RoutingEngine
     blocked_caller = (call.status == CallLog.Status.NO_ANSWER

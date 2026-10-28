@@ -4,7 +4,7 @@
     On server:   cd /opt/call_platform && docker compose exec -T web python scripts/blocked_caller_smoke.py
 
 What it proves, through the same endpoint Asterisk calls (/api/twilio/asterisk/route/):
-  1. A caller on Blocked Numbers is hung up with "Callerid Blocked" and leaves
+  1. A caller on Blocked Numbers is hung up with "CallerId Blocked" and leaves
      NO call row - dialing again and again still leaves nothing (CH-206).
   2. The same for a number saved by the Blocked Numbers page ("scope=number").
   3. A different refusal (caller flagged as spam) is still FAILED, unchanged.

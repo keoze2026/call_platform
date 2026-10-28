@@ -577,7 +577,8 @@ class AnalyticsService:
         not convert has one (CH-250)."""
         if r.is_converted:
             return ''
-        return getattr(r, 'block_reason', '') or ''
+        from routing.comments import comment
+        return comment(getattr(r, 'block_reason', '') or '')   # CH-349
 
     @staticmethod
     def _export_status(r) -> str:

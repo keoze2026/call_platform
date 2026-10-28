@@ -346,9 +346,9 @@ def _route_incoming_call(request):
             # MISSED with the comment "Insufficient Funds". No rejected-call
             # fee is taken: there is nothing to take it from.
             call_log.status = CallLog.Status.NO_ANSWER
-        elif reason == RoutingEngine.BLOCKED_CALLER_LABEL:
+        elif reason == RoutingEngine.BLOCKED_CALLER_LABEL and not decision.get('auto_block'):
             # The boss's rule: a caller the team blocked is MISSED, with the
-            # comment "Callerid Blocked" - not a failed row. It is still a
+            # comment "CallerId Blocked" - not a failed row. It is still a
             # refusal, so the rejected-call fee below is taken as before.
             call_log.status = CallLog.Status.NO_ANSWER
         elif reason.startswith('Destination missed'):

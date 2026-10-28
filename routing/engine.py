@@ -167,7 +167,10 @@ class RoutingEngine:
     # previous call (spam_protection/dnc.py), which reads nothing like a
     # blacklist to whoever is looking at the export - the boss read them as
     # duplicates. One query, and only for a call that is already refused.
-    BLOCKED_CALLER_LABEL = 'Callerid Blocked'
+    # CH-349 (Sir, 28 Oct): "Comment should only be CallerId Blocked" - for
+    # every blocked caller ID, whatever put it on the list (do-not-call, spam,
+    # fraud, the team). The reason stays in the routing trace for the team.
+    BLOCKED_CALLER_LABEL = 'CallerId Blocked'
     # A user workspace out of balance (CH-255): the call is missed with this
     # comment, in Sir's words.
     INSUFFICIENT_FUNDS_LABEL = 'Insufficient Funds'
@@ -178,9 +181,13 @@ class RoutingEngine:
         'fraud':         'Caller flagged as fraud',
         # A number the team blocked on purpose (Block button / Blocked
         # Numbers). The boss's wording: the call is MISSED and the comment
-        # reads "Callerid Blocked" (asterisk_handler marks it missed).
+        # reads "CallerId Blocked" (asterisk_handler marks it missed).
         'manual':        BLOCKED_CALLER_LABEL,
     }
+
+    # What a blocked caller ID's entry says, for the trace; all of them read
+    # "CallerId Blocked" in the comment (CH-349).
+    CALLER_BLOCK_DETAILS = frozenset(BLOCK_LABELS.values())
 
     @staticmethod
     def block_label(caller_number: str, organization_id: str, campaign_id: str = None) -> str:
@@ -207,7 +214,7 @@ class RoutingEngine:
         # The Blocked Numbers page saves its own reason text ("scope=number"),
         # which is none of the keys above, so every number the team blocked
         # there read "Caller is blacklisted". Sir: a blocked caller ID is
-        # "Callerid Blocked", whatever the entry's reason says (CH-206).
+        # "CallerId Blocked", whatever the entry's reason says (CH-206, CH-349).
         return RoutingEngine.BLOCK_LABELS.get(entry.reason, RoutingEngine.BLOCKED_CALLER_LABEL)
 
     @staticmethod
@@ -857,11 +864,18 @@ class RoutingEngine:
         if RoutingEngine.is_blacklisted(caller_number, str(campaign.organization_id), str(campaign.id)):
             label = RoutingEngine.block_label(caller_number, str(campaign.organization_id), str(campaign.id))
             if trace: trace.step('blacklist', False, label.lower())
+            # CH-349: the comment is "CallerId Blocked" for every blocked
+            # caller ID; why it was blocked stays in the trace above. An
+            # automatic block (do-not-call, spam, fraud) stays a failed row,
+            # as before; a block the team made stays missed (CH-206).
+            if label in RoutingEngine.CALLER_BLOCK_DETAILS:
+                return {'destination': None, 'rule': None, 'error': RoutingEngine.BLOCKED_CALLER_LABEL,
+                        'auto_block': label != RoutingEngine.BLOCKED_CALLER_LABEL, 'block_detail': label}
             return {'destination': None, 'rule': None, 'error': label}
         if trace: trace.step('blacklist', True)
 
         # A caller the team blocked on this publisher only: refused here as a
-        # missed call with the same "Callerid Blocked" comment, while the same
+        # missed call with the same "CallerId Blocked" comment, while the same
         # caller on another publisher's numbers goes through.
         if RoutingEngine.is_publisher_blocked(
             caller_number, str(campaign.organization_id), call_data.get('publisher_id')
