@@ -155,6 +155,48 @@ def tests_today_counts(organization, publisher=None, now=None) -> dict:
     return out
 
 
+def record(organization, results, *, user=None, publisher=None, link=None) -> None:
+    """Remember each number of one Check (CH-342), so Today's list shows how
+    many times it was checked. Never fails the check itself."""
+    from phone_numbers.models import TfnCheckEvent
+    if not results:
+        return
+    try:
+        source = TfnCheckEvent.Source.LINK if link is not None else TfnCheckEvent.Source.PORTAL
+        TfnCheckEvent.objects.bulk_create([
+            TfnCheckEvent(organization=organization, number=last10(r['number']), status=r['status'],
+                          source=source, link=link, publisher=publisher,
+                          user=user if getattr(user, 'pk', None) else None)
+            for r in results
+        ])
+        # Older checks are never shown: keep a week, delete the rest once a day.
+        if cache.add(f'tfn_check_events_purged:{timezone.now():%Y%m%d}', 1, 26 * 3600):
+            TfnCheckEvent.objects.filter(created_at__lt=timezone.now() - timedelta(days=7)).delete()
+    except Exception:
+        logger.exception('could not record a TFN check')
+
+
+def checks_today(organization, *, publisher=None, link=None, now=None) -> dict:
+    """{last10: {'checks', 'last_checked_at', 'last_result'}} since 12 AM Eastern.
+    A share link sees only its own checks; a publisher only its own publisher's."""
+    from django.db.models import Count, OuterRef, Subquery
+    from phone_numbers.models import TfnCheckEvent
+    events = TfnCheckEvent.objects.filter(organization=organization, created_at__gte=eastern_day_start(now))
+    if link is not None:
+        events = events.filter(link=link)
+    elif publisher is not None:
+        events = events.filter(publisher=publisher)
+    latest = events.filter(number=OuterRef('number')).order_by('-created_at', '-id')
+    out = {}
+    for r in (events.values('number')
+              .annotate(checks=Count('id'), last=Max('created_at'),
+                        last_result=Subquery(latest.values('status')[:1]))
+              .order_by('-last')[:1000]):
+        out[r['number']] = {'checks': r['checks'], 'last_checked_at': r['last'],
+                            'last_result': r['last_result'] if r['last_result'] in LABELS else NOT_FOUND}
+    return out
+
+
 def check(organization, raw, publisher=None) -> dict:
     """Judge each pasted number. `publisher` limits the answer to that
     publisher's numbers (a publisher link, or a publisher login)."""

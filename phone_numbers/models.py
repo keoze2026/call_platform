@@ -321,6 +321,35 @@ class TfnCheckLink(models.Model):
         return f'{self.name} ({"revoked" if self.revoked_at else "active"})'
 
 
+class TfnCheckEvent(models.Model):
+    """One number checked once on TFN Check (CH-342, Sir 28 Oct).
+
+    The page lists today's checks until 12 AM Eastern, so whoever checks
+    numbers - on the portal or from a share link - can see how many times each
+    one was checked and tested today. Only the number and the result the
+    checker saw are kept: nothing a share link may not already show.
+    """
+    class Source(models.TextChoices):
+        PORTAL = 'portal', 'Portal'
+        LINK = 'link', 'Share link'
+
+    id = models.BigAutoField(primary_key=True)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='tfn_check_events')
+    number = models.CharField(max_length=10)
+    status = models.CharField(max_length=16)
+    source = models.CharField(max_length=8, choices=Source.choices, default=Source.PORTAL)
+    # A share link or a publisher login sees only its own checks.
+    link = models.ForeignKey(TfnCheckLink, on_delete=models.CASCADE, null=True, blank=True, related_name='events')
+    publisher = models.ForeignKey('publishers.Publisher', on_delete=models.CASCADE,
+                                  null=True, blank=True, related_name='+')
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [models.Index(fields=['organization', 'created_at'])]
+
+
 class RoutingRate(models.Model):
     """What we pay to route a call on to a buyer (CH-186).
 

@@ -5,7 +5,7 @@ Portal (logged in, mounted at /api/numbers/check/ before the numbers router so
     POST   /api/numbers/check/              {numbers, test?}  check, optionally queue test calls
     POST   /api/numbers/check/test          {number}  one test call, watched step by step (CH-239)
     GET    /api/numbers/check/test/{id}     that test call's steps and result
-    GET    /api/numbers/check/today         every test call since 12 AM Eastern (CH-341)
+    GET    /api/numbers/check/today         every check and test call since 12 AM Eastern (CH-341/342)
     GET    /api/numbers/check/links         the workspace's share links
     POST   /api/numbers/check/links         {name, publisher_id?}  make one
     DELETE /api/numbers/check/links/{id}    cancel one
@@ -13,6 +13,7 @@ Portal (logged in, mounted at /api/numbers/check/ before the numbers router so
 Public (no login, the link's token is the key; mounted at /api/public/tfn-check/):
     GET    /api/public/tfn-check/{token}    the link's name, to title the page
     POST   /api/public/tfn-check/{token}    {numbers}  check
+    GET    /api/public/tfn-check/{token}/today  this link's checks today and their test calls (CH-342)
 
 The public POST is also the API for scripts: anyone given a link can send
     curl -X POST https://<backend>/api/public/tfn-check/<token> \
@@ -97,6 +98,7 @@ def check_numbers(request: HttpRequest, payload: CheckIn):
         numbers, _ = tfn_check.parse_numbers(payload.numbers)
         queued = tfn_check.queue_tests(org, numbers[:tfn_check.MAX_NUMBERS], request.auth, publisher)
     out = tfn_check.check(org, payload.numbers, publisher)
+    tfn_check.record(org, out['results'], user=request.auth, publisher=publisher)
     out['tests_queued'] = queued
     return 200, out
 
@@ -174,27 +176,26 @@ def get_test_call(request: HttpRequest, test_id: str):
     return 200, _test_out(t)
 
 
-@router.get("/today", response={200: dict, 403: dict})
-def tests_today(request: HttpRequest):
-    """Every test call since 12 AM Eastern (Sir, 28 Oct): the history stays
-    on TFN Check until the next Eastern midnight, so anyone can see how many
-    times each TFN was tested today and with what result. A publisher login
-    sees its own numbers only."""
+def _today(org, *, viewer=None, publisher=None, link=None):
+    """Today's checks and test calls since 12 AM Eastern, kept until the next
+    Eastern midnight (CH-341 test calls, CH-342 checks and share links).
+
+    One row per number - times checked, last result, test calls passed /
+    failed - plus every test call. A share link sees the numbers it checked and
+    their test calls; a publisher login its own numbers; staff everything.
+    """
     from datetime import timedelta
-    from accounts.workspace_permissions import require_perm
     from .models import TfnTest
 
-    require_perm(request.auth, 'tracking-numbers', 'view')
-    allowed, publisher = _scope(request.auth)
-    if not allowed:
-        return 403, {'detail': 'Your account has no numbers to check'}
     since = tfn_check.eastern_day_start()
-    qs = (TfnTest.objects.filter(organization=request.auth.organization, created_at__gte=since)
-          .select_related('requested_by').order_by('-created_at'))
-    if publisher is not None:
-        qs = qs.filter(phone_number__publisher=publisher)
+    scope = publisher if publisher is not None else (link.publisher if link is not None else None)
+    staff = scope is None and link is None
+    checked = tfn_check.checks_today(org, publisher=publisher, link=link)
 
-    staff = publisher is None
+    qs = (TfnTest.objects.filter(organization=org, created_at__gte=since)
+          .select_related('requested_by').order_by('-created_at'))
+    if scope is not None:
+        qs = qs.filter(phone_number__publisher=scope)
 
     def by(t):
         if t.trigger != TfnTest.Trigger.MANUAL:
@@ -202,33 +203,72 @@ def tests_today(request: HttpRequest):
         u = t.requested_by
         if u is None:
             return ''
-        if u.id == request.auth.id:
+        if viewer is not None and u.id == viewer.id:
             return 'You'
         if staff:
             return (u.get_full_name() or u.email or '').strip()
         return 'Avortyx'
 
     tests, numbers = [], {}
+
+    def number_row(shown):
+        return numbers.setdefault(shown, {
+            'number': shown, 'tests': 0, 'passed': 0, 'failed': 0, 'last_at': None, 'last_status': None,
+            'checks': 0, 'last_checked_at': None, 'last_result': None,
+        })
+
     for t in qs[:1000]:
+        key = tfn_check.last10(t.number)
+        # A share link lists only the numbers it checked itself.
+        if link is not None and key not in checked:
+            continue
         row = _test_out(t)
         row['trigger'] = t.trigger
         row['by'] = by(t)
         tests.append(row)
-        n = numbers.setdefault(row['number'], {'number': row['number'], 'tests': 0, 'passed': 0,
-                                               'failed': 0, 'last_at': row['created_at'],
-                                               'last_status': t.status})
+        n = number_row(row['number'])
+        if n['last_status'] is None:
+            n['last_status'] = t.status
+            n['last_test_at'] = row['created_at']
         n['tests'] += 1
         if t.status == TfnTest.Status.PASSED:
             n['passed'] += 1
         elif t.status == TfnTest.Status.FAILED:
             n['failed'] += 1
-    return 200, {
+
+    for key, c in checked.items():
+        n = number_row(tfn_check.e164(key))
+        n['checks'] = c['checks']
+        n['last_checked_at'] = c['last_checked_at'].isoformat()
+        n['last_result'] = c['last_result']
+
+    for n in numbers.values():
+        n['last_at'] = max(x for x in (n.get('last_test_at'), n['last_checked_at']) if x)
+        n.pop('last_test_at', None)
+
+    return {
         'since': since.isoformat(),
         'resets_at': (since + timedelta(days=1)).isoformat(),
         'total': len(tests),
+        'total_checks': sum(n['checks'] for n in numbers.values()),
         'numbers': sorted(numbers.values(), key=lambda n: n['last_at'], reverse=True),
         'tests': tests,
     }
+
+
+@router.get("/today", response={200: dict, 403: dict})
+def tests_today(request: HttpRequest):
+    """Every check and test call since 12 AM Eastern (Sir, 28 Oct): the history
+    stays on TFN Check until the next Eastern midnight, so anyone can see how
+    many times each TFN was checked and tested today and with what result. A
+    publisher login sees its own numbers only."""
+    from accounts.workspace_permissions import require_perm
+
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    allowed, publisher = _scope(request.auth)
+    if not allowed:
+        return 403, {'detail': 'Your account has no numbers to check'}
+    return 200, _today(request.auth.organization, viewer=request.auth, publisher=publisher)
 
 
 @router.get("/links", response={200: list})
@@ -319,4 +359,15 @@ def public_check(request: HttpRequest, token: str, payload: CheckIn):
         last_used_at=timezone.now(), use_count=F('use_count') + 1)
     # A public link never places test calls: it reads what we already know,
     # including the automatic tests' latest results.
-    return 200, tfn_check.check(link.organization, payload.numbers, link.publisher)
+    out = tfn_check.check(link.organization, payload.numbers, link.publisher)
+    tfn_check.record(link.organization, out['results'], publisher=link.publisher, link=link)
+    return 200, out
+
+
+@public_router.get("/{token}/today", response={200: dict, 404: dict})
+def public_today(request: HttpRequest, token: str):
+    """Today's checks from this link and their test calls, until 12 AM Eastern (CH-342)."""
+    link = _live_link(token)
+    if link is None:
+        return 404, {'detail': 'This link is not valid or has been cancelled'}
+    return 200, _today(link.organization, link=link)
