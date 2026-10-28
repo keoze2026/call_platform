@@ -92,6 +92,10 @@ def _sheet_name(name: str) -> str:
 
 def write_xlsx(header, rows, sheet='Report') -> bytes:
     """One sheet: `header` (bold white on blue) then `rows`. Returns the file."""
+    return write_xlsx_sheets([(sheet, header, rows)])
+
+
+def _sheet_xml(header, rows) -> str:
     widths = [len(str(h)) for h in header]
     for row in rows:
         for i, v in enumerate(row[:len(widths)]):
@@ -105,30 +109,64 @@ def write_xlsx(header, rows, sheet='Report') -> bytes:
         f'<col min="{i + 1}" max="{i + 1}" width="{min(max(w + 2, 10), 80)}" customWidth="1"/>'
         for i, w in enumerate(widths)
     )
-    sheet_xml = (
+    return (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
         '<sheetViews><sheetView workbookViewId="0">'
         '<pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/>'
         '</sheetView></sheetViews>'
-        f'<cols>{cols}</cols>'
+        + (f'<cols>{cols}</cols>' if cols else '') +
         f'<sheetData>{"".join(lines)}</sheetData>'
         '</worksheet>'
+    )
+
+
+def write_xlsx_sheets(sheets) -> bytes:
+    """Several sheets in one file (CH-347): [(name, header, rows), ...]."""
+    sheets = list(sheets) or [('Report', [], [])]
+    names, seen = [], set()
+    for name, _, _ in sheets:
+        base = _sheet_name(name)
+        n, i = base, 2
+        while n.lower() in seen:
+            n = f'{base[:28]} {i}'
+            i += 1
+        seen.add(n.lower())
+        names.append(n)
+    count = len(sheets)
+    content_types = _CONTENT_TYPES.replace(
+        '<Override PartName="/xl/worksheets/sheet1.xml" '
+        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>',
+        ''.join(f'<Override PartName="/xl/worksheets/sheet{i}.xml" '
+                'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
+                for i in range(1, count + 1)))
+    rels = (
+        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+        + ''.join(f'<Relationship Id="rId{i}" '
+                  'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
+                  f'Target="worksheets/sheet{i}.xml"/>' for i in range(1, count + 1))
+        + f'<Relationship Id="rId{count + 1}" '
+        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" '
+        'Target="styles.xml"/>'
+        '</Relationships>'
     )
     workbook = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
         'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        f'<sheets><sheet name="{escape(_sheet_name(sheet))}" sheetId="1" r:id="rId1"/></sheets>'
-        '</workbook>'
+        '<sheets>'
+        + ''.join(f'<sheet name="{escape(n)}" sheetId="{i}" r:id="rId{i}"/>' for i, n in enumerate(names, 1))
+        + '</sheets></workbook>'
     )
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, 'w', zipfile.ZIP_DEFLATED) as z:
-        z.writestr('[Content_Types].xml', _CONTENT_TYPES)
+        z.writestr('[Content_Types].xml', content_types)
         z.writestr('_rels/.rels', _ROOT_RELS)
         z.writestr('xl/workbook.xml', workbook)
-        z.writestr('xl/_rels/workbook.xml.rels', _WORKBOOK_RELS)
+        z.writestr('xl/_rels/workbook.xml.rels', rels)
         z.writestr('xl/styles.xml', _STYLES)
-        z.writestr('xl/worksheets/sheet1.xml', sheet_xml)
+        for i, (_, header, rows) in enumerate(sheets, 1):
+            z.writestr(f'xl/worksheets/sheet{i}.xml', _sheet_xml(header, rows))
     return buf.getvalue()

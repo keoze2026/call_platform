@@ -446,6 +446,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.send_buyer_reports',
         'schedule': 300.0,  # every 5 minutes
     },
+    # The team report from our own reports bot, at each chat's time (CH-347).
+    'send-team-reports': {
+        'task': 'tasks.send_team_reports',
+        'schedule': 300.0,  # every 5 minutes
+    },
     'retry-failed-webhooks': {
         'task': 'tasks.retry_failed_webhooks',
         'schedule': 300.0,  # every 5 minutes
@@ -801,6 +806,14 @@ DAILY_STATUS_ORGS = [
 # No leading '@'. Without it, POST /api/accounts/me/telegram/link returns 400.
 TELEGRAM_BOT_USERNAME = config('TELEGRAM_BOT_USERNAME', default='')
 TELEGRAM_LINK_TTL_MINUTES = config('TELEGRAM_LINK_TTL_MINUTES', default=15, cast=int)
+
+# Our own reports bot (CH-347, Sir 28 Oct): a second bot, made by us in
+# BotFather, that only sends the team report. The support bot above keeps
+# support and alerts. Empty token = the team report is off. The webhook secret
+# is worked out from the token when not set.
+REPORTS_BOT_TOKEN = config('REPORTS_BOT_TOKEN', default='')
+REPORTS_BOT_USERNAME = config('REPORTS_BOT_USERNAME', default='').lstrip('@')
+REPORTS_BOT_WEBHOOK_SECRET = config('REPORTS_BOT_WEBHOOK_SECRET', default='')
 
 # Production security hardening
 SECURE_SSL_REDIRECT = False

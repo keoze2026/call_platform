@@ -877,6 +877,14 @@ def send_buyer_reports():
     return f"Buyer reports: {done['sent']} sent, {done['failed']} failed"
 
 
+@app.task(name='tasks.send_team_reports')
+def send_team_reports():
+    """The team report from our own reports bot, where due (CH-347)."""
+    from analytics.team_report import send_due
+    done = send_due()
+    return f"Team reports: {done['sent']} sent, {done['failed']} failed"
+
+
 @app.task(name='tasks.send_status_report')
 def send_status_report(chat_id, thread_id=''):
     """/status in the bot (CH-314): every service, one status each."""

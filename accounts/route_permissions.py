@@ -122,6 +122,8 @@ RULES = [
     _rule(r'^/buyers/[^/]+/telegram-report(/send|/send-test|/connect-link)?$', ADMIN),
     # Every buyer's report status, for Automated Reports (CH-261).
     _rule(r'^/buyers/telegram-reports$', ADMIN),
+    # The team report from our own reports bot (CH-347): administration.
+    _rule(r'^/team-report(/.*)?$', ADMIN),
     _rule(r'^/buyers(/.*)?$', 'buyers'),
     _rule(r'^/publishers(/.*)?$', 'traffic-sources'),
     # A vendor is the carrier a number is bought from. Reading the list is also

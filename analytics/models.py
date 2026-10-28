@@ -252,3 +252,41 @@ class AutopilotSettings(models.Model):
 
     def __str__(self):
         return f"Autopilot for {self.organization_id}"
+
+
+from datetime import time as datetime_time  # noqa: E402
+
+
+class TeamReportChat(models.Model):
+    """A Telegram chat that gets the team report from our own reports bot
+    (CH-347, Sir 28 Oct: "an in-house automated reporting bot that gets its
+    own Telegram ID to send automated reports").
+
+    A team member presses Connect on the Automated Report page, then Start on
+    our reports bot (or adds it to a group): the bot saves the chat here by
+    itself - nobody looks up or types a chat ID. The support bot is not used.
+    """
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(Organization, on_delete=models.CASCADE, related_name='team_report_chats')
+    chat_id = models.CharField(max_length=64)
+    title = models.CharField(max_length=255, blank=True, default='')
+    kind = models.CharField(max_length=16, blank=True, default='')        # private / group / supergroup
+    connected_by = models.ForeignKey('accounts.User', on_delete=models.SET_NULL, null=True, blank=True,
+                                     related_name='+')
+    connected_at = models.DateTimeField(auto_now_add=True)
+    enabled = models.BooleanField(default=True)
+    # Eastern time. Before 6 AM the report covers the whole previous day.
+    send_time = models.TimeField(default=datetime_time(9, 0))
+    last_sent_on = models.DateField(null=True, blank=True)
+    last_sent_at = models.DateTimeField(null=True, blank=True)
+    last_result = models.CharField(max_length=255, blank=True, default='')
+    attempts_on = models.DateField(null=True, blank=True)
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        db_table = 'team_report_chats'
+        ordering = ['connected_at']
+        unique_together = ('organization', 'chat_id')
+
+    def __str__(self):
+        return f'{self.title or self.chat_id} ({"on" if self.enabled else "off"})'
