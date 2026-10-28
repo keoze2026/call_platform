@@ -1,0 +1,38 @@
+# Avortyx Guard, layer 1 (CH-354): every change is tested before it can merge.
+# Branch protection on master requires this job ("backend tests") to pass.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      SECRET_KEY: ci-only-not-a-secret
+      DEBUG: 'False'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Every model change has its migration
+        run: python manage.py makemigrations --check --dry-run --settings=config.test_settings
+      - name: All tests
+        run: python manage.py test --settings=config.test_settings --noinput
+      - name: No secrets in the code
+        run: |
+          if git grep -nE '[0-9]{8,10}:AA[A-Za-z0-9_-]{30,}|sk-ant-[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}' -- . ':!*.md'; then
+            echo "A token or key is in the code. Move it to .env." && exit 1
+          fi

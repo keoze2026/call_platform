@@ -901,6 +901,16 @@ def status_watch():
     return f'status warnings sent: {S.watch(S.post)}'
 
 
+@app.task(name='tasks.guard_check')
+def guard_check():
+    """CH-354 Avortyx Guard: the platform's numbers compared every hour - a
+    difference reaches the team the hour it happens, not when Sir finds it."""
+    from analytics import guard
+    from support.system_status import post
+    chat, thread = guard.guard_chat()
+    return f"guard messages sent: {guard.hourly(lambda text: post(text, chat=chat, thread=thread))}"
+
+
 @app.task(name='tasks.telegram_autodelete')
 def telegram_autodelete():
     """CH-332: the bot's notifications are deleted from the team's Telegram

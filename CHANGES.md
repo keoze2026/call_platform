@@ -7809,3 +7809,27 @@ give check box to add bulk".
 
 Tests: campaigns/test_groups.py (+4). Needs the web restart.
 Portal half: CH-353 in Avortyx. Commit: see git log --grep CH-353.
+
+## CH-354 - Avortyx Guard, day 1: the numbers checker and tests on every change
+**2026-10-29 · Quality**
+
+Sir, 29 Oct: "Why these tiny errors keep on coming? ... For how long I have
+to check everything". Roadmap: the "Avortyx Guard: roadmap" doc.
+
+- `analytics/guard.py`: the platform's numbers compared with each other,
+  read only. cost (balance charge = call log = Reports, call by call), calls
+  (every ended call is in Reports), stuck (no call live over 2 hours), tfns
+  (every TFN on a campaign has its carrier), tabs (each Campaign / Publisher
+  / Buyer row = its calls added up one by one; finished days). Calls younger
+  than 15 minutes are left out. One broken check never stops the others.
+- `tasks.guard_check`, every hour: a new or changed problem goes to Telegram
+  once, "back to normal" when it clears; after 6 AM Eastern yesterday is
+  checked in full and a summary goes out even when all passed.
+  GUARD_CHAT_ID (.env) = its own chat; default the status chat.
+- `manage.py guard_check [--day YYYY-MM-DD] [--tabs] [--send]` by hand.
+- `.github/workflows/tests.yml`: on every pull request and push to master -
+  migrations complete, the whole suite (`config/test_settings.py`, no .env
+  needed), no bot token or key in the code.
+
+Tests: analytics/test_guard.py (+11). The command works at once; the hourly
+check starts after the worker and beat restart.

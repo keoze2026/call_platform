@@ -431,6 +431,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.status_watch',
         'schedule': 900.0,  # every 15 minutes
     },
+    # CH-354 Avortyx Guard: charges, calls and Reports compared every hour.
+    'guard-check': {
+        'task': 'tasks.guard_check',
+        'schedule': 3600.0,  # every hour
+    },
     # CH-327: portal routing / user / carrier changes, sent as they happen.
     'portal-change-alerts': {
         'task': 'tasks.portal_change_alerts',
