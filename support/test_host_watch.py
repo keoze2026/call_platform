@@ -148,7 +148,7 @@ class HostWatchTests(SimpleTestCase):
     def test_message_puts_red_first_and_stays_short(self):
         events = [('cron', False, 'cron line')] + [('port', True, f'red {i}') for i in range(30)]
         text = self.hw.message(events)
-        self.assertTrue(text.startswith('🔴 <b>Avortyx server alert</b> · '))
+        self.assertTrue(text.startswith('🔴 <b>Avortyx Server Alert</b> · <code>'))
         self.assertIn('\nred 0\n', text)
         self.assertIn('… and 6 more', text)
 
@@ -201,3 +201,56 @@ class HostWatchTests(SimpleTestCase):
         self.assertEqual(len(self.sent), 1)
         self.assertIn('Unknown process running</b>: xmrig · 99% CPU · user root · pid 4000000 · running 10 min',
                       self.sent[0])
+
+
+class FirewallAlertTests(SimpleTestCase):
+    """CH-351: Fail2Ban bans read the way Sir laid them out."""
+
+    def setUp(self):
+        self.hw = load()
+
+    BAN = '195.178.110.232            REJECT      Anywhere                   # by Fail2Ban after 3 attempts against sshd'
+    OLD = '201.139.186.238            REJECT      Anywhere                   # by Fail2Ban after 3 attempts against sshd'
+
+    def test_a_ban_and_an_unban(self):
+        text = self.hw.firewall_text(['Anywhere REJECT 195.178.110.232 # by Fail2Ban after 3 attempts against sshd'],
+                                     ['Anywhere REJECT 201.139.186.238 # by Fail2Ban after 3 attempts against sshd'],
+                                     '09:31 UTC')
+        self.assertEqual(text, '<b>Firewall rules updated</b> · 09:31 UTC\n\n'
+                               '• Blocked by Fail2Ban: <code>195.178.110.232</code>\n'
+                               '• Ban removed: <code>201.139.186.238</code>\n\n'
+                               'Both actions followed 3 failed attempts.')
+
+    def test_one_ban_with_ufw_padding(self):
+        text = self.hw.firewall_text([self.BAN], [], '10:02 UTC')
+        self.assertIn('• Blocked by Fail2Ban: <code>195.178.110.232</code>', text)
+        self.assertIn('This action followed 3 failed attempts.', text)
+
+    def test_a_rule_changed_by_hand_is_still_shown(self):
+        text = self.hw.firewall_text(['5080/udp ALLOW 45.79.4.41'], [], '10:05 UTC')
+        self.assertIn('• Rule added: <code>5080/udp ALLOW 45.79.4.41</code>', text)
+        self.assertIn('changed by hand', text)
+        self.assertNotIn('Fail2Ban', text)
+
+    def test_the_whole_alert(self):
+        body = self.hw.firewall_text([self.BAN], [self.OLD], '09:31 UTC')
+        msg = self.hw.message([('firewall', True, body)])
+        self.assertTrue(msg.startswith('🔴 <b>Avortyx Server Alert</b> · <code>'))
+        self.assertIn('</code>\n\n<b>Firewall rules updated</b> · 09:31 UTC', msg)
+
+    def test_the_watch_sends_it(self):
+        import os, tempfile
+        tmp = tempfile.mkdtemp()
+        self.hw.STATE = os.path.join(tmp, 'state.json')
+        self.hw.LOCK = self.hw.STATE + '.lock'
+        sent = []
+        self.hw.telegram = lambda text: sent.append(text) or True
+        status = 'Status: active\n\nTo   Action   From\n--   ------   ----\n'
+        with mock.patch.object(self.hw, 'sh', return_value=status + self.OLD + '\n'):
+            self.hw.run(checks=[self.hw.check_firewall])
+        with mock.patch.object(self.hw, 'sh', return_value=status + self.BAN + '\n'):
+            self.hw.run(checks=[self.hw.check_firewall])
+        self.assertEqual(len(sent), 1)
+        self.assertIn('• Blocked by Fail2Ban: <code>195.178.110.232</code>', sent[0])
+        self.assertIn('• Ban removed: <code>201.139.186.238</code>', sent[0])
+        self.assertIn('Both actions followed 3 failed attempts.', sent[0])

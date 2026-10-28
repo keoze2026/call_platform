@@ -699,7 +699,57 @@ def check_users(r):
 
 
 def _rule_lines(text):
-    return {digest(x.strip()): x.strip()[:100] for x in text.splitlines() if x.strip()}
+    # 200, not 100: ufw pads its columns, and Fail2Ban's comment ("# by
+    # Fail2Ban after 3 attempts against sshd") sits at the end of the line.
+    return {digest(x.strip()): x.strip()[:200] for x in text.splitlines() if x.strip()}
+
+
+_F2B = re.compile(r'by\s+fail2ban\s+after\s+(\d+)\s+attempts?(?:\s+against\s+(\S+))?', re.I)
+_IP = re.compile(r'\b\d{1,3}(?:\.\d{1,3}){3}(?:/\d+)?\b|\b[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,}\b', re.I)
+
+
+def _ban(line):
+    """(ip, attempts) when a ufw line is a Fail2Ban ban, else None."""
+    m = _F2B.search(line or '')
+    if not m:
+        return None
+    rule = line.split('#', 1)[0]
+    ips = [ip for ip in _IP.findall(rule) if ip not in ('0.0.0.0/0', '::/0')]
+    return (ips[0] if ips else '?'), int(m.group(1))
+
+
+def firewall_text(added, removed, when) -> str:
+    """CH-351 (Sir, 28 Oct): the firewall alert, laid out the way Sir showed -
+    "Firewall rules updated · 09:31 UTC", one line per ban, and how many
+    failed attempts led to it. Rules a person changed are listed below."""
+    e = html.escape
+    lines = [f'<b>Firewall rules updated</b> · {when}', '']
+    attempts = []
+    for line in added:
+        b = _ban(line)
+        if b:
+            lines.append(f'• Blocked by Fail2Ban: <code>{e(b[0])}</code>')
+            attempts.append(b[1])
+    for line in removed:
+        b = _ban(line)
+        if b:
+            lines.append(f'• Ban removed: <code>{e(b[0])}</code>')
+            attempts.append(b[1])
+    other = [('Rule added', x) for x in added if not _ban(x)] + [('Rule removed', x) for x in removed if not _ban(x)]
+    for what, line in other[:6]:
+        lines.append(f'• {what}: <code>{e(" ".join(line.split()))}</code>')
+    if attempts:
+        lines.append('')
+        if len(set(attempts)) == 1:
+            n = attempts[0]
+            who = 'This action' if len(attempts) == 1 else 'Both actions' if len(attempts) == 2 else 'All actions'
+            lines.append(f'{who} followed {n} failed attempt{"s" if n != 1 else ""}.')
+        else:
+            lines.append('Each ban followed ' + ', '.join(str(n) for n in attempts) + ' failed attempts.')
+    if other:
+        lines.append('')
+        lines.append('A firewall rule was changed by hand: please confirm it was expected.')
+    return '\n'.join(lines)
 
 
 def check_firewall(r):
@@ -711,8 +761,8 @@ def check_firewall(r):
     before = r.state.get('fw_text') or {}
     r.state['fw_text'] = lines
     if added or removed:
-        what = [f'added: {lines[k]}' for k in added][:4] + [f'removed: {before.get(k, "?")}' for k in removed][:4]
-        r.event('firewall', f'🛡 <b>Firewall rule changed</b>: {html.escape("; ".join(what))} · {hhmm()}', red=True)
+        r.event('firewall', firewall_text([lines[k] for k in added][:8],
+                                          [before.get(k, '?') for k in removed][:8], hhmm()), red=True)
     r.report['firewall_rules'] = len(lines)
 
 
@@ -829,10 +879,15 @@ def follow_up(r, state):
 def message(events) -> str:
     red = any(e[1] for e in events)
     host = html.escape(socket.gethostname())
-    head = f'🔴 <b>Avortyx server alert</b> · {host}' if red else f'🔔 <b>Avortyx server</b> · {host}'
+    # CH-351: "Avortyx Server Alert · <host>", and a block of its own for an
+    # alert that has several lines (Sir: professional and organised).
+    head = f'🔴 <b>Avortyx Server Alert</b> · <code>{host}</code>' if red \
+        else f'🔔 <b>Avortyx Server</b> · <code>{host}</code>'
     lines = [e[2] for e in sorted(events, key=lambda e: not e[1])]
     if len(lines) > 25:
         lines = lines[:25] + [f'… and {len(lines) - 25} more']
+    if any('\n' in x for x in lines):
+        return head + '\n\n' + '\n\n'.join(lines)
     return head + '\n' + '\n'.join(lines)
 
 
