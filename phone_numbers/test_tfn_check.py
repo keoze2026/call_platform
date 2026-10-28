@@ -99,10 +99,18 @@ class JudgeTests(TestCase):
 
     def test_a_recent_call_proves_it_works(self):
         self.number('8888910506')
-        self.call('8888910506', hours_ago=2)
+        self.call('8888910506', hours_ago=0.5)
         r = tfn_check.check(self.org, '8888910506')['results'][0]
         self.assertEqual(r['status'], 'working')
-        self.assertEqual(r['detail'], 'Last call received 2 hours ago.')
+        self.assertEqual(r['detail'], 'Last call received 30 minutes ago.')
+
+    def test_a_call_two_hours_ago_no_longer_proves_it(self):
+        # CH-360: the carrier may have stopped since (its credit ran out).
+        self.number('8888910526')
+        self.call('8888910526', hours_ago=2)
+        r = tfn_check.check(self.org, '8888910526')['results'][0]
+        self.assertEqual(r['status'], 'active')
+        self.assertEqual(r['detail'], 'Active. Last call 2 hours ago; not proven in the last hour.')
 
     def test_a_passed_test_call_proves_it_works(self):
         phone = self.number('8888910507')
@@ -118,7 +126,7 @@ class JudgeTests(TestCase):
     def test_a_real_call_after_a_failed_test_wins(self):
         phone = self.number('8888910509')
         self.add_test(phone, passed=False, hours_ago=3)
-        self.call('8888910509', hours_ago=1)
+        self.call('8888910509', hours_ago=0.5)
         self.assertEqual(self.status('8888910509'), 'working')
 
     def test_a_platform_refusal_is_not_a_dead_number(self):

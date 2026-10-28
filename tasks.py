@@ -767,6 +767,18 @@ def auto_tfn_tests():
     return f'{queued} queued'
 
 
+@app.task(name='tasks.carrier_watch')
+def carrier_watch():
+    """CH-360: a real test call through each carrier every 15 minutes; a
+    carrier that stops delivering (its credit ran out) turns its TFNs to Not
+    Working in TFN Check and alerts the team on Telegram."""
+    from analytics import guard
+    from phone_numbers import carrier_watch as W
+    from support.system_status import post
+    chat, thread = guard.guard_chat()
+    return W.tick(lambda text: post(text, chat=chat, thread=thread))
+
+
 @app.task(name='tasks.retire_used_number')
 def retire_used_number(called_number, call_log_id):
     """Take a single-use number out of service after its call.

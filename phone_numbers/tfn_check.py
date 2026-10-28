@@ -238,7 +238,8 @@ def check(organization, raw, publisher=None, staff=False) -> dict:
         for d in numbers:
             variants += [f'+1{d}', f'1{d}', d, f'+{d}']
         rows = {}
-        qs = PhoneNumber.objects.filter(organization=organization, number__in=variants).select_related('campaign')
+        qs = (PhoneNumber.objects.filter(organization=organization, number__in=variants)
+              .select_related('campaign', 'carrier'))
         if publisher is not None:
             qs = qs.filter(publisher=publisher)
         for n in qs:
@@ -295,6 +296,9 @@ def check(organization, raw, publisher=None, staff=False) -> dict:
 # asks "would a new caller's call go through right now?".
 READY_CALLER = '+12025550143'
 NOT_READY_DETAIL = 'This number is live, but a call to it would not go through right now.'
+CARRIER_DOWN_DETAIL = 'Calls to this number are not reaching us right now.'
+# "Working" needs proof this recent (CH-360).
+WORKING_MINUTES = 60
 
 
 def _ready(phone, memo) -> tuple:
@@ -351,6 +355,18 @@ def _judge(d, rows, last_call, test, now, memo=None, staff=False):
     if not campaign or campaign.status != 'active':
         return _result(d, NOT_IN_SERVICE, 'This number is not attached to an active campaign.', last_call)
 
+    # CH-360: the carrier watch says this number's carrier stopped delivering
+    # (its credit ran out, as on 28 Oct): nothing else about the number matters.
+    from phone_numbers import carrier_watch
+    cw = carrier_watch.fresh_state(phone.carrier_id, now) if phone.carrier_id else {}
+    if cw.get('status') == carrier_watch.DOWN:
+        r = _result(d, NOT_WORKING, CARRIER_DOWN_DETAIL, last_call)
+        if staff:
+            carrier = phone.carrier
+            r['why'] = (f'Carrier {carrier.code if carrier else ""} is not delivering calls: '
+                        f'{cw.get("detail") or "test calls did not come in"}.')
+        return r
+
     # CH-358: would a call go through right now? Before any evidence: a call
     # that came in earlier proves nothing about the buyers being open now.
     ready, why = _ready(phone, memo if memo is not None else {})
@@ -368,13 +384,27 @@ def _judge(d, rows, last_call, test, now, memo=None, staff=False):
         if (test['reason'] or '').startswith('No call reached'):
             return _result(d, NOT_WORKING, f'A test call {_ago(test_at, now)} did not reach us.',
                            last_call, test_at, False)
-    if last_call:
+    # CH-360 (Sir, 29 Oct): "Working" means proven within the last hour - a
+    # call, a test call, or the carrier watch's own test call to this carrier.
+    # A call this morning says nothing about a carrier that ran dry at noon.
+    fresh = now - timedelta(minutes=WORKING_MINUTES)
+    if last_call and last_call >= fresh:
         return _result(d, WORKING, f'Last call received {_ago(last_call, now)}.',
                        last_call, test_at, test_passed)
-    if test_passed:
+    if test_passed and test_at >= fresh:
         return _result(d, WORKING, f'Test call {_ago(test_at, now)} reached us.',
-                       None, test_at, True)
-    return _result(d, ACTIVE, f'Active, no calls in the last {RECENT_HOURS} hours.',
+                       last_call, test_at, True)
+    if cw.get('status') == carrier_watch.OK:
+        from django.utils.dateparse import parse_datetime
+        checked = parse_datetime(cw['at'])
+        r = _result(d, WORKING, f'The carrier delivered a test call {_ago(checked, now)}.',
+                    last_call, test_at, test_passed)
+        r['carrier_checked_at'] = checked.isoformat()
+        return r
+    if last_call:
+        return _result(d, ACTIVE, f'Active. Last call {_ago(last_call, now)}; not proven in the last hour.',
+                       last_call, test_at, test_passed)
+    return _result(d, ACTIVE, 'Active, no calls in the last hour.',
                    None, test_at, test_passed)
 
 
