@@ -136,7 +136,7 @@ class GuardTests(TestCase):
         guard.hourly(sent.append, now=at)
         daily = [s for s in sent if 'daily check' in s]
         self.assertEqual(len(daily), 1)
-        self.assertIn('All 7 checks passed', daily[0])
+        self.assertIn('All 8 checks passed', daily[0])
 
     def test_command_prints_and_changes_nothing(self):
         self.call(shown='0')

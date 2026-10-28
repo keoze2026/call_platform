@@ -7908,3 +7908,29 @@ link's name for staff and "Your link" on the link itself. Checks already made
 today get their name too (every check stored who ran it since CH-342).
 
 Tests: phone_numbers/test_tfn_check_history.py (+4). Needs the web restart.
+
+## CH-360 - Carrier watch: a carrier that stops delivering shows at once
+**2026-10-29 · TFN Check / Guard**
+
+Sir, 29 Oct: "today our system was showing the TFN as fine and the publisher
+kept testing, but the TFN was not picking up calls due to a recharge issue".
+
+- `phone_numbers/carrier_watch.py`, `tasks.carrier_watch` (every 5 min): a
+  real test call through each active carrier every CARRIER_WATCH_MINUTES (15)
+  to one of its live TFNs (no publisher first, least tested, never past the
+  daily limit), 7:30 AM - 9 PM Eastern. Came in = delivering. Two misses in a
+  row (the second on another number) = **down**: a Telegram alert to the
+  team, "delivering again" when it comes back. If our own test line cannot
+  place the call, the carrier is never marked down; the team is told once.
+  The watch's calls never ring a buyer, write a CallLog row or cost a client.
+- TFN Check: a TFN whose carrier is down is **Not Working** ("Calls to this
+  number are not reaching us right now"; the team also sees which carrier),
+  even with a call minutes earlier. **Working** now needs proof from the last
+  hour - a call, a test call, or the carrier watch's own test call; otherwise
+  Active ("not proven in the last hour").
+- The guard (hourly and daily) lists any carrier not delivering.
+- `manage.py carrier_watch [--run [--send]]`; .env CARRIER_WATCH_ENABLED
+  (default True), CARRIER_WATCH_MINUTES (default 15).
+
+Tests: phone_numbers/test_carrier_watch.py (+11), test_tfn_check.py (+1).
+Needs the web, worker and beat restart; portal half CH-360 in Avortyx.

@@ -484,6 +484,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.morning_tfn_tests',
         'schedule': 600.0,  # every 10 min; acts once per Eastern day at 7:00 AM
     },
+    # CH-360: is each carrier still delivering? A real test call per carrier
+    # every CARRIER_WATCH_MINUTES (15); this tick settles and starts them.
+    'carrier-watch': {
+        'task': 'tasks.carrier_watch',
+        'schedule': 300.0,  # every 5 minutes
+    },
     'auto-tfn-tests': {
         'task': 'tasks.auto_tfn_tests',
         'schedule': 1800.0,  # every 30 min; does nothing until TFN_AUTO_TEST_ENABLED
@@ -595,6 +601,9 @@ TFN_TEST_REQUIRE_CARRIER = config('TFN_TEST_REQUIRE_CARRIER', default=True, cast
 # carrier accepts the test caller ID. A number with no call and no test for
 # TFN_AUTO_TEST_HOURS is tested, at most TFN_AUTO_TEST_MAX numbers a run.
 TFN_AUTO_TEST_ENABLED = config('TFN_AUTO_TEST_ENABLED', default=False, cast=bool)
+# CH-360 carrier watch (phone_numbers/carrier_watch.py).
+CARRIER_WATCH_ENABLED = config('CARRIER_WATCH_ENABLED', default=True, cast=bool)
+CARRIER_WATCH_MINUTES = config('CARRIER_WATCH_MINUTES', default=15, cast=int)
 TFN_AUTO_TEST_HOURS = config('TFN_AUTO_TEST_HOURS', default=3, cast=int)
 TFN_AUTO_TEST_MAX = config('TFN_AUTO_TEST_MAX', default=20, cast=int)
 

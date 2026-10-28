@@ -12,6 +12,7 @@ to run is reported as such and never stops the others.
              (CH-352), and no call charged twice
     calls    every ended call is in Reports
     payout   each paid call's payout in Reports = the payout paid (CH-250)
+    carriers every carrier still delivering (CH-360 carrier watch)
     balance  each account's balance = its last ledger entry's "balance after"
     stuck    no call "live" for more than 2 hours
     tfns     every TFN on a campaign has its carrier
@@ -184,6 +185,18 @@ def check_balance() -> Finding:
     return f
 
 
+def check_carriers() -> Finding:
+    """CH-360: no carrier the carrier watch found not delivering."""
+    from phone_numbers import carrier_watch as W
+    from phone_numbers.models import Carrier
+    f = Finding('carriers', 'Carriers delivering')
+    for c in Carrier.objects.filter(is_active=True).order_by('code'):
+        s = W.fresh_state(c.id)
+        if s.get('status') == W.DOWN:
+            f.lines.append(f'{c.name} ({c.code}) is not delivering calls: {s.get("detail", "")}')
+    return f
+
+
 def check_stuck() -> Finding:
     """No call shown live for more than 2 hours."""
     from routing.models import CallLog
@@ -274,6 +287,7 @@ def run(day=None, tabs=False) -> list:
     day, start, end = et_day(day)
     jobs = [('cost', lambda: check_cost(start, end)), ('calls', lambda: check_calls(start, end)),
             ('payout', lambda: check_payout(start, end)), ('balance', check_balance),
+            ('carriers', check_carriers),
             ('stuck', check_stuck), ('tfns', check_tfns)]
     if tabs:
         jobs.append(('tabs', lambda: check_tabs(day)))
