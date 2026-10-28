@@ -6,6 +6,7 @@
     DELETE /api/campaign-groups/{id}             the campaigns stay, ungrouped
     GET    /api/campaign-groups/{id}/destinations   every destination across it
     POST   /api/campaign-groups/apply            one change, every campaign of the groups
+                                                 (numbers: [...] for several destinations, CH-353)
 """
 from typing import List, Optional
 
@@ -35,10 +36,20 @@ class GroupPatch(Schema):
     campaign_ids: Optional[List[str]] = None
 
 
+class ApplyNumber(Schema):
+    number: str
+    buyer_id: Optional[str] = None
+    revenue: Optional[float] = None
+    convert_on: Optional[str] = None
+    convert_seconds: Optional[int] = None
+
+
 class ApplyIn(Schema):
     group_ids: List[str]
     action: str
-    number: str
+    number: str = ''
+    # CH-353: several destinations at once (all or nothing); `number` is one.
+    numbers: Optional[List[ApplyNumber]] = None
     buyer_id: Optional[str] = None
     priority: Optional[int] = None
     weight: Optional[int] = None
@@ -95,6 +106,11 @@ def apply_change(request: HttpRequest, data: ApplyIn):
     _staff(request.auth, 'call-flows', 'delete' if data.action == G.REMOVE else 'edit')
     require(request.auth, Capability.EDIT)
     try:
+        if data.numbers:
+            return 200, G.apply_many(request.auth, data.group_ids, data.action,
+                                     [n.dict() for n in data.numbers], priority=data.priority,
+                                     weight=data.weight, revenue=data.revenue,
+                                     convert_on=data.convert_on, convert_seconds=data.convert_seconds)
         return 200, G.apply(request.auth, data.group_ids, data.action, data.number, buyer_id=data.buyer_id,
                             priority=data.priority, weight=data.weight, revenue=data.revenue,
                             convert_on=data.convert_on, convert_seconds=data.convert_seconds)

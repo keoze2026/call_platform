@@ -7790,3 +7790,22 @@ should be always correct".
 
 Tests: analytics/test_cost_every_filter.py (+8), routing/test_user_billing.py (+1).
 The command works at once; the report change needs the web restart.
+
+## CH-353 - Campaign Groups: several destinations in one change
+**2026-10-29 · Campaigns**
+
+Sir, 29 Oct: "not able to add more than 1 destination ... under Destination
+give check box to add bulk".
+
+- `POST /api/campaign-groups/apply` takes `numbers: [{number, buyer_id?,
+  revenue?, convert_on?, convert_seconds?}]` besides `number`. Every picked
+  destination is added / removed / changed in every campaign of the groups,
+  in one transaction: if any destination is refused anywhere, nothing
+  changes, and the error names the number.
+- When adding, each destination carries its own Rate and Convert ON (every
+  buyer pays its own rate); Priority and Weight are shared. Each result row
+  names its destination.
+- The same number picked twice is refused. The single `number` form still works.
+
+Tests: campaigns/test_groups.py (+4). Needs the web restart.
+Portal half: CH-353 in Avortyx. Commit: see git log --grep CH-353.

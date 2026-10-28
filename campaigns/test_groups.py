@@ -132,3 +132,59 @@ class CampaignGroupTests(TestCase):
         self.camps[0].refresh_from_db()
         self.assertIsNone(self.camps[0].group_id)
         self.assertEqual(len(self.rows(self.camps[0])), 1)
+
+
+@override_settings(ALLOWED_HOSTS=['*'])
+class BulkDestinationTests(CampaignGroupTests.__base__):
+    """CH-353 (Sir, 29 Oct): tick several destinations and add them in one go."""
+
+    setUp = CampaignGroupTests.setUp
+    post = CampaignGroupTests.post
+    make_group = CampaignGroupTests.make_group
+    rows = CampaignGroupTests.rows
+
+    def test_several_destinations_added_each_with_its_own_rate(self):
+        other = Buyer.objects.create(organization=self.org, name='Crug')
+        Destination.objects.create(organization=self.org, buyer=other, name='Crug', tfn='+18005550300')
+        a = self.make_group('Group A', self.camps[3:6])                     # one rule each, none yet
+        r = self.post('/api/campaign-groups/apply', {
+            'group_ids': [a], 'action': 'add', 'priority': 1, 'weight': 100,
+            'numbers': [{'number': '18005550100', 'revenue': 12, 'convert_on': 'connected'},
+                        {'number': '18005550300', 'revenue': 20, 'convert_on': 'length', 'convert_seconds': 120}]})
+        self.assertEqual(r.status_code, 200, r.content)
+        body = r.json()
+        self.assertEqual((body['changed'], body['campaigns']), (6, 3))
+        self.assertEqual(body['numbers'], ['+18005550100', '+18005550300'])
+        self.assertEqual({x['number'] for x in body['results']}, {'+18005550100', '+18005550300'})
+        for c in self.camps[3:6]:
+            mtg, crug = self.rows(c)[0], self.rows(c, '8005550300')[0]
+            self.assertEqual((str(mtg.revenue), mtg.convert_on, mtg.buyer_id), ('12.00', 'connected', self.buyer.id))
+            self.assertEqual((str(crug.revenue), crug.convert_on, crug.convert_seconds, crug.buyer_id),
+                             ('20.00', 'length', 120, other.id))
+            self.assertEqual(RoutingRule.objects.filter(campaign=c).count(), 1)
+
+    def test_one_refused_destination_changes_nothing(self):
+        a = self.make_group('Group A', self.camps[3:5])
+        r = self.post('/api/campaign-groups/apply', {
+            'group_ids': [a], 'action': 'add',
+            'numbers': [{'number': '18005550100', 'revenue': 12, 'convert_on': 'connected'},
+                        {'number': '18005550300'}]})                        # no rate
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('+18005550300', r.json()['detail'])
+        self.assertIn('Rate is required', r.json()['detail'])
+        self.assertFalse(RuleDestination.objects.filter(rule__campaign__in=self.camps[3:5]).exists())
+
+    def test_several_removed_at_once(self):
+        a = self.make_group('Group A', self.camps[:3])
+        r = self.post('/api/campaign-groups/apply', {
+            'group_ids': [a], 'action': 'remove',
+            'numbers': [{'number': '8005550100'}, {'number': '8005550200'}]})
+        self.assertEqual(r.json()['changed'], 6)
+        self.assertFalse(RuleDestination.objects.filter(rule__campaign__in=self.camps[:3]).exists())
+
+    def test_the_same_number_twice_is_refused(self):
+        a = self.make_group('Group A', self.camps[:2])
+        r = self.post('/api/campaign-groups/apply', {
+            'group_ids': [a], 'action': 'remove',
+            'numbers': [{'number': '8005550100'}, {'number': '+1 800 555 0100'}]})
+        self.assertEqual(r.status_code, 400)

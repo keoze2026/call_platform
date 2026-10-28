@@ -221,6 +221,39 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
             'results': results, 'changed': changed, 'campaigns': len(campaigns)}
 
 
+def apply_many(user, group_ids, action, items, priority=None, weight=None, **billing):
+    """CH-353 (Sir, 29 Oct: "under Destination give check box to add bulk"):
+    several destinations in one change. Each item is {number, buyer_id?,
+    revenue?, convert_on?, convert_seconds?}; an item's own Rate and Convert
+    ON win over the shared ones (each buyer has its own rate).
+
+    One transaction for all of them: if any destination is refused in any
+    campaign, nothing is changed. Results carry their number."""
+    items = [i for i in (items or []) if digits_key((i or {}).get('number'))]
+    if not items:
+        raise ValueError('Pick at least one destination')
+    keys = [digits_key(i['number']) for i in items]
+    if len(set(keys)) != len(keys):
+        raise ValueError('The same destination is picked twice')
+    out = {'action': action, 'numbers': [], 'groups': [], 'results': [], 'changed': 0, 'campaigns': 0}
+    with transaction.atomic():
+        for item in items:
+            own = {k: item.get(k) for k in ('revenue', 'convert_on', 'convert_seconds')
+                   if item.get(k) not in (None, '')}
+            try:
+                one = apply(user, group_ids, action, item['number'], buyer_id=item.get('buyer_id'),
+                            priority=priority, weight=weight, **{**billing, **own})
+            except ValueError as e:
+                raise ValueError(f'{to_e164(item["number"])}: {e}')
+            out['numbers'].append(one['number'])
+            out['groups'] = one['groups']
+            out['campaigns'] = one['campaigns']
+            out['changed'] += one['changed']
+            out['results'] += [{**r, 'number': one['number']} for r in one['results']]
+    out['number'] = out['numbers'][0]
+    return out
+
+
 def _in_other_rules(campaign, rule, key) -> bool:
     from routing.models import RuleDestination
     qs = RuleDestination.objects.filter(rule__campaign=campaign)
