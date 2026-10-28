@@ -1042,7 +1042,10 @@ class RoutingEngine:
             matched_rule, destination = _run_rules()
 
         if destination:
-            if campaign.duplicate_call_block:
+            # CH-358: a test or a TFN Check readiness look is not a call - it
+            # must not mark its caller as called, or the next look is refused
+            # as a duplicate.
+            if campaign.duplicate_call_block and not call_data.get('is_test'):
                 RoutingEngine.mark_as_called(
                     caller_number,
                     str(campaign.id),

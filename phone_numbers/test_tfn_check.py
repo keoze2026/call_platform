@@ -40,6 +40,11 @@ class ParseTests(TestCase):
 @override_settings(CACHES=CACHE)
 class JudgeTests(TestCase):
     def setUp(self):
+        # The evidence rules; whether routing would take a call now is
+        # ReadyTests' business (CH-358).
+        ready = mock.patch.object(tfn_check, '_ready', return_value=(True, ''))
+        ready.start()
+        self.addCleanup(ready.stop)
         self.org = Organization.objects.create(name='Avortyx', slug='avx')
         self.camp = Campaign.objects.create(organization=self.org, name='PDSO', status='active')
         self.n = 0
@@ -155,6 +160,10 @@ class JudgeTests(TestCase):
 @override_settings(ALLOWED_HOSTS=['*'], CACHES=CACHE, FRONTEND_URL='https://app.avortyx.io')
 class ApiTests(TestCase):
     def setUp(self):
+        # Routing readiness (CH-358) has its own tests: these are about the API.
+        ready = mock.patch('phone_numbers.tfn_check._ready', return_value=(True, ''))
+        ready.start()
+        self.addCleanup(ready.stop)
         self.org = Organization.objects.create(name='Avortyx', slug='avx')
         self.owner = User.objects.create(username='owner', email='owner@x.io', organization=self.org,
                                          role='admin', is_superuser=True)
@@ -355,3 +364,79 @@ class AlertTests(TestCase):
         ensure_default_rules(self.org)
         self.assertTrue(NotificationRule.objects.filter(
             organization=self.org, event='number.not_working', is_active=True).exists())
+
+
+@override_settings(CACHES=CACHE)
+class ReadyTests(TestCase):
+    """CH-358 (Sir, 29 Oct): "all buyers are off - how did it say the TFN is
+    active?" A number whose call would be refused right now is "Not Taking
+    Calls", even with a call earlier today. Real routing, no mocks."""
+
+    def setUp(self):
+        from billing.models import BillingAccount
+        from buyers.models import Buyer
+        from decimal import Decimal
+        from routing.models import RoutingRule, RuleDestination
+        self.org = Organization.objects.create(name='Avortyx', slug='avx')
+        self.acct = BillingAccount.objects.create(
+            organization=self.org, status=BillingAccount.Status.ACTIVE, balance=Decimal('100'),
+            per_minute_rate=Decimal('0.45'))
+        self.camp = Campaign.objects.create(organization=self.org, name='C-13', status='active')
+        self.buyer = Buyer.objects.create(organization=self.org, name='ADST')
+        self.rule = RoutingRule.objects.create(organization=self.org, campaign=self.camp, name='C-13 routing',
+                                               rule_type='priority', priority=1)
+        self.dest = RuleDestination.objects.create(rule=self.rule, destination='+18779641512',
+                                                   buyer=self.buyer, priority=1, weight=100)
+        self.phone = PhoneNumber.objects.create(organization=self.org, number='+18888844542', vendor='Other',
+                                                status='active', campaign=self.camp)
+        CallLog.objects.create(organization=self.org, campaign=self.camp, caller_number='+15551234567',
+                               called_number='+18888844542', twilio_call_sid='sid-1', status='completed')
+
+    def result(self, **kw):
+        return tfn_check.check(self.org, '8888844542', **kw)['results'][0]
+
+    def test_a_buyer_line_open_means_working(self):
+        self.assertEqual(self.result()['status'], 'working')
+
+    def test_all_buyers_off_is_not_taking_calls_even_after_a_call_today(self):
+        self.dest.delete()                      # no buyer line left on the campaign
+        r = self.result(staff=True)
+        self.assertEqual((r['status'], r['label']), ('not_ready', 'Not Taking Calls'))
+        self.assertIn('No buyer line is open', r['why'])
+        self.assertNotIn('ADST', r['detail'])
+
+    def test_balance_too_low_is_not_taking_calls(self):
+        from decimal import Decimal
+        from routing.engine import RoutingEngine
+        with mock.patch.object(RoutingEngine, 'check_balance', return_value=False):
+            r = self.result(staff=True)
+        self.assertEqual(r['status'], 'not_ready')
+        self.assertIn('balance is too low', r['why'])
+
+    def test_a_publisher_or_share_link_never_sees_why(self):
+        self.dest.delete()
+        r = self.result()
+        self.assertEqual(r['status'], 'not_ready')
+        self.assertNotIn('why', r)
+
+    def test_the_check_takes_no_round_robin_turn_and_writes_nothing(self):
+        from routing.models import CallLog as CL
+        before = CL.objects.count()
+        self.result()
+        self.assertEqual(CL.objects.count(), before)
+
+    def test_summary_counts_it(self):
+        self.dest.delete()
+        self.assertEqual(tfn_check.check(self.org, '8888844542')['summary']['not_ready'], 1)
+
+    def test_the_only_buyer_paused_is_not_taking_calls(self):
+        self.buyer.status = 'paused'
+        self.buyer.save()
+        r = self.result(staff=True)
+        self.assertEqual(r['status'], 'not_ready', r)
+
+    def test_two_checks_in_a_row_give_the_same_answer(self):
+        self.camp.duplicate_call_block = True
+        self.camp.save()
+        self.assertEqual(self.result()['status'], 'working')
+        self.assertEqual(self.result()['status'], 'working')     # not refused as a duplicate

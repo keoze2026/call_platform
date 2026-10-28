@@ -97,7 +97,8 @@ def check_numbers(request: HttpRequest, payload: CheckIn):
     if payload.test:
         numbers, _ = tfn_check.parse_numbers(payload.numbers)
         queued = tfn_check.queue_tests(org, numbers[:tfn_check.MAX_NUMBERS], request.auth, publisher)
-    out = tfn_check.check(org, payload.numbers, publisher)
+    # CH-358: the team sees why a number is not taking calls; a publisher not.
+    out = tfn_check.check(org, payload.numbers, publisher, staff=publisher is None)
     tfn_check.record(org, out['results'], user=request.auth, publisher=publisher)
     out['tests_queued'] = queued
     return 200, out

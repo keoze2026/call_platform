@@ -12,6 +12,15 @@ check costs a few queries and never places a call:
   - its last real test call (CH-175) in the same window: a test call that came
     back proves it, one the carrier did not deliver disproves it.
 
+CH-358 (Sir, 29 Oct: "all buyers are off - how did it say the TFN is active?
+If it's active there should be no way calls can be stopped"): before any
+evidence, the number is put through the same routing a real call takes right
+now - an open buyer line, caps, blocks, the account balance. If a call would be
+refused, the number is "Not Taking Calls", whatever came in earlier. What we
+cannot see is the carrier's side (its own balance, as in the 28 Oct Freedom
+outage): only a call that came in through the carrier proves that, which is
+what "Working" means.
+
 The words are customer-facing. Carrier codes, expiry rules and campaign or
 buyer names never appear in a result (Sir: rules stay in our backend).
 """
@@ -34,6 +43,7 @@ TEST_SPACING_SECONDS = 10
 
 WORKING = 'working'
 ACTIVE = 'active'
+NOT_READY = 'not_ready'
 NOT_WORKING = 'not_working'
 NOT_IN_SERVICE = 'not_in_service'
 PAUSED = 'paused'
@@ -43,6 +53,7 @@ NOT_FOUND = 'not_found'
 LABELS = {
     WORKING: 'Working',
     ACTIVE: 'Active',
+    NOT_READY: 'Not Taking Calls',
     NOT_WORKING: 'Not Working',
     NOT_IN_SERVICE: 'Not In Service',
     PAUSED: 'Paused',
@@ -50,7 +61,7 @@ LABELS = {
     NOT_FOUND: 'Not Found',
 }
 # Order of the summary, best news first.
-ORDER = [WORKING, ACTIVE, NOT_WORKING, NOT_IN_SERVICE, PAUSED, EXPIRED, NOT_FOUND]
+ORDER = [WORKING, ACTIVE, NOT_READY, NOT_WORKING, NOT_IN_SERVICE, PAUSED, EXPIRED, NOT_FOUND]
 
 
 def last10(value) -> str:
@@ -197,9 +208,11 @@ def checks_today(organization, *, publisher=None, link=None, now=None) -> dict:
     return out
 
 
-def check(organization, raw, publisher=None) -> dict:
+def check(organization, raw, publisher=None, staff=False) -> dict:
     """Judge each pasted number. `publisher` limits the answer to that
-    publisher's numbers (a publisher link, or a publisher login)."""
+    publisher's numbers (a publisher link, or a publisher login). `staff`
+    adds, for a number that is not taking calls, the reason (`why`) - the
+    team's portal only."""
     from phone_numbers.models import PhoneNumber, TfnTest
     from routing.models import CallLog
 
@@ -243,8 +256,9 @@ def check(organization, raw, publisher=None) -> dict:
                 last_test[key] = t
 
         today = tests_today_counts(organization, publisher, now)
+        memo = {}
         for d in numbers:
-            r = _judge(d, rows.get(d), last_call.get(d), last_test.get(d), now)
+            r = _judge(d, rows.get(d), last_call.get(d), last_test.get(d), now, memo, staff)
             # How many times the number was tested since 12 AM Eastern (CH-341);
             # never for a number that is not ours (or not this publisher's).
             if r['status'] != NOT_FOUND:
@@ -267,6 +281,42 @@ def check(organization, raw, publisher=None) -> dict:
     }
 
 
+# A caller no block, duplicate rule or history applies to: the readiness check
+# asks "would a new caller's call go through right now?".
+READY_CALLER = '+12025550143'
+NOT_READY_DETAIL = 'This number is live, but a call to it would not go through right now.'
+
+
+def _ready(phone, memo) -> tuple:
+    """(ready, why): would a call to this number be routed to a buyer right
+    now? The same routing a real call takes, in test mode - it takes no turn,
+    reserves nothing and writes nothing (routing/engine.py `is_test`). One
+    answer per campaign and publisher within a check: 200 numbers on one
+    campaign route once."""
+    key = (phone.campaign_id, phone.publisher_id)
+    if key not in memo:
+        from phone_numbers import tfn_test
+        try:
+            ok, reason = tfn_test.evaluate(phone, READY_CALLER)
+        except Exception:  # noqa: BLE001 - never fail a check over this
+            logger.exception('tfn check: readiness for %s failed', phone.number)
+            ok, reason = True, ''
+        memo[key] = (ok, '' if ok else _plain_why(reason))
+    return memo[key]
+
+
+def _plain_why(reason: str) -> str:
+    """For the team only (never on a share link or a publisher login)."""
+    r = reason or ''
+    if 'Insufficient Funds' in r:
+        return 'The account balance is too low for one call.'
+    if any(w in r.lower() for w in ('no destination', 'no available', 'no matching rule')):
+        return 'No buyer line is open right now (all off, outside their hours, or at their cap).'
+    if 'cap' in r.lower():
+        return 'The campaign is at its limit right now: ' + r.split(':', 1)[-1].strip()
+    return r
+
+
 def _result(d, status, detail, last_call_at=None, last_test_at=None, test_passed=None):
     return {
         'number': e164(d),
@@ -279,7 +329,7 @@ def _result(d, status, detail, last_call_at=None, last_test_at=None, test_passed
     }
 
 
-def _judge(d, rows, last_call, test, now):
+def _judge(d, rows, last_call, test, now, memo=None, staff=False):
     if not rows:
         return _result(d, NOT_FOUND, 'This number is not on the platform.')
     phone = _pick(rows)
@@ -290,6 +340,15 @@ def _judge(d, rows, last_call, test, now):
     campaign = phone.campaign
     if not campaign or campaign.status != 'active':
         return _result(d, NOT_IN_SERVICE, 'This number is not attached to an active campaign.', last_call)
+
+    # CH-358: would a call go through right now? Before any evidence: a call
+    # that came in earlier proves nothing about the buyers being open now.
+    ready, why = _ready(phone, memo if memo is not None else {})
+    if not ready:
+        r = _result(d, NOT_READY, NOT_READY_DETAIL, last_call)
+        if staff:
+            r['why'] = why
+        return r
 
     test_at = (test['finished_at'] or test['created_at']) if test else None
     test_passed = (test['status'] == 'passed') if test else None

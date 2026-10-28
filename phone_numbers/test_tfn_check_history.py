@@ -23,6 +23,10 @@ CACHE = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}
 @override_settings(ALLOWED_HOSTS=['*'], CACHES=CACHE)
 class TodayChecksTests(TestCase):
     def setUp(self):
+        # Routing readiness (CH-358) has its own tests: these are about the API.
+        ready = mock.patch('phone_numbers.tfn_check._ready', return_value=(True, ''))
+        ready.start()
+        self.addCleanup(ready.stop)
         self.org = Organization.objects.create(name='Avortyx', slug='avx')
         self.owner = User.objects.create(username='owner', email='owner@x.io', organization=self.org,
                                          role='admin', is_superuser=True)

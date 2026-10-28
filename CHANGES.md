@@ -7870,3 +7870,28 @@ in every file and message: `.github/workflows/review-bot.yml` ("Review bot"),
 `docs/REVIEW-BOT.md` (was CLAUDE.md). One secret, `REVIEW_BOT_API_KEY`; the
 bot comments with the repo's own GitHub token, so no GitHub app to install.
 Nothing else changes.
+
+## CH-358 - TFN Check: "Working" only when a call would go through now
+**2026-10-29 · TFN Check**
+
+Sir, 29 Oct: "Now all buyers are off - how did the bot check the TFN is
+active? I don't want the same incident like today. If it's active there is no
+way calls can be stopped due to recharge or any issue."
+
+- Before any evidence, each number goes through the same routing a real call
+  takes right now, in test mode (no turn taken, nothing reserved or written):
+  an open buyer line, caps, blocks, the account balance. If a call would be
+  refused, the number is **Not Taking Calls** ("This number is live, but a
+  call to it would not go through right now"), even with a call earlier today.
+- The team's portal also gets `why`: no buyer line open (all off, outside
+  hours, at cap), balance too low, campaign at its limit. Never on a share
+  link or a publisher login.
+- One routing look per campaign and publisher in a check.
+- routing/engine.py: a test-mode route (`is_test`) no longer marks its caller
+  as called, so repeated checks and tests are never refused as duplicates.
+- What it cannot see: the carrier's own balance (the 28 Oct Freedom outage).
+  Only a call that came in through the carrier proves that - "Working" still
+  needs one in the last 24 hours.
+
+Tests: phone_numbers/test_tfn_check.py ReadyTests (+8, real routing).
+Needs the web restart; the portal half (CH-358 in Avortyx) shows the status.

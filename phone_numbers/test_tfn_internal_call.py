@@ -103,7 +103,8 @@ class InternalCallTests(Base):
     def test_tfn_check_status_still_comes_from_real_calls_only(self):
         t = self.make()
         TfnTest.objects.filter(pk=t.pk).update(status='passed')
-        result = tfn_check.check(self.org, '18774893792')['results'][0]
+        with mock.patch.object(tfn_check, '_ready', return_value=(True, '')):   # CH-358 aside
+            result = tfn_check.check(self.org, '18774893792')['results'][0]
         self.assertEqual(result['status'], 'active')
 
 
