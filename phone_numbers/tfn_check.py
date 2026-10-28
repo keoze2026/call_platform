@@ -204,7 +204,17 @@ def checks_today(organization, *, publisher=None, link=None, now=None) -> dict:
                         last_result=Subquery(latest.values('status')[:1]))
               .order_by('-last')[:1000]):
         out[r['number']] = {'checks': r['checks'], 'last_checked_at': r['last'],
-                            'last_result': r['last_result'] if r['last_result'] in LABELS else NOT_FOUND}
+                            'last_result': r['last_result'] if r['last_result'] in LABELS else NOT_FOUND,
+                            'last_user_id': None, 'last_link_id': None}
+    # CH-359: who ran each number's latest check, for Run by. Newest first,
+    # the first row per number wins (a day is a few thousand rows at most).
+    seen = set()
+    for number, user_id, link_id in (events.filter(number__in=list(out))
+                                     .order_by('-created_at', '-id')
+                                     .values_list('number', 'user_id', 'link_id')[:20000]):
+        if number not in seen:
+            seen.add(number)
+            out[number]['last_user_id'], out[number]['last_link_id'] = user_id, link_id
     return out
 
 

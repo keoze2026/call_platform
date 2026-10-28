@@ -7895,3 +7895,16 @@ way calls can be stopped due to recharge or any issue."
 
 Tests: phone_numbers/test_tfn_check.py ReadyTests (+8, real routing).
 Needs the web restart; the portal half (CH-358 in Avortyx) shows the status.
+
+## CH-359 - TFN Check: Run by names who checked, not only who test-called
+**2026-10-29 · TFN Check**
+
+Sir, 29 Oct: "for the Run by why are these still empty, not showing who ran".
+Run by came only from test calls, so a number that was only checked showed
+"—". It now names whoever did the latest thing to the number - a check or a
+test call: the person (same words as CH-343: name for staff, "You", "Avortyx"
+for our team on a publisher login) or, for a check through a share link, the
+link's name for staff and "Your link" on the link itself. Checks already made
+today get their name too (every check stored who ran it since CH-342).
+
+Tests: phone_numbers/test_tfn_check_history.py (+4). Needs the web restart.

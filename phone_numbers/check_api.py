@@ -215,7 +215,11 @@ def _today(org, *, viewer=None, publisher=None, link=None):
             return 'auto', 'Automatic'
         if t.trigger == TfnTest.Trigger.MORNING:
             return 'morning', 'Morning'
-        u = t.requested_by
+        return person_runner(t.requested_by)
+
+    def person_runner(u):
+        """(by_type, by) for a person - the same words for a test call and,
+        since CH-359, for a check."""
         if u is None:
             return 'unknown', ''
         person = (u.get_full_name() or u.email or u.username or '').strip()
@@ -271,11 +275,35 @@ def _today(org, *, viewer=None, publisher=None, link=None):
         elif t.status == TfnTest.Status.FAILED:
             n['failed'] += 1
 
+    # CH-359 (Sir, 29 Oct: Run by was empty for numbers only checked): the
+    # person - or the share link - behind the latest check.
+    from accounts.models import User
+    from .models import TfnCheckLink
+    users = {u.id: u for u in User.objects.filter(id__in={c['last_user_id'] for c in checked.values()
+                                                            if c.get('last_user_id')})
+             .select_related('publisher', 'buyer')}
+    links = {l.id: l for l in TfnCheckLink.objects.filter(id__in={c['last_link_id'] for c in checked.values()
+                                                                 if c.get('last_link_id')})}
+
+    def check_runner(c):
+        if c.get('last_link_id'):
+            l = links.get(c['last_link_id'])
+            name = (l.name if l is not None else '') or 'Share link'
+            return 'link', name if staff else ('Your link' if link is not None else 'Share link')
+        return person_runner(users.get(c.get('last_user_id')))
+
     for key, c in checked.items():
         n = number_row(tfn_check.e164(key))
         n['checks'] = c['checks']
         n['last_checked_at'] = c['last_checked_at'].isoformat()
         n['last_result'] = c['last_result']
+        # Run by = whoever did the latest thing to the number: a check newer
+        # than the last test call (or no test call at all) names its checker.
+        last_test = n.get('last_test_at')
+        if last_test is None or n['last_checked_at'] > last_test:
+            kind, who = check_runner(c)
+            if kind != 'unknown' or n['last_by'] is None:
+                n['last_by'], n['last_by_type'] = who, kind
 
     for n in numbers.values():
         n['last_at'] = max(x for x in (n.get('last_test_at'), n['last_checked_at']) if x)

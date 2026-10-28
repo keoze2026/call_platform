@@ -196,3 +196,44 @@ class WhoRanTheTestTests(TestCase):
         self.test(self.pub_login, minutes_ago=1)
         got = [(t['by_type'], t['by']) for t in self.get(None, f'/api/public/tfn-check/{link.token}/today')['tests']]
         self.assertEqual(got, [('publisher', 'Publisher'), ('main', 'Avortyx')])
+
+    # CH-359 (Sir, 29 Oct): Run by was empty for numbers that were only checked.
+    def check(self, user=None, link=None):
+        if link is not None:
+            return Client().post(f'/api/public/tfn-check/{link.token}', data=json.dumps({'numbers': '8888910563'}),
+                                 content_type='application/json')
+        api = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(user)}')
+        return api.post('/api/numbers/check/', data=json.dumps({'numbers': '8888910563'}),
+                        content_type='application/json')
+
+    def test_a_number_only_checked_names_who_checked_it(self):
+        self.check(self.team)
+        [row] = self.get(self.main)['numbers']
+        self.assertEqual((row['last_by_type'], row['last_by']), ('team', 'Evans'))
+        [row] = self.get(self.team)['numbers']
+        self.assertEqual(row['last_by'], 'You')
+
+    def test_a_check_through_a_share_link_names_the_link_for_staff(self):
+        link = TfnCheckLink.objects.create(organization=self.org, name='Xypheria', token='x' * 43)
+        self.check(link=link)
+        [row] = self.get(self.main)['numbers']
+        self.assertEqual((row['last_by_type'], row['last_by']), ('link', 'Xypheria'))
+        [row] = self.get(None, f'/api/public/tfn-check/{link.token}/today')['numbers']
+        self.assertEqual(row['last_by'], 'Your link')
+
+    def test_the_latest_of_check_and_test_call_wins(self):
+        self.test(self.main, minutes_ago=10)
+        self.check(self.team)                       # after the test call
+        [row] = self.get(self.main)['numbers']
+        self.assertEqual(row['last_by'], 'Evans')
+        self.test(self.pub_login, minutes_ago=0)    # a test call after the check
+        TfnTest.objects.filter(requested_by=self.pub_login).update(created_at=timezone.now() + timedelta(seconds=5))
+        [row] = self.get(self.main)['numbers']
+        self.assertEqual((row['last_by_type'], row['last_by']), ('publisher', 'Crug (Ann)'))
+
+    def test_a_publisher_check_is_named_for_staff_and_you_for_the_publisher(self):
+        self.check(self.pub_login)
+        [row] = self.get(self.main)['numbers']
+        self.assertEqual((row['last_by_type'], row['last_by']), ('publisher', 'Crug (Ann)'))
+        [row] = self.get(self.pub_login)['numbers']
+        self.assertEqual(row['last_by'], 'You')
