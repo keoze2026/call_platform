@@ -193,21 +193,51 @@ def _today(org, *, viewer=None, publisher=None, link=None):
     checked = tfn_check.checks_today(org, publisher=publisher, link=link)
 
     qs = (TfnTest.objects.filter(organization=org, created_at__gte=since)
-          .select_related('requested_by').order_by('-created_at'))
+          .select_related('requested_by', 'requested_by__publisher', 'requested_by__buyer')
+          .order_by('-created_at'))
     if scope is not None:
         qs = qs.filter(phone_number__publisher=scope)
 
-    def by(t):
-        if t.trigger != TfnTest.Trigger.MANUAL:
-            return t.get_trigger_display()
+    from accounts.main_user import main_user_of
+    main = main_user_of(org)
+
+    def runner(t):
+        """(by_type, by) - who ran the test call (CH-343, Sir 28 Oct: "who ran
+        the test - main account, publisher or anyone from the account team").
+
+        by_type: main / team / publisher / buyer / auto / morning / unknown.
+        Staff see names. A publisher login or a share link sees "You" for its
+        own tests, its publisher's name, and only "Avortyx" for our team."""
+        if t.trigger == TfnTest.Trigger.AUTO:
+            return 'auto', 'Automatic'
+        if t.trigger == TfnTest.Trigger.MORNING:
+            return 'morning', 'Morning'
         u = t.requested_by
         if u is None:
-            return ''
+            return 'unknown', ''
+        person = (u.get_full_name() or u.email or u.username or '').strip()
+        role = getattr(u, 'role', '')
+        if role == 'publisher':
+            kind = 'publisher'
+            who = u.publisher.name if getattr(u, 'publisher_id', None) else person
+            if staff and getattr(u, 'publisher_id', None) and person:
+                who = f'{u.publisher.name} ({person})'
+        elif role == 'buyer':
+            kind = 'buyer'
+            who = u.buyer.name if getattr(u, 'buyer_id', None) else person
+        elif getattr(u, 'is_superuser', False) or (main is not None and u.pk == main.pk):
+            kind, who = 'main', person
+        else:
+            kind, who = 'team', person
         if viewer is not None and u.id == viewer.id:
-            return 'You'
-        if staff:
-            return (u.get_full_name() or u.email or '').strip()
-        return 'Avortyx'
+            return kind, 'You'
+        if not staff and kind in ('main', 'team', 'buyer', 'unknown'):
+            return kind, 'Avortyx'
+        # A share link names a publisher only when the link is that publisher's.
+        if link is not None and kind == 'publisher' and \
+                (link.publisher_id is None or getattr(u, 'publisher_id', None) != link.publisher_id):
+            return kind, 'Publisher'
+        return kind, who
 
     tests, numbers = [], {}
 
@@ -215,6 +245,7 @@ def _today(org, *, viewer=None, publisher=None, link=None):
         return numbers.setdefault(shown, {
             'number': shown, 'tests': 0, 'passed': 0, 'failed': 0, 'last_at': None, 'last_status': None,
             'checks': 0, 'last_checked_at': None, 'last_result': None,
+            'last_by': None, 'last_by_type': None,
         })
 
     for t in qs[:1000]:
@@ -224,12 +255,13 @@ def _today(org, *, viewer=None, publisher=None, link=None):
             continue
         row = _test_out(t)
         row['trigger'] = t.trigger
-        row['by'] = by(t)
+        row['by_type'], row['by'] = runner(t)
         tests.append(row)
         n = number_row(row['number'])
         if n['last_status'] is None:
             n['last_status'] = t.status
             n['last_test_at'] = row['created_at']
+            n['last_by'], n['last_by_type'] = row['by'], row['by_type']
         n['tests'] += 1
         if t.status == TfnTest.Status.PASSED:
             n['passed'] += 1

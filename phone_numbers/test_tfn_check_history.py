@@ -131,3 +131,64 @@ class TodayChecksTests(TestCase):
                 mock.patch('phone_numbers.models.TfnCheckEvent.objects.bulk_create', side_effect=RuntimeError):
             r = self.post('/api/numbers/check/', {'numbers': '8888910563'})
         self.assertEqual(r.status_code, 200)
+
+
+@override_settings(ALLOWED_HOSTS=['*'], CACHES=CACHE)
+class WhoRanTheTestTests(TestCase):
+    """CH-343: who ran each test call - main account, team, publisher, automatic."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name='Avortyx', slug='avx')
+        self.main = User.objects.create(username='main', email='main@x.io', organization=self.org,
+                                        role='admin', first_name='Sir')
+        self.team = User.objects.create(username='team', email='team@x.io', organization=self.org,
+                                        role='admin', first_name='Evans')
+        self.camp = Campaign.objects.create(organization=self.org, name='PDSO', status='active')
+        self.pub = Publisher.objects.create(organization=self.org, name='Crug')
+        self.pub_login = User.objects.create(username='crug', email='c@x.io', organization=self.org,
+                                             role='publisher', publisher=self.pub, first_name='Ann')
+        self.phone = PhoneNumber.objects.create(organization=self.org, number='+18888910563', vendor='Other',
+                                                campaign=self.camp, publisher=self.pub)
+        p = mock.patch('ninja.throttling.SimpleRateThrottle.allow_request', return_value=True)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test(self, user=None, trigger='manual', minutes_ago=0):
+        t = TfnTest.objects.create(organization=self.org, phone_number=self.phone, number=self.phone.number,
+                                   status='passed', requested_by=user, trigger=trigger)
+        TfnTest.objects.filter(pk=t.pk).update(created_at=timezone.now() - timedelta(minutes=minutes_ago))
+
+    def get(self, user, url='/api/numbers/check/today'):
+        api = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(user)}') if user else Client()
+        r = api.get(url)
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def test_staff_see_who_ran_each_test(self):
+        self.test(self.main, minutes_ago=5)
+        self.test(self.team, minutes_ago=4)
+        self.test(self.pub_login, minutes_ago=3)
+        self.test(None, trigger='auto', minutes_ago=2)
+        self.test(None, trigger='morning', minutes_ago=1)
+        body = self.get(self.team)
+        got = [(t['by_type'], t['by']) for t in body['tests']]
+        self.assertEqual(got, [('morning', 'Morning'), ('auto', 'Automatic'), ('publisher', 'Crug (Ann)'),
+                               ('team', 'You'), ('main', 'Sir')])
+        [row] = body['numbers']
+        self.assertEqual((row['last_by_type'], row['last_by']), ('morning', 'Morning'))
+
+    def test_a_publisher_sees_only_avortyx_for_our_team(self):
+        self.test(self.main, minutes_ago=3)
+        self.test(self.team, minutes_ago=2)
+        self.test(self.pub_login, minutes_ago=1)
+        got = [(t['by_type'], t['by']) for t in self.get(self.pub_login)['tests']]
+        self.assertEqual(got, [('publisher', 'You'), ('team', 'Avortyx'), ('main', 'Avortyx')])
+
+    def test_a_share_link_never_names_our_team_or_another_publisher(self):
+        link = TfnCheckLink.objects.create(organization=self.org, name='Buyer X', token='b' * 43)
+        Client().post(f'/api/public/tfn-check/{link.token}', data=json.dumps({'numbers': '8888910563'}),
+                      content_type='application/json')
+        self.test(self.main, minutes_ago=2)
+        self.test(self.pub_login, minutes_ago=1)
+        got = [(t['by_type'], t['by']) for t in self.get(None, f'/api/public/tfn-check/{link.token}/today')['tests']]
+        self.assertEqual(got, [('publisher', 'Publisher'), ('main', 'Avortyx')])
