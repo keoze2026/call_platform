@@ -391,3 +391,16 @@ class StatusTests(TestCase):
         self.assertIn('by ops1@avortyx.io', sent[0])
         self.assertEqual(S.portal_changes(sent.append), 0)        # not again
         self.assertIn('1 · by ops1', self.items()['Routing / priority / Campaign Group changes (24h)'].detail)
+
+
+class StatusThreadConnectionTests(TestCase):
+    """CH-338: each parallel status check closes its own database connection
+    when it ends, so a run leaves none behind (the worker held 45 of 100)."""
+
+    def test_every_threaded_area_closes_its_connection(self):
+        from django.db import connections
+        with mock.patch.object(connections, 'close_all') as close_all:
+            S._run_area(lambda h: [], {}, threaded=True)
+            S._run_area(lambda h: 1 / 0, {}, threaded=True)   # a failing check too
+            S._run_area(lambda h: [], {}, threaded=False)     # the caller's own thread: left alone
+        self.assertEqual(close_all.call_count, 2)

@@ -1037,7 +1037,7 @@ PARALLEL = True
 
 
 def _run_area(fn, h, threaded=False):
-    from django.db import close_old_connections
+    from django.db import connections
     try:
         return fn(h)
     except Exception as e:  # noqa: BLE001
@@ -1045,7 +1045,14 @@ def _run_area(fn, h, threaded=False):
         return [Item('Checks', WARN, f'could not check ({type(e).__name__}: {str(e)[:60]})')]
     finally:
         if threaded:
-            close_old_connections()
+            # CH-338: close this thread's database connection outright. It
+            # was close_old_connections(), which keeps a connection younger
+            # than DB_CONN_MAX_AGE (600 s) - so every status run left one
+            # open connection per area behind in a thread that then ended.
+            # On 28 Oct the worker held 45 of the database's 100 slots, idle
+            # for up to 4 hours, and portal pages and 5 call requests failed
+            # with "too many clients already".
+            connections.close_all()
 
 
 def collect():
