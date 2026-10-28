@@ -1281,6 +1281,49 @@ class AnalyticsService:
 
     # ── call log ─────────────────────────────────────────────────────────────
 
+    # A range that includes now has live calls, and they sit among the
+    # finished ones by time. Calls a page needs at most this many live rows
+    # before it falls back to the plain merge (never in practice: live calls
+    # are the ones ringing or talking right now).
+    LIVE_MERGE_MAX = 2000
+
+    @staticmethod
+    def _live_window(hist_qs, live_qs, live_count, offset, limit):
+        """(hist_items, live_items, local_offset) for one page of the call log
+        when live calls are in the range (CH-345).
+
+        The page used to read every finished call up to the end of the page -
+        page 28 of a week read 14,000 rows and formatted them all to show
+        500, and the Call Logs page asks for every page, so a week cost
+        hundreds of thousands of rows: 10 seconds. Only the live rows (a few
+        dozen) can sit in front of a finished one, so a page needs the
+        finished calls from `offset - live_count` on, never more than
+        `limit + live_count` of them. Same rows, same order as before:
+        newest first, and on the same second a finished call before a live
+        one (the old merge's stable sort).
+        """
+        if live_count > AnalyticsService.LIVE_MERGE_MAX:
+            fetch_limit = offset + limit
+            return list(hist_qs[:fetch_limit]), list(live_qs[:fetch_limit]), offset
+        live_items = list(live_qs)
+        start = max(0, offset - len(live_items))
+        hist_items = list(hist_qs[start:offset + limit])
+        if not hist_items:
+            # Past the last finished call: only live rows are left.
+            hist_total = hist_qs.count()
+            local_offset = offset - hist_total
+            return [], live_items, max(0, local_offset)
+        first = hist_items[0].created_at
+        # Live calls strictly newer than the first finished row on this slice
+        # come before it in the full list; one on the same second after it.
+        ahead = [r for r in live_items if r.created_at > first]
+        rest = [r for r in live_items if r.created_at <= first]
+        position = start + len(ahead)          # where hist_items[0] sits overall
+        if position > offset:
+            # Only when start == 0: the page begins among the live calls ahead.
+            return hist_items, ahead + rest, offset
+        return hist_items, rest, offset - position
+
     @staticmethod
     def get_call_log(user: User, filters) -> dict:
         from routing.models import CallLog
@@ -1330,13 +1373,8 @@ class AnalyticsService:
             live_items = []
             local_offset = 0
         else:
-            # Live rows interleave by time, so the merge needs everything up
-            # to the requested window. Bounded in practice: only ranges that
-            # include right now have live rows, and those are read at page 1.
-            fetch_limit = offset + limit
-            hist_items = list(hist_qs[:fetch_limit])
-            live_items = list(live_qs[:fetch_limit])
-            local_offset = offset
+            hist_items, live_items, local_offset = AnalyticsService._live_window(
+                hist_qs, live_qs, live_count, offset, limit)
 
         sids = [r.twilio_call_sid for r in hist_items if r.twilio_call_sid]
         dest_map = dict(
