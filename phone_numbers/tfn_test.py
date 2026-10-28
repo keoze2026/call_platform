@@ -104,8 +104,9 @@ def _carrier_rule(test_id, passed: bool, reason: str):
     """A test that never went through the carrier is not end to end."""
     mode = TfnTest.objects.filter(pk=test_id).values_list('mode', flat=True).first()
     if passed and ring_enabled() and require_carrier() and mode != TfnTest.Mode.REAL_CALL:
+        # One plain sentence (CH-350): not "Not fully tested ... End to end OK".
         return False, ('Not fully tested: the carrier route could not be checked. '
-                       'Our system and the buyer were OK. ' + reason)
+                       'Our system routed the call and the buyer answered.')
     return passed, reason
 
 

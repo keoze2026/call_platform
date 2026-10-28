@@ -82,6 +82,7 @@ class EndToEndTests(Base):
         t.refresh_from_db()
         self.assertEqual(t.status, 'failed')
         self.assertIn('carrier route could not be checked', t.reason)
+        self.assertNotIn('End to end OK', t.reason)
 
     @override_settings(TFN_TEST_REQUIRE_CARRIER=False)
     def test_without_the_carrier_rule_the_buyer_answer_is_enough(self):
