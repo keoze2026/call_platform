@@ -92,7 +92,7 @@ class AMIClient:
         except Exception:
             pass
 
-    def originate(self, channel: str, caller_id: str, timeout_ms: int = 25000) -> str:
+    def originate(self, channel: str, caller_id: str, timeout_ms: int = 25000, wait_seconds: int = 20) -> str:
         """Queue an outbound call and return its ActionID. The call is async:
         what happens to it arrives later as an OriginateResponse event."""
         action_id = uuid.uuid4().hex
@@ -101,7 +101,7 @@ class AMIClient:
             'ActionID': action_id,
             'Channel': channel,
             'Application': 'Wait',
-            'Data': '20',
+            'Data': str(wait_seconds),
             'CallerID': f'"TFN Test" <{caller_id}>',
             'Timeout': timeout_ms,
             'Async': 'true',

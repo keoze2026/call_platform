@@ -25,6 +25,9 @@ OK = {'destination': '+15557654321', 'rule': None, 'error': None,
 @override_settings(
     ALLOWED_HOSTS=['*'], ASTERISK_SHARED_SECRET=SECRET, TFN_TEST_CALLER_ID=TEST_CID,
     ASTERISK_AMI_HOST='', ASTERISK_AMI_SECRET='',
+    # These tests describe our-side-only tests; CH-348's end-to-end test
+    # (carrier + buyer answer) is in test_tfn_end_to_end.py.
+    TFN_TEST_RING_BUYER=False, TFN_TEST_REQUIRE_CARRIER=False,
     CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
 )
 class Base(TestCase):

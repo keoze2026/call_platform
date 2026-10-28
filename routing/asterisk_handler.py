@@ -200,10 +200,13 @@ def _route_incoming_call(request):
 
     # Our own TFN test call coming back in (CH-175). Checked against the
     # platform and closed here: no CallLog, no fee, no buyer is rung.
+    # CH-348: a test started by hand rings the buyer's line for real; the
+    # buyer leg reports back under "tfntest-<id>", never a CallLog id.
     try:
         from phone_numbers import tfn_test
-        if tfn_test.handle_inbound(called, caller):
-            return JsonResponse({"action": "hangup", "reason": "tfn_test"})
+        action = tfn_test.inbound_action(called, caller)
+        if action is not None:
+            return JsonResponse(action)
     except Exception:
         logger.exception('tfn_test inbound check failed')
 
@@ -696,6 +699,8 @@ def held_answer_report(request):
         return JsonResponse({"error": "Forbidden"}, status=403)
     try:
         data = json.loads(request.body.decode('utf-8', errors='replace') or '{}')
+        if str(data.get('call_log_id') or '').startswith('tfntest-'):
+            return JsonResponse({"recorded": False, "tfn_test": True})   # CH-348
         call_log = CallLog.objects.select_related('campaign', 'organization').get(id=data.get('call_log_id'))
     except (ValueError, CallLog.DoesNotExist, ValidationError):
         return JsonResponse({"error": "Call not found"}, status=404)
@@ -771,6 +776,18 @@ def call_ended(request):
         reported = datetime.fromtimestamp(epoch, tz=dt_timezone.utc)
         if now - timezone.timedelta(hours=48) <= reported <= now + timezone.timedelta(minutes=1):
             ended_at = min(reported, now)
+
+    # CH-348: the buyer leg of a TFN test call - closes the test, no call row.
+    try:
+        from phone_numbers import tfn_test
+        if tfn_test.is_test_call_id(call_log_id):
+            status = str(data.get('dialstatus') or data.get('dial_status') or '')
+            tfn_test.buyer_result(call_log_id, answered or duration > 0 or status.upper() == 'ANSWER',
+                                  duration, status)
+            return JsonResponse({"received": True, "tfn_test": True})
+    except Exception:
+        logger.exception('call_ended: tfn test report failed')
+        return JsonResponse({"received": True, "tfn_test": True})
 
     call_log = None
     matched_blind = False

@@ -151,7 +151,9 @@ def start_test_call(request: HttpRequest, payload: TestIn):
         return 400, {'detail': 'A test call for this number is already running'}
     if tfn_test.daily_count(phone) >= tfn_test.PER_NUMBER_PER_DAY:
         return 429, {'detail': f'At most {tfn_test.PER_NUMBER_PER_DAY} test calls per number in 24 hours'}
-    test = tfn_test.create_test(phone, request.auth, internal=True)
+    # CH-348: through the carrier first, like a customer's call; the test falls
+    # back inside our system (carrier "not checked") if the carrier refuses it.
+    test = tfn_test.create_test(phone, request.auth, internal=not (tfn_test.ring_enabled() and tfn_test.real_call_possible()))
     run_tfn_test.delay(str(test.id))
     return 202, _test_out(test)
 

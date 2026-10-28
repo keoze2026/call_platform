@@ -577,6 +577,15 @@ TFN_TEST_CALLER_ID = config('TFN_TEST_CALLER_ID', default='')
 TFN_TEST_TRUNK = config('TFN_TEST_TRUNK', default='carrier')
 # The inbound context an internal test call (CH-239) enters, as a carrier call does.
 TFN_TEST_CONTEXT = config('TFN_TEST_CONTEXT', default='from-carrier')
+# CH-348 (Sir, 28 Oct): a TFN test passes only end to end - through the
+# carrier, into our system, routed, and a buyer's agent answers. A test started
+# by hand rings the buyer's line (never an automatic test); on answer the call
+# stays up TFN_TEST_ANSWER_HOLD_SECONDS, then ends. With TFN_TEST_REQUIRE_CARRIER
+# a test that could not go through the carrier never reads Passed.
+TFN_TEST_RING_BUYER = config('TFN_TEST_RING_BUYER', default=True, cast=bool)
+TFN_TEST_BUYER_RING_SECONDS = config('TFN_TEST_BUYER_RING_SECONDS', default=30, cast=int)
+TFN_TEST_ANSWER_HOLD_SECONDS = config('TFN_TEST_ANSWER_HOLD_SECONDS', default=2, cast=int)
+TFN_TEST_REQUIRE_CARRIER = config('TFN_TEST_REQUIRE_CARRIER', default=True, cast=bool)
 # Automatic tests of quiet numbers (CH-213). Off by default: switch on once the
 # carrier accepts the test caller ID. A number with no call and no test for
 # TFN_AUTO_TEST_HOURS is tested, at most TFN_AUTO_TEST_MAX numbers a run.
