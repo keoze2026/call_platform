@@ -669,7 +669,21 @@ def settle_call_money(call_log, answered: bool, duration: int) -> bool:
                 )
                 if charge is not None:
                     # Record what was taken, so reporting never has to guess.
-                    CallLog.objects.filter(pk=call_log.pk).update(platform_cost=amount)
+                    # CH-352: on the Reports copy too, or Reports estimate the
+                    # cost instead - without the recording and VoIP Shield
+                    # fees, and mixed with the charged calls.
+                    # The Reports copy is written by a background job queued
+                    # on the save above, and it could read the call before
+                    # this line - so it kept Cost 0. Saving (not .update())
+                    # queues it again with the charge on, and the copy is set
+                    # now as well. What was taken: a retried hangup gets the
+                    # first charge back, so its amount, not this recount.
+                    from decimal import Decimal
+                    taken = Decimal(getattr(charge, 'amount', None) or amount)
+                    call_log.platform_cost = taken
+                    call_log.save(update_fields=['platform_cost'])
+                    from analytics.models import CallRecord
+                    CallRecord.objects.filter(pk=call_log.pk).update(platform_cost=taken)
 
                 if charge is None:
                     # Balance ran out between dispatch and hangup (concurrent

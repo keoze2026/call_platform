@@ -108,6 +108,9 @@ PAID = Q(is_converted=True) & (Q(payout__gt=0) | Q(campaign__payout_amount__gt=0
 
 # Answered: the buyer picked up (or is still talking).
 ANSWERED = Q(status__in=['completed', 'in_progress'])
+# CH-352: an answered call with no charge recorded on it; its Cost is the
+# minutes estimate. TFN test calls are never charged and never estimated.
+UNCHARGED = Q(platform_cost=0, duration_seconds__gt=0) & ~Q(twilio_call_sid__startswith='tfntest-')
 
 
 def _f(filters, name, default=None):
@@ -399,6 +402,13 @@ class AnalyticsService:
                 0.0,
             ),
             charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
+            # CH-352: minutes of answered calls with no charge on them (charged
+            # before 18 Sep, or the charge failed), estimated - so the total
+            # is the sum of the per-call Cost, never only the charged part.
+            uncharged_minutes=Coalesce(
+                Sum(Ceil(Cast('duration_seconds', FloatField()) / 60.0), filter=UNCHARGED),
+                0.0,
+            ),
         )
 
         if filters and any([getattr(filters, 'date_from', None), getattr(filters, 'date_to', None), getattr(filters, 'created_at__gte', None), getattr(filters, 'created_at__lte', None), getattr(filters, 'start_date', None), getattr(filters, 'end_date', None)]):
@@ -619,6 +629,8 @@ class AnalyticsService:
         """
         if r.platform_cost:
             return Decimal(r.platform_cost)
+        if str(getattr(r, 'twilio_call_sid', '') or '').startswith('tfntest-'):
+            return Decimal('0')       # a TFN test call is never charged (CH-348)
         secs = int(r.duration_seconds or 0)
         minutes = -(-secs // 60) if secs > 0 else 0
         return AnalyticsService._cost_from_minutes(minutes, rate, markup)
@@ -630,9 +642,16 @@ class AnalyticsService:
         Calls before charging went live on 18 September have no charge against
         them, so they fall back to the estimate rather than showing zero.
         """
-        charged = row.get('charged_cost') or Decimal('0')
+        # CH-352: what was charged PLUS the estimate for the calls that were
+        # not charged - the same as adding up each call's Cost. It used to be
+        # "the charged part if anything was charged, else the estimate", so a
+        # row with some charged calls left the others out, and the same calls
+        # showed a different Cost on Publisher than on Dialed or Destination.
+        charged = Decimal(row.get('charged_cost') or 0).quantize(Decimal('0.01'))
+        if 'uncharged_minutes' in row:
+            return charged + AnalyticsService._cost_from_minutes(row.get('uncharged_minutes'), rate, markup)
         if charged:
-            return Decimal(charged).quantize(Decimal('0.01'))
+            return charged
         return AnalyticsService._cost_from_minutes(
             row.get('billable_minutes'), rate, markup
         )
@@ -694,6 +713,13 @@ class AnalyticsService:
                 # What was actually charged, summed from the calls rather than
                 # recalculated. See _cost_from_minutes for why.
                 charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
+                # CH-352: minutes of answered calls with no charge on them (charged
+                # before 18 Sep, or the charge failed), estimated - so the total
+                # is the sum of the per-call Cost, never only the charged part.
+                uncharged_minutes=Coalesce(
+                    Sum(Ceil(Cast('duration_seconds', FloatField()) / 60.0), filter=UNCHARGED),
+                    0.0,
+                ),
             )
         )
 
@@ -1002,6 +1028,13 @@ class AnalyticsService:
                 # What was actually charged, summed from the calls rather than
                 # recalculated. See _cost_from_minutes for why.
                 charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
+                # CH-352: minutes of answered calls with no charge on them (charged
+                # before 18 Sep, or the charge failed), estimated - so the total
+                # is the sum of the per-call Cost, never only the charged part.
+                uncharged_minutes=Coalesce(
+                    Sum(Ceil(Cast('duration_seconds', FloatField()) / 60.0), filter=UNCHARGED),
+                    0.0,
+                ),
             )
             .order_by('-total_calls')
         )
@@ -1078,6 +1111,13 @@ class AnalyticsService:
                 # What was actually charged, summed from the calls rather than
                 # recalculated. See _cost_from_minutes for why.
                 charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
+                # CH-352: minutes of answered calls with no charge on them (charged
+                # before 18 Sep, or the charge failed), estimated - so the total
+                # is the sum of the per-call Cost, never only the charged part.
+                uncharged_minutes=Coalesce(
+                    Sum(Ceil(Cast('duration_seconds', FloatField()) / 60.0), filter=UNCHARGED),
+                    0.0,
+                ),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])), 0.0),
@@ -1197,6 +1237,13 @@ class AnalyticsService:
                 # What was actually charged, summed from the calls rather than
                 # recalculated. See _cost_from_minutes for why.
                 charged_cost=Coalesce(Sum('platform_cost'), Decimal('0')),
+                # CH-352: minutes of answered calls with no charge on them (charged
+                # before 18 Sep, or the charge failed), estimated - so the total
+                # is the sum of the per-call Cost, never only the charged part.
+                uncharged_minutes=Coalesce(
+                    Sum(Ceil(Cast('duration_seconds', FloatField()) / 60.0), filter=UNCHARGED),
+                    0.0,
+                ),
                 avg_duration=Coalesce(Avg('duration_seconds', filter=Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])), 0.0),
@@ -1622,8 +1669,7 @@ class AnalyticsService:
                 billed_minutes,
                 # What this call was charged. Falls back to an estimate only for
                 # calls that predate charging.
-                (r.platform_cost if r.platform_cost
-                 else AnalyticsService._cost_from_minutes(billed_minutes, rate, markup)),
+                AnalyticsService._call_cost(r, rate, markup),    # CH-352: one rule
                 public_recording_url(r.recording_url),
             ]
             yield writer.writerow([row[i] for i in keep])

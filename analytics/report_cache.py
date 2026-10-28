@@ -61,7 +61,8 @@ def closed_range_response(request, filters, name, compute):
     raw = '|'.join(f'{f}={getattr(filters, f, None)}' for f in _KEY_FIELDS)
     # v2 (CH-284): the call log gained `cost` and publishers `total_cost`;
     # entries cached before that would show "-" for up to six hours.
-    key = (f'reports:v2:{name}:{user.organization_id}:{audience}:'
+    # v3 (CH-352): Cost now adds charged and uncharged calls.
+    key = (f'reports:v3:{name}:{user.organization_id}:{audience}:'
            f'{hashlib.sha256(raw.encode()).hexdigest()}')
 
     hit = cache.get(key)
@@ -74,3 +75,17 @@ def closed_range_response(request, filters, name, compute):
         # A cache that cannot store must never fail the report.
         pass
     return result
+
+
+def clear_all() -> int:
+    """Forget every saved finished day (all versions), so the next open
+    recomputes it - after a backfill changes history (CH-352). Returns how
+    many were removed; 0 when the cache cannot be scanned."""
+    try:
+        client = cache._cache.get_client(write=True)
+        keys = list(client.scan_iter(match='*:reports:v*', count=1000))
+        for i in range(0, len(keys), 500):
+            client.delete(*keys[i:i + 500])
+        return len(keys)
+    except Exception:
+        return 0

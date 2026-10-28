@@ -102,6 +102,26 @@ class UserBillingTests(TestCase):
         self.account.refresh_from_db()
         self.assertEqual(self.account.balance, Decimal('-0.90'))
 
+    def test_reports_show_the_charge_not_an_estimate(self):
+        """CH-352: the Reports copy carries what was charged, even when its
+        background copy read the call before the charge was written."""
+        from analytics.models import CallRecord
+        from routing.signals import mirror_call_log
+        BillingAccount.objects.filter(pk=self.account.pk).update(credit_limit=Decimal('10'))
+        _, row, _ = self.route()
+        early = []
+
+        def copy_now(call_id):          # the job running at once, before the charge
+            early.append(call_id)
+            mirror_call_log(call_id)
+
+        with mock.patch('tasks.mirror_call_record.delay', side_effect=copy_now), \
+                mock.patch('django.db.transaction.on_commit', side_effect=lambda fn, *a, **k: fn()):
+            row = self.end(row, 61)
+        self.assertTrue(early)
+        self.assertEqual(row.platform_cost, Decimal('0.90'))
+        self.assertEqual(CallRecord.objects.get(pk=row.pk).platform_cost, Decimal('0.90'))
+
     def test_a_call_that_happened_is_charged_even_if_the_balance_ran_out(self):
         BillingAccount.objects.filter(pk=self.account.pk).update(balance=Decimal('1.00'))
         body, row, _ = self.route()

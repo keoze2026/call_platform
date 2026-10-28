@@ -7762,3 +7762,31 @@ so any consumer can see how many times TFNs were tested."
 
 Tests: phone_numbers/test_tfn_check.py (+1). Needs the web restart.
 Portal half: CH-341 in Avortyx. Commit: see git log --grep CH-341.
+
+## CH-352 - Cost is the same on every tab and every filter
+**2026-10-29 · Reports / Billing**
+
+Sir, 28 Oct: "Cost is not calculating correctly ... for every filter the cost
+should be always correct".
+
+- The hangup charge was written on the call log only. The Reports copy is
+  written by a background job that often read the call before the charge was
+  on it, so most calls showed Cost 0 in Reports and every report estimated
+  them instead (minutes x rate, without the recording and VoIP Shield fees).
+  The charge is now saved on the call (which writes the Reports copy again)
+  and set on the Reports copy directly. A retried hangup records the first
+  charge's amount.
+- Campaign / Publisher / Buyer / Carrier / Dashboard Cost = what was charged
+  + the estimate for the answered calls that were never charged. It used to
+  be only the charged part when anything was charged, so those tabs disagreed
+  with Dialed, Destination, Date ... (which add up each call's Cost).
+- A TFN test call (tfntest-) costs 0 everywhere, as it is never charged.
+- The export's Cost uses the same per-call rule.
+- `manage.py sync_call_costs [--days 60] [--apply]`: puts each call's charge
+  (its balance CHARGE) on the call log and the Reports copy. Lists only
+  without --apply. Nothing is charged or refunded. With --apply it also
+  clears the saved copies of past days (Redis), so the fixed Cost shows on
+  the next open; the report cache key moves to v3 for the same reason.
+
+Tests: analytics/test_cost_every_filter.py (+8), routing/test_user_billing.py (+1).
+The command works at once; the report change needs the web restart.
