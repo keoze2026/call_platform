@@ -210,6 +210,20 @@ def mask_partner_money(user, data):
     return data
 
 
+
+from phone_numbers.caller_word import caller_word  # noqa: E402
+
+
+def _caller_out(value) -> str:
+    """The caller ID for the Call Log: 10 digits for a US number, and a word
+    such as "TFN Test" kept as it is - it used to come out empty (CH-344)."""
+    word = caller_word(value)
+    if word:
+        return word
+    d = ''.join(filter(str.isdigit, value or ''))
+    return d[1:] if d.startswith('1') and len(d) == 11 else d
+
+
 class AnalyticsService:
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -1354,7 +1368,7 @@ class AnalyticsService:
         return {
             'id':               str(r.id),
             'twilio_call_sid':  r.twilio_call_sid,
-            'caller_number':    (lambda rc: (d:=''.join(filter(str.isdigit, rc or ''))) and (d[1:] if d.startswith('1') and len(d)==11 else d))(r.caller_number),
+            'caller_number':    _caller_out(r.caller_number),
             'caller_state':     r.caller_state,
             'caller_country':   getattr(r, 'caller_country', '') or '',
             'caller_city':      getattr(r, 'caller_city', '') or '',
@@ -1404,7 +1418,7 @@ class AnalyticsService:
         return {
             'id':               str(r.id),
             'twilio_call_sid':  r.twilio_call_sid,
-            'caller_number':    (lambda rc: (d:=''.join(filter(str.isdigit, rc or ''))) and (d[1:] if d.startswith('1') and len(d)==11 else d))(r.caller_number),
+            'caller_number':    _caller_out(r.caller_number),
             'caller_state':     r.caller_state,
             'caller_country':   getattr(r, 'caller_country', '') or '',
             'caller_city':      getattr(r, 'caller_city', '') or '',
@@ -1530,6 +1544,7 @@ class AnalyticsService:
             clean_caller = raw_caller.lstrip('+')
             if clean_caller.startswith('1') and len(clean_caller) == 11:
                 clean_caller = clean_caller[1:]
+            clean_caller = caller_word(raw_caller) or clean_caller   # "TFN Test" (CH-344)
             dest_number = getattr(r, 'destination_number', '') or ''
 
             # Time to connect: how long the caller waited before a buyer picked

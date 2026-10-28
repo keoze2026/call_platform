@@ -1,4 +1,5 @@
-"""CH-312: a TFN test call shows in the reports with caller ID "Test"."""
+"""CH-312: a TFN test call shows in the reports with caller ID "TFN Test" (CH-344)."""
+from django.test import SimpleTestCase
 from unittest import mock
 
 from analytics.models import CallRecord
@@ -23,7 +24,7 @@ class TestCallInReportsTests(Base):
         rows = list(CallRecord.objects.all())
         self.assertEqual(len(rows), 1)
         r = rows[0]
-        self.assertEqual((r.caller_number, r.called_number), ('Test', '+18774893792'))
+        self.assertEqual((r.caller_number, r.called_number), ('TFN Test', '+18774893792'))
         self.assertEqual((r.block_reason, r.status), ('TFN Test', 'no_answer'))
         self.assertEqual((r.campaign_name, r.publisher_name, r.buyer_name), ('C-03', 'PDSO', 'Acme'))
         self.assertEqual(r.destination_number, '15557654321')
@@ -60,5 +61,20 @@ class TestCallInReportsTests(Base):
     def test_a_normal_call_from_the_test_number_is_not_marked_test(self):
         with mock.patch.object(RoutingEngine, 'route_call', return_value=NO_BUYER):
             self.inbound()
-        self.assertFalse(CallRecord.objects.filter(caller_number='Test').exists())
+        self.assertFalse(CallRecord.objects.filter(caller_number__in=['Test', 'TFN Test']).exists())
         self.assertEqual(TfnTest.objects.count(), 0)
+
+
+class CallerWordTests(SimpleTestCase):
+    """CH-344: "TFN Test" shows under Caller ID - it used to come out empty."""
+
+    def test_every_place_keeps_the_word(self):
+        from analytics.digest import _caller as digest_caller
+        from analytics.services import _caller_out
+        from buyers.telegram_report import _caller as telegram_caller
+        for show in (_caller_out, digest_caller, telegram_caller):
+            self.assertEqual(show('TFN Test'), 'TFN Test')
+            self.assertEqual(show('Test'), 'TFN Test')      # rows written before 28 Oct
+        self.assertEqual(_caller_out('+18774893792'), '8774893792')
+        self.assertEqual(_caller_out(''), '')
+        self.assertEqual(digest_caller('8774893792'), '18774893792')

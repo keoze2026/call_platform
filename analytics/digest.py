@@ -93,6 +93,10 @@ def _hms(value) -> str:
 
 
 def _caller(value: str) -> str:
+    from phone_numbers.caller_word import caller_word
+    word = caller_word(value)   # "TFN Test" (CH-344)
+    if word:
+        return word
     d = ''.join(c for c in str(value or '') if c.isdigit())
     return '1' + d if len(d) == 10 else d
 

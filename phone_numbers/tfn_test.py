@@ -174,7 +174,7 @@ def handle_inbound(called: str, caller: str) -> bool:
     return True
 
 
-TEST_CALLER = 'Test'
+from phone_numbers.caller_word import TEST_CALLER  # noqa: E402  'TFN Test' (CH-344)
 TEST_REASON = 'TFN Test'
 
 

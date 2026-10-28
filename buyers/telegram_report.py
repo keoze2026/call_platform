@@ -127,6 +127,10 @@ def _digits10(number: str) -> str:
 
 
 def _caller(number: str) -> str:
+    from phone_numbers.caller_word import caller_word
+    word = caller_word(number)   # "TFN Test" (CH-344)
+    if word:
+        return word
     d = ''.join(c for c in str(number or '') if c.isdigit())
     return '1' + d if len(d) == 10 else d
 
