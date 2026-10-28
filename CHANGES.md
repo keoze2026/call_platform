@@ -7726,3 +7726,20 @@ Autopilot...).
 
 Tests: notifications/test_partner_popups.py (5). Needs the web restart.
 Portal half: CH-335 in Avortyx. Commit: see git log --grep CH-335.
+
+## CH-336 - The day's expenses, line by line
+**2026-10-28 · Owner › Carrier Costs**
+
+Sir, 28 Oct: "For daily create like this - TFN cost, Xolo HR min, Freedom HR
+min and their cost, then expense of that day".
+
+- `GET /api/owner/expenses?start=&end=` (Eastern days, default today): TFN
+  cost (TFN fees by the day), each TFN carrier's minutes x its rate = cost
+  (XOLO High Risk, Freedom...), monthly charges by the day, routing minutes
+  x rate and the routing fee by the day, and the total expense. The total is
+  the company profit's "Carrier costs" for the same days (same `_bill`).
+- TFNs with calls and no carrier are listed apart: their minutes have no
+  rate, so they are not in the total.
+
+Tests: phone_numbers/test_carrier_bill.py (+1). Needs the web restart.
+Portal half: CH-336 in Avortyx. Commit: see git log --grep CH-336.

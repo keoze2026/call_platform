@@ -613,3 +613,69 @@ def company_profit(request: HttpRequest, start: Optional[str] = None, end: Optio
         'summary': bill['summary'],
         'profit': _company_profit(lo, hi, bill['grand']),
     }
+
+
+# --------------------------------------------------------------------------
+# The day's expenses, line by line (CH-336). Sir, 28 Oct, on the company
+# profit card: "for daily create like this - TFN cost, Xolo HR min, Freedom
+# HR min and their cost, then expense of that day". Same days as the profit
+# card (Today, Yesterday, This week, This month or any dates) and the same
+# bill (_bill): the profit's "Carrier costs" is this card's total.
+# --------------------------------------------------------------------------
+
+def _min(seconds) -> str:
+    return str((Decimal(seconds or 0) / Decimal(60)).quantize(CENT))
+
+
+@owner_router.get("/expenses", response={200: dict})
+def expenses(request: HttpRequest, start: Optional[str] = None, end: Optional[str] = None):
+    """What our carriers charge us for `start`..`end` (Eastern days, default
+    today), one line per cost: TFN fees, each TFN carrier's minutes, monthly
+    charges, routing minutes and the routing fee. Monthly fees by the day."""
+    require_owner(request)
+    today = timezone.now().astimezone(EASTERN).date()
+    first, last, lo, hi = _days(start, end, today)
+    share = _month_share(first, last)
+    bill = _bill(lo, hi, share)
+    summary, routing = bill['summary'], bill['routing']
+
+    carriers = [{
+        'name': c['name'],
+        'code': c['code'],
+        'calls': c['totals']['calls'],
+        'connected': c['totals']['connected'],
+        'minutes': _min(c['totals']['billed_seconds']),
+        'per_minute_cost': c['per_minute_cost'],
+        'billing_increment': c['billing_increment'],
+        'cost': c['totals']['minute_charges'],
+        'numbers': c['totals']['numbers'],
+        'tfn_cost': c['totals']['number_fees'],
+        'monthly_charge': c['totals']['portal_fee'],
+    } for c in bill['carriers']]
+    un = bill['unassigned']['totals']
+
+    return 200, {
+        'start': first.isoformat(),
+        'end': last.isoformat(),
+        'fee_share': str(share.quantize(Decimal('0.0001'))),
+        'days': (last - first).days + 1,
+        'tfn': {
+            'numbers': sum(c['numbers'] for c in carriers),
+            'cost': summary['number_fees'],
+        },
+        'carriers': carriers,
+        'monthly_charges': summary['portal_fees'],
+        'routing': {
+            'name': routing['name'],
+            'connected': routing['connected'],
+            'minutes': routing['minutes'],
+            'per_minute_cost': routing['per_minute_cost'],
+            'billing_increment': routing['billing_increment'],
+            'cost': routing['minute_cost'],
+            'fee': routing['fee'],
+        },
+        # TFNs with calls but no carrier: their minutes have no rate, so they
+        # are not in the total - shown so a low total can be explained.
+        'no_carrier': {'numbers': un['numbers'], 'calls': un['calls'], 'minutes': _min(un['tcl_seconds'])},
+        'total': summary['grand_total'],
+    }

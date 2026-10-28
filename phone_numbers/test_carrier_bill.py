@@ -85,6 +85,31 @@ class CarrierBillTests(TestCase):
         Carrier.objects.filter(pk=self.xhr.pk).update(billing_increment=6)
         self.assertEqual(self.by_code(self.get())['XHR']['totals']['billed_seconds'], 72)  # 66 + 6
 
+    def test_the_days_expenses_line_by_line(self):
+        """CH-336: TFN cost, each carrier's minutes and cost, routing, total - for today."""
+        import calendar
+        from django.utils import timezone as tz
+        self.call('+18770000001', 600)          # 10 min on XOLO High Risk, forwarded
+        self.call('+18770000002', 120)          # 2 min on XLR, forwarded
+        r = self.api.get('/api/owner/expenses')
+        self.assertEqual(r.status_code, 200, r.content)
+        e = r.json()
+        today = tz.now().astimezone(ET).date()
+        share = Decimal(1) / Decimal(calendar.monthrange(today.year, today.month)[1])
+        cents = lambda d: str(Decimal(d).quantize(Decimal('0.01'), rounding='ROUND_HALF_UP'))
+        self.assertEqual(e['start'], today.isoformat())
+        by = {c['code']: c for c in e['carriers']}
+        self.assertEqual((by['XHR']['minutes'], by['XHR']['cost']), ('10.00', '4.00'))      # 10 x 0.40
+        self.assertEqual((by['XLR']['minutes'], by['XLR']['cost']), ('2.00', '0.30'))       # 2 x 0.15
+        self.assertEqual(e['tfn']['numbers'], 2)
+        self.assertEqual(e['tfn']['cost'], cents(Decimal(15) * share))                     # one $15 TFN, by the day
+        self.assertEqual(e['monthly_charges'], cents(Decimal(350) * share))
+        self.assertEqual((e['routing']['minutes'], e['routing']['cost']), ('12.00', '0.05'))  # 12 x 0.004
+        self.assertEqual(e['routing']['fee'], cents(Decimal(350) * share))
+        # The total is the profit card's carrier costs for the same day.
+        p = self.api.get('/api/owner/company-profit').json()['profit']
+        self.assertEqual(e['total'], p['carrier_costs'])
+
     def test_only_known_increments(self):
         r = self.api.patch(f'/api/owner/carriers/{self.xhr.id}/costs', {'billing_increment': 7},
                            content_type='application/json')
