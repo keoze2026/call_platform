@@ -33,6 +33,7 @@ from analytics.scheduled_reports_api import router as scheduled_reports_router
 from spam_protection.shields_api import router as shields_router
 from buyers.destinations_api import router as destinations_router
 from referrals.api import router as referrals_router
+from analytics.guard_api import router as guard_router
 
 from django.conf import settings
 from django.http import JsonResponse
@@ -114,6 +115,7 @@ api.add_router("/analytics/reports/", scheduled_reports_router)
 api.add_router("/spam/shields/", shields_router)
 api.add_router("/destinations/", destinations_router)
 api.add_router("/referrals/", referrals_router)
+api.add_router("/guard/", guard_router)                      # CH-355 Avortyx Guard
 from integrations.api import router as integrations_router
 api.add_router("/integrations/", integrations_router)
 from marketplace.api import router as marketplace_router

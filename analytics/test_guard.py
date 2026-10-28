@@ -46,7 +46,7 @@ class GuardTests(TestCase):
         CallLog.objects.filter(pk=c.pk).update(created_at=self.noon, platform_cost=Decimal(log))
         if charged:
             Transaction.objects.create(organization=self.org, billing_account=self.acct, amount=Decimal(charged),
-                                       transaction_type=Transaction.Type.CHARGE,
+                                       transaction_type=Transaction.Type.CHARGE, balance_after=self.acct.balance,
                                        status=Transaction.Status.COMPLETED, call_sid=sid)
         if report:
             CallRecord.objects.update_or_create(id=c.pk, defaults=dict(
@@ -136,7 +136,7 @@ class GuardTests(TestCase):
         guard.hourly(sent.append, now=at)
         daily = [s for s in sent if 'daily check' in s]
         self.assertEqual(len(daily), 1)
-        self.assertIn('All 5 checks passed', daily[0])
+        self.assertIn('All 7 checks passed', daily[0])
 
     def test_command_prints_and_changes_nothing(self):
         self.call(shown='0')
@@ -144,3 +144,91 @@ class GuardTests(TestCase):
         call_command('guard_check', '--day', self.day.isoformat(), stdout=out)
         self.assertIn('Reports shows $0.00, charged $0.90', out.getvalue())
         self.assertEqual(CallRecord.objects.get(twilio_call_sid='sid-1').platform_cost, 0)
+
+    def test_a_call_charged_twice_is_caught(self):
+        self.call()
+        Transaction.objects.create(organization=self.org, billing_account=self.acct, amount=Decimal('0.90'),
+                                   transaction_type=Transaction.Type.CHARGE, balance_after=self.acct.balance,
+                                   status=Transaction.Status.COMPLETED, call_sid='sid-1')
+        self.assertTrue(any('charged more than once' in x for x in self.by_key()['cost'].lines))
+
+    def test_reports_payout_other_than_paid_is_caught(self):
+        c = self.call()
+        CallLog.objects.filter(pk=c.pk).update(publisher_payout=Decimal('5'))
+        CallRecord.objects.filter(pk=c.pk).update(payout=Decimal('3'))
+        self.assertIn('Reports shows payout $3.00, paid $5.00', self.by_key()['payout'].lines[0])
+
+    def test_a_balance_moved_outside_the_ledger_is_caught(self):
+        self.call()
+        BillingAccount.objects.filter(pk=self.acct.pk).update(balance=Decimal('250'))
+        self.assertIn('Avortyx: balance $250.00, ledger says $100.00', self.by_key()['balance'].lines[0])
+
+    def test_daily_summary_also_goes_to_the_summary_chat(self):
+        self.call()
+        team, boss = [], []
+        guard.hourly(team.append, now=timezone.now().astimezone(guard.ET).replace(hour=8), send_summary=boss.append)
+        self.assertEqual(len(boss), 1)
+        self.assertIn('daily check', boss[0])
+
+
+class RestartTrackerTests(TestCase):
+    """CH-355: what runs, what waits for the restart."""
+
+    def repo(self, root, sha, chs):
+        (root / '.git' / 'refs' / 'heads').mkdir(parents=True)
+        (root / '.git' / 'HEAD').write_text('ref: refs/heads/master\n')
+        (root / '.git' / 'refs' / 'heads' / 'master').write_text(sha + '\n')
+        (root / 'CHANGES.md').write_text(''.join(f'## {c} - x\n\ntext\n\n' for c in chs))
+
+    def test_pending_lists_what_is_on_disk_but_not_running(self):
+        import tempfile
+        from pathlib import Path
+        from analytics import guard_build as B
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self.repo(root, 'a' * 40, ['CH-350', 'CH-351'])
+            running = B.snapshot(root)
+            (root / '.git' / 'refs' / 'heads' / 'master').write_text('b' * 40 + '\n')
+            (root / 'CHANGES.md').write_text((root / 'CHANGES.md').read_text() + '## CH-352 - y\n\n## CH-353 - z\n')
+            s = B.status(root, running=running)
+        self.assertTrue(s['restart_needed'])
+        self.assertEqual(s['pending'], ['CH-352', 'CH-353'])
+        self.assertEqual((s['running']['ch'], s['on_disk']['ch']), ('CH-351', 'CH-353'))
+        self.assertEqual(s['running']['sha'], 'aaaaaaa')
+
+    def test_nothing_pending_after_the_restart(self):
+        import tempfile
+        from pathlib import Path
+        from analytics import guard_build as B
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            self.repo(root, 'c' * 40, ['CH-354'])
+            s = B.status(root, running=B.snapshot(root))
+        self.assertFalse(s['restart_needed'])
+        self.assertEqual(s['pending'], [])
+
+    @override_settings(ALLOWED_HOSTS=['*'], CACHES=LOCMEM)
+    def test_status_api_is_for_the_team_only(self):
+        from django.test import Client
+        from rest_framework_simplejwt.tokens import AccessToken
+        org = Organization.objects.create(name='Avortyx', slug='avx')
+        admin = User.objects.create(username='a', email='a@x.io', organization=org, role='admin', is_active=True)
+        pub = User.objects.create(username='p', email='p@x.io', organization=org, role='publisher', is_active=True)
+        ok = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(admin)}').get('/api/guard/status')
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.assertIn('restart_needed', ok.json())
+        self.assertIn('running_number', ok.json())
+        no = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(pub)}').get('/api/guard/status')
+        self.assertEqual(no.status_code, 403)
+
+
+class ApiPathsTests(TestCase):
+    """CH-355: docs/api-paths.txt is the API as it is - the portal's contract
+    check reads it. An API change without `api_paths --write` fails here."""
+
+    def test_the_file_is_current(self):
+        from analytics import api_paths
+        on_file = api_paths.FILE.read_text() if api_paths.FILE.exists() else ''
+        self.assertEqual(
+            on_file, api_paths.text(),
+            'The API changed: run `python manage.py api_paths --write` and commit docs/api-paths.txt')

@@ -8,8 +8,11 @@ not days later, when Sir finds it.
 Read only: it never changes a row. Each check is on its own; one that fails
 to run is reported as such and never stops the others.
 
-    cost     every ended call: balance charge = call log cost = Reports Cost (CH-352)
+    cost     every ended call: balance charge = call log cost = Reports Cost
+             (CH-352), and no call charged twice
     calls    every ended call is in Reports
+    payout   each paid call's payout in Reports = the payout paid (CH-250)
+    balance  each account's balance = its last ledger entry's "balance after"
     stuck    no call "live" for more than 2 hours
     tfns     every TFN on a campaign has its carrier
     tabs     (yesterday) each Campaign / Publisher / Buyer row's Cost and calls
@@ -24,8 +27,12 @@ are written just after the call ends.
 
 tasks.guard_check runs it every hour: a new or changed problem is sent once,
 and "back to normal" when it clears. At 6 AM Eastern yesterday is checked in
-full (tabs too) and a one-line summary goes out even when all is well.
-GUARD_CHAT_ID (.env) sends it to its own chat; default the status chat.
+full (tabs too) and a summary goes out even when all is well, with what is
+waiting for the server restart (analytics/guard_build.py).
+
+.env (all optional):
+  GUARD_CHAT_ID           the team chat for alerts (default the status chat)
+  GUARD_SUMMARY_CHAT_ID   also gets the daily summary only (e.g. Sir's chat)
 """
 import hashlib
 import logging
@@ -94,12 +101,14 @@ def check_cost(start, end) -> Finding:
     f = Finding('cost', 'Cost')
     calls = list(_ended_calls(start, end).values_list('id', 'organization_id', 'twilio_call_sid', 'platform_cost'))
     charged = defaultdict(lambda: Decimal('0'))
+    count = defaultdict(int)
     for part in _chunks([c[2] for c in calls]):
         for org, sid, amount in (Transaction.objects
                                  .filter(call_sid__in=part, transaction_type=Transaction.Type.CHARGE,
                                          status=Transaction.Status.COMPLETED)
                                  .values_list('organization_id', 'call_sid', 'amount')):
             charged[(org, sid)] += Decimal(amount or 0)
+            count[(org, sid)] += 1
     shown = {}
     for part in _chunks([c[0] for c in calls]):
         shown.update(CallRecord.objects.filter(id__in=part).values_list('id', 'platform_cost'))
@@ -111,6 +120,9 @@ def check_cost(start, end) -> Finding:
             log_bad.append((sid, Decimal(log_cost or 0), real))
         if cid in shown and Decimal(shown[cid] or 0).quantize(CENT) != real:
             rep_bad.append((sid, Decimal(shown[cid] or 0), real))
+    twice = [sid for (org, sid), n in count.items() if n > 1]
+    if twice:
+        f.lines.append(f'{len(twice)} calls charged more than once. e.g. {", ".join(twice[:SAMPLES])}')
     for name, bad in (('Reports', rep_bad), ('call log', log_bad)):
         if bad:
             had = sum(b[1] for b in bad)
@@ -132,6 +144,43 @@ def check_calls(start, end) -> Finding:
     if missing:
         f.lines.append(f'{len(missing)} of {len(calls)} ended calls are missing from Reports. '
                        f'e.g. {", ".join(missing[:SAMPLES])}')
+    return f
+
+
+def check_payout(start, end) -> Finding:
+    """Each paid call shows, in Reports, the payout that was paid (CH-250)."""
+    from analytics.models import CallRecord
+    f = Finding('payout', 'Payout')
+    paid = dict(_ended_calls(start, end).filter(publisher_payout__gt=0)
+                .values_list('id', 'publisher_payout'))
+    bad = []
+    for part in _chunks(paid):
+        for cid, sid, shown in CallRecord.objects.filter(id__in=part).values_list('id', 'twilio_call_sid', 'payout'):
+            if Decimal(shown or 0).quantize(CENT) != Decimal(paid[cid]).quantize(CENT):
+                bad.append((sid, Decimal(shown or 0), Decimal(paid[cid])))
+    if bad:
+        f.lines.append(f'{len(bad)} calls: Reports shows payout ${sum(b[1] for b in bad):.2f}, '
+                       f'paid ${sum(b[2] for b in bad):.2f}. e.g. {", ".join(b[0] for b in bad[:SAMPLES])}')
+    return f
+
+
+def check_balance() -> Finding:
+    """Every account's balance = the "balance after" of its last ledger
+    entry. Every top-up, charge, payout and owner credit writes one; a
+    balance that moved without one, or two writes racing, shows here."""
+    from billing.models import BillingAccount, Transaction
+    f = Finding('balance', 'Balance')
+    bad = []
+    for acct in BillingAccount.objects.select_related('organization'):
+        last = (Transaction.objects.filter(billing_account=acct, status=Transaction.Status.COMPLETED)
+                .order_by('-updated_at', '-created_at').only('balance_after').first())
+        if last is None:
+            continue
+        if Decimal(acct.balance or 0).quantize(CENT) != Decimal(last.balance_after or 0).quantize(CENT):
+            bad.append(f'{acct.organization.name}: balance ${Decimal(acct.balance or 0):.2f}, '
+                       f'ledger says ${Decimal(last.balance_after or 0):.2f}')
+    if bad:
+        f.lines.append(f'{len(bad)} accounts differ from their ledger. ' + '; '.join(bad[:SAMPLES]))
     return f
 
 
@@ -224,6 +273,7 @@ def run(day=None, tabs=False) -> list:
     """Every check, each on its own."""
     day, start, end = et_day(day)
     jobs = [('cost', lambda: check_cost(start, end)), ('calls', lambda: check_calls(start, end)),
+            ('payout', lambda: check_payout(start, end)), ('balance', check_balance),
             ('stuck', check_stuck), ('tfns', check_tfns)]
     if tabs:
         jobs.append(('tabs', lambda: check_tabs(day)))
@@ -237,12 +287,25 @@ def run(day=None, tabs=False) -> list:
     return out
 
 
-def render(day, findings, head='Avortyx Guard') -> str:
+def restart_line() -> str:
+    """'Waiting for the server restart: CH-352, CH-353', or '' when none."""
+    try:
+        from analytics.guard_build import status
+        pending = status()['pending']
+    except Exception:  # noqa: BLE001
+        return ''
+    return f'⏳ Waiting for the server restart: {", ".join(pending)}' if pending else ''
+
+
+def render(day, findings, head='Avortyx Guard', restart=False) -> str:
     bad = [f for f in findings if not f.ok]
     lines = [f'<b>{escape(head)}</b> · {day:%b %d} ET']
+    tail = restart_line() if restart else ''
     if not bad:
         lines.append(f'✅ All {len(findings)} checks passed: '
                      + ', '.join(escape(f.title) for f in findings))
+        if tail:
+            lines.append(escape(tail))
         return '\n'.join(lines)
     for f in bad:
         lines.append(f'\n🔴 <b>{escape(f.title)}</b>')
@@ -250,6 +313,8 @@ def render(day, findings, head='Avortyx Guard') -> str:
     ok = [f.title for f in findings if f.ok]
     if ok:
         lines.append('\n✅ ' + ', '.join(escape(t) for t in ok))
+    if tail:
+        lines.append(escape(tail))
     return '\n'.join(lines)
 
 
@@ -259,7 +324,12 @@ def guard_chat():
     return (str(chat), '') if chat else status_chat()
 
 
-def hourly(send, now=None) -> int:
+def summary_chat() -> str:
+    from support.system_status import _cfg
+    return str(_cfg('GUARD_SUMMARY_CHAT_ID', '') or '')
+
+
+def hourly(send, now=None, send_summary=None) -> int:
     """The beat task: today's checks; a problem that is new or changed is
     sent once, and "back to normal" when it clears. At 6 AM Eastern,
     yesterday in full with a summary even when all passed."""
@@ -267,7 +337,10 @@ def hourly(send, now=None) -> int:
     now = (now or timezone.now()).astimezone(ET)
     sent = 0
     today = now.date()
-    for f in run(today):
+    findings = run(today)
+    cache.set('guard:last_run', {'at': timezone.now().isoformat(),
+                                 'problems': [f.title for f in findings if not f.ok]}, 2 * 3600)
+    for f in findings:
         k = f'guard:{f.key}'
         prev = cache.get(k)
         if f.ok:
@@ -284,8 +357,12 @@ def hourly(send, now=None) -> int:
         k = f'guard:daily:{today.isoformat()}'
         if cache.add(k, 1, 2 * 86400):
             yday = today - timedelta(days=1)
-            send(render(yday, run(yday, tabs=True), head='Avortyx Guard · daily check'))
+            text = render(yday, run(yday, tabs=True), head='Avortyx Guard · daily check', restart=True)
+            send(text)
             sent += 1
+            if send_summary:
+                send_summary(text)
+                sent += 1
     return sent
 
 

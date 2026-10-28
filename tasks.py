@@ -908,7 +908,10 @@ def guard_check():
     from analytics import guard
     from support.system_status import post
     chat, thread = guard.guard_chat()
-    return f"guard messages sent: {guard.hourly(lambda text: post(text, chat=chat, thread=thread))}"
+    boss = guard.summary_chat()
+    summary = (lambda text: post(text, chat=boss, thread='')) if boss and boss != chat else None
+    sent = guard.hourly(lambda text: post(text, chat=chat, thread=thread), send_summary=summary)
+    return f"guard messages sent: {sent}"
 
 
 @app.task(name='tasks.telegram_autodelete')

@@ -1,0 +1,51 @@
+# Avortyx Guard, layer 2 (CH-355): Claude reads every pull request against
+# docs/SYSTEM-MAP.md and posts an impact report on it.
+# Needs: the Claude GitHub App installed on the repo, and the ANTHROPIC_API_KEY
+# secret (or CLAUDE_CODE_OAUTH_TOKEN - then change the input below).
+name: Claude review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+      id-token: write
+      actions: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude_args: |
+            --max-turns 40
+            --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
+          prompt: |
+            You are the Avortyx Guard reviewer for pull request #${{ github.event.pull_request.number }} in ${{ github.repository }} (the backend).
+            1. Read CLAUDE.md, docs/SYSTEM-MAP.md, and the CHANGES.md entries this change adds or names.
+            2. Read the change: `gh pr diff ${{ github.event.pull_request.number }}`.
+            3. For every function, model field, API path or setting it changes, search the code for every other place that uses it (Grep). Decide whether those places still behave the same.
+            4. Check the invariants in docs/SYSTEM-MAP.md section 5 and the rules in section 6 (tests that fail without the fix, migration, api-paths.txt, CHANGES.md, no secrets, `.update()` on CallLog mirrored to CallRecord).
+            Then post ONE comment with `gh pr comment ${{ github.event.pull_request.number }} --body "..."`, plain English, under 400 words, in this form:
+            ## Avortyx Guard review
+            **Verdict:** Safe to merge / Merge after fixes / Do not merge - one line why.
+            **Sections touched:** ...
+            **Other sections affected:** each one, and whether it still works (name the file and function).
+            **Money and numbers:** does any guard invariant change or break?
+            **Tests:** which tests prove it; which are missing.
+            **Portal:** does the portal need a matching change? Does this need the server restart?
+            **Fix before merge:** numbered list, or "nothing".
+            Only report what you checked in the code; say "not checked" rather than guess.

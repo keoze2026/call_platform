@@ -7833,3 +7833,31 @@ to check everything". Roadmap: the "Avortyx Guard: roadmap" doc.
 
 Tests: analytics/test_guard.py (+11). The command works at once; the hourly
 check starts after the worker and beat restart.
+
+## CH-355 - Avortyx Guard, complete: Claude review, contract check, restart tracker, robot check
+**2026-10-29 · Quality**
+
+Sir, 29 Oct: "Why these tiny errors keep on coming? ... For how long I have
+to check everything" - "not 4 weeks". Everything is described in
+docs/AVORTYX-GUARD.md (set-up, daily use, every check).
+
+- Numbers checker (analytics/guard.py) gains: payout (Reports payout = paid),
+  balance (account balance = last ledger entry), charged twice (in cost).
+  The daily summary lists the CH ids waiting for the restart and can also go
+  to GUARD_SUMMARY_CHAT_ID (e.g. Sir) - only the summary, not every alert.
+- Restart tracker (analytics/guard_build.py): what the process runs (commit
+  + last CH at start) against what `git pull` put on disk.
+  `GET /api/guard/status` (admin only, route rule `^/guard`), read by the
+  portal's admin banner.
+- `manage.py api_paths [--write]` and `docs/api-paths.txt`: every API path
+  the server answers; a test fails when the API changes without updating it.
+  The portal checks every path it calls against it.
+- `CLAUDE.md` + `docs/SYSTEM-MAP.md`: the whole app for the Claude reviewer
+  (`.github/workflows/claude-review.yml`: an impact report on every pull
+  request). Needs the Claude GitHub App and the ANTHROPIC_API_KEY secret.
+
+Found while building: the portal calls /api/buyers/{id}/reporting-config,
+which the server does not have (buyer reporting columns are never saved).
+
+Tests: analytics/test_guard.py (now 19). Commands work at once; the hourly
+check and /api/guard/status after the web, worker and beat restart.

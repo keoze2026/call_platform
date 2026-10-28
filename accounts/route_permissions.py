@@ -124,6 +124,8 @@ RULES = [
     _rule(r'^/buyers/telegram-reports$', ADMIN),
     # The team report from our own reports bot (CH-347): administration.
     _rule(r'^/team-report(/.*)?$', ADMIN),
+    # Avortyx Guard (CH-355): what the server runs and what waits for the restart.
+    _rule(r'^/guard(/.*)?$', ADMIN),
     _rule(r'^/buyers(/.*)?$', 'buyers'),
     _rule(r'^/publishers(/.*)?$', 'traffic-sources'),
     # A vendor is the carrier a number is bought from. Reading the list is also
