@@ -1,4 +1,4 @@
-# Avortyx backend - notes for Claude
+# Avortyx backend - notes for the review bot
 
 Read `docs/SYSTEM-MAP.md` first: what each part of the platform does, what it
 reads and writes, and what must always stay true. Sir's rules are in
@@ -23,7 +23,7 @@ name or rule before changing it - a rule there wins over a guess).
 
 ## Reviewing a pull request (Avortyx Guard)
 
-The review job (`.github/workflows/claude-review.yml`) asks for an impact
+The review bot (`.github/workflows/review-bot.yml`) asks for an impact
 report. Judge the change against the system map: which sections it touches,
 which other sections read the same data or call the same functions, whether
 the guard's invariants (map section 5) still hold, which tests prove it,

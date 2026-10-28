@@ -1,15 +1,15 @@
-# Avortyx Guard, layer 2 (CH-355): Claude reads every pull request against
-# docs/SYSTEM-MAP.md and posts an impact report on it.
-# Needs: the Claude GitHub App installed on the repo, and the ANTHROPIC_API_KEY
-# secret (or CLAUDE_CODE_OAUTH_TOKEN - then change the input below).
-name: Claude review
+# Avortyx Guard, layer 2 (CH-355, CH-356): the review bot reads every pull
+# request against docs/SYSTEM-MAP.md and posts an impact report on it.
+# Needs one secret: REVIEW_BOT_API_KEY (the bot's AI key). It comments with
+# this repo's own GitHub token, so no extra GitHub app is needed.
+name: Review bot
 
 on:
   pull_request:
     types: [opened, synchronize, ready_for_review, reopened]
 
 concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
+  group: review-bot-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 jobs:
@@ -29,13 +29,14 @@ jobs:
           fetch-depth: 0
       - uses: anthropics/claude-code-action@v1
         with:
-          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          anthropic_api_key: ${{ secrets.REVIEW_BOT_API_KEY }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
           claude_args: |
             --max-turns 40
             --allowedTools "Read,Grep,Glob,Bash(git diff:*),Bash(git log:*),Bash(gh pr view:*),Bash(gh pr diff:*),Bash(gh pr comment:*)"
           prompt: |
             You are the Avortyx Guard reviewer for pull request #${{ github.event.pull_request.number }} in ${{ github.repository }} (the backend).
-            1. Read CLAUDE.md, docs/SYSTEM-MAP.md, and the CHANGES.md entries this change adds or names.
+            1. Read docs/REVIEW-BOT.md, docs/SYSTEM-MAP.md, and the CHANGES.md entries this change adds or names.
             2. Read the change: `gh pr diff ${{ github.event.pull_request.number }}`.
             3. For every function, model field, API path or setting it changes, search the code for every other place that uses it (Grep). Decide whether those places still behave the same.
             4. Check the invariants in docs/SYSTEM-MAP.md section 5 and the rules in section 6 (tests that fail without the fix, migration, api-paths.txt, CHANGES.md, no secrets, `.update()` on CallLog mirrored to CallRecord).

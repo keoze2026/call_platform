@@ -1,7 +1,7 @@
 # Avortyx system map
 
 What each part of the platform does, what it reads and writes, and what must
-stay true. The Claude reviewer reads this on every pull request (CLAUDE.md),
+stay true. The review bot reads this on every pull request (docs/REVIEW-BOT.md),
 so a change is judged against the whole app, not only the lines it touches.
 
 Kept in the backend repo (`docs/SYSTEM-MAP.md`); the portal repo has a copy in

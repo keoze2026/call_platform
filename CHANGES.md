@@ -7834,7 +7834,7 @@ to check everything". Roadmap: the "Avortyx Guard: roadmap" doc.
 Tests: analytics/test_guard.py (+11). The command works at once; the hourly
 check starts after the worker and beat restart.
 
-## CH-355 - Avortyx Guard, complete: Claude review, contract check, restart tracker, robot check
+## CH-355 - Avortyx Guard, complete: review bot, contract check, restart tracker, robot check
 **2026-10-29 · Quality**
 
 Sir, 29 Oct: "Why these tiny errors keep on coming? ... For how long I have
@@ -7852,12 +7852,21 @@ docs/AVORTYX-GUARD.md (set-up, daily use, every check).
 - `manage.py api_paths [--write]` and `docs/api-paths.txt`: every API path
   the server answers; a test fails when the API changes without updating it.
   The portal checks every path it calls against it.
-- `CLAUDE.md` + `docs/SYSTEM-MAP.md`: the whole app for the Claude reviewer
-  (`.github/workflows/claude-review.yml`: an impact report on every pull
-  request). Needs the Claude GitHub App and the ANTHROPIC_API_KEY secret.
+- `docs/REVIEW-BOT.md` + `docs/SYSTEM-MAP.md`: the whole app for the review
+  bot (`.github/workflows/review-bot.yml`: an impact report on every pull
+  request). Needs the REVIEW_BOT_API_KEY secret (CH-356).
 
 Found while building: the portal calls /api/buyers/{id}/reporting-config,
 which the server does not have (buyer reporting columns are never saved).
 
 Tests: analytics/test_guard.py (now 19). Commands work at once; the hourly
 check and /api/guard/status after the web, worker and beat restart.
+
+## CH-356 - Avortyx Guard: "review bot" everywhere
+**2026-10-29 · Quality**
+
+ZDFRS, 29 Oct: "keep it as just BOT". The reviewer is called the review bot
+in every file and message: `.github/workflows/review-bot.yml` ("Review bot"),
+`docs/REVIEW-BOT.md` (was CLAUDE.md). One secret, `REVIEW_BOT_API_KEY`; the
+bot comments with the repo's own GitHub token, so no GitHub app to install.
+Nothing else changes.

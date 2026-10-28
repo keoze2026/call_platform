@@ -10,7 +10,7 @@ run **after** it is live. Any difference becomes a fix plus a new test.
 | Layer | What | Where it runs | Where it reports |
 |---|---|---|---|
 | 1. Tests and build | backend tests, migrations, secret scan; portal type check, secret scan | GitHub Actions on every pull request | the pull request (red / green); merge blocked when red |
-| 2. Claude review | an impact report against the system map | GitHub Actions on every pull request | a comment on the pull request |
+| 2. Review bot | an impact report against the system map | GitHub Actions on every pull request | a comment on the pull request |
 | 3. Portal = server | every API path the portal calls exists; the restart tracker | GitHub Actions; the server | the pull request; a banner for admins |
 | 4. Numbers checker | charges, calls, payouts, balances, TFNs, tabs | the server, every hour | Telegram |
 | 5. Robot check | logs in and opens the main pages | GitHub Actions, after each deploy and every 6 h | Telegram, with a screenshot |
@@ -28,7 +28,7 @@ run **after** it is live. Any difference becomes a fix plus a new test.
   no `.env`, Redis or Celery needed): 778 tests today.
 - `docs/api-paths.txt` is current (test `ApiPathsTests`): fails when the API
   changed and `python manage.py api_paths --write` was not run.
-- Secret scan: fails when a Telegram bot token, Claude API key or AWS key is
+- Secret scan: fails when a Telegram bot token, AI API key or AWS key is
   in the code.
 
 **Portal** (`.github/workflows/checks.yml`, job "portal checks"):
@@ -38,10 +38,10 @@ run **after** it is live. Any difference becomes a fix plus a new test.
 - API contract (layer 3, below).
 - Secret scan, as above.
 
-### Layer 2: the Claude reviewer
+### Layer 2: the review bot
 
-`.github/workflows/claude-review.yml` in both repos. On every pull request
-(not drafts) Claude reads `CLAUDE.md`, `docs/SYSTEM-MAP.md` (what every
+`.github/workflows/review-bot.yml` in both repos. On every pull request
+(not drafts) the bot reads `docs/REVIEW-BOT.md`, `docs/SYSTEM-MAP.md` (what every
 section reads and writes, the call and money flows, what must stay true) and
 the change, searches the code for every other place that uses what changed,
 and posts one comment:
@@ -53,7 +53,8 @@ Sections touched / Other sections affected / Money and numbers /
 Tests / Portal (or Backend) / Fix before merge
 ```
 
-It only reports what it checked in the code. It does not change code.
+It only reports what it checked in the code. It does not change code. It
+comments with the repo's own GitHub token, so no extra app is installed.
 
 ### Layer 3: the portal and the server agree
 
@@ -135,22 +136,21 @@ opens pages; it never clicks Save, Delete or Apply.
 
 ### On GitHub, both repos (`keoze2026/call_platform`, `keoze2026/Avortyx`)
 
-1. **Claude GitHub App:** install https://github.com/apps/claude on both repos.
-2. **Secrets** (repo > Settings > Secrets and variables > Actions > New secret):
+1. **Secrets** (repo > Settings > Secrets and variables > Actions > New secret):
 
    | Secret | Repo | Value |
    |---|---|---|
-   | `ANTHROPIC_API_KEY` | both | a key from platform.claude.com (or `CLAUDE_CODE_OAUTH_TOKEN` and change the workflow input) |
+   | `REVIEW_BOT_API_KEY` | both | the review bot's AI key (the API key you are given for it) |
    | `PORTAL_URL` | Avortyx | the live portal address, `https://...` |
    | `GUARD_EMAIL`, `GUARD_PASSWORD` | Avortyx | the robot account (below) |
    | `GUARD_REPORTS_PIN` | Avortyx | optional: the robot's Reports PIN |
    | `TELEGRAM_BOT_TOKEN`, `GUARD_CHAT_ID` | Avortyx | the alert bot's token and the team chat id |
    | `BACKEND_REPO_TOKEN` | Avortyx | optional: a fine-grained token with read access to call_platform contents |
 
-3. **Robot account:** in the portal, Workspace > invite a team member, e.g.
+2. **Robot account:** in the portal, Workspace > invite a team member, e.g.
    `robot@<your domain>`, with a view-only role, 2FA off. Set its password and
    put it in the secrets above. It only opens pages.
-4. **Branch protection**, after the first green run (Actions tab):
+3. **Branch protection**, after the first green run (Actions tab):
    Settings > Branches > Add rule:
    - call_platform, branch `master`: tick "Require a pull request before
      merging" and "Require status checks to pass", check **backend tests**.
@@ -169,7 +169,7 @@ git push -u origin ch-356
 ```
 
 Open the link git prints (or GitHub > Pull requests > New). Within minutes the
-pull request shows the checks (green or red) and the Claude review comment.
+pull request shows the checks (green or red) and the review bot's comment.
 Merge when green and the review says safe; fix first when it does not. Vercel
 deploys the portal on merge; the robot check runs right after.
 
@@ -226,6 +226,6 @@ line in this file.
 | `analytics/management/commands/guard_check.py`, `api_paths.py` | `scripts/check-api-paths.mjs`, `scripts/smoke.cjs` |
 | `tasks.guard_check`, beat `guard-check` (hourly) | `contract/api-paths.txt`, `contract/api-paths-unknown.txt` |
 | `config/test_settings.py`, `docs/api-paths.txt` | `.github/type-errors-allowed` |
-| `.github/workflows/tests.yml`, `claude-review.yml` | `.github/workflows/checks.yml`, `claude-review.yml`, `smoke.yml` |
-| `CLAUDE.md`, `docs/SYSTEM-MAP.md`, `docs/AVORTYX-GUARD.md` | `CLAUDE.md`, `docs/SYSTEM-MAP.md`, `docs/AVORTYX-GUARD.md` (copies) |
+| `.github/workflows/tests.yml`, `review-bot.yml` | `.github/workflows/checks.yml`, `review-bot.yml`, `smoke.yml` |
+| `docs/REVIEW-BOT.md`, `docs/SYSTEM-MAP.md`, `docs/AVORTYX-GUARD.md` | `docs/REVIEW-BOT.md`, `docs/SYSTEM-MAP.md`, `docs/AVORTYX-GUARD.md` (copies) |
 | Tests: `analytics/test_guard.py` | `lib/i18n/extra/server-update.ts` |
