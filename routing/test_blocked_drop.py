@@ -164,3 +164,39 @@ class BlockedLabelTests(TestCase):
         self.add('spam', buyer=buyer)
         self.add('scope=number')
         self.assertEqual(self.label(), 'Callerid Blocked')
+
+
+class CampaignBlockTests(TestCase):
+    """CH-339 (Sir, 28 Oct: "if it's blocked it's blocked"): a block on one
+    campaign refuses that campaign's calls in routing, not only workspace-wide
+    blocks. 12056298894 had a C-03 do-not-call block and went live on C-03."""
+
+    def setUp(self):
+        self.org = Organization.objects.create(name='Avortyx', slug='avx')
+        self.c03 = Campaign.objects.create(organization=self.org, name='C-03')
+        self.c14 = Campaign.objects.create(organization=self.org, name='C-14')
+
+    def route(self, campaign, caller=SPAMMER):
+        return RoutingEngine.route_call(str(campaign.id), {'caller_number': caller})
+
+    def test_a_campaign_block_refuses_that_campaign(self):
+        Blacklist.objects.create(organization_id=self.org.id, phone_number='12056298894',
+                                 campaign=self.c03, reason='scope=number')
+        self.assertEqual(self.route(self.c03, '+12056298894')['error'], RoutingEngine.BLOCKED_CALLER_LABEL)
+
+    def test_an_automatic_do_not_call_block_on_the_campaign_refuses_with_its_reason(self):
+        Blacklist.objects.create(organization_id=self.org.id, phone_number='+12056298894',
+                                 campaign=self.c03, reason='auto_detected')
+        self.assertEqual(self.route(self.c03, '+12056298894')['error'], 'Caller is on a do-not-call register')
+
+    def test_another_campaigns_block_does_not_refuse_this_campaign(self):
+        Blacklist.objects.create(organization_id=self.org.id, phone_number='+12056298894',
+                                 campaign=self.c03, reason='auto_detected')
+        err = self.route(self.c14, '+12056298894')['error'] or ''
+        self.assertNotIn('do-not-call', err)
+        self.assertNotEqual(err, RoutingEngine.BLOCKED_CALLER_LABEL)
+
+    def test_a_workspace_block_still_refuses_every_campaign(self):
+        Blacklist.objects.create(organization_id=self.org.id, phone_number='+12056298894', reason='scope=number')
+        for c in (self.c03, self.c14):
+            self.assertEqual(self.route(c, '+12056298894')['error'], RoutingEngine.BLOCKED_CALLER_LABEL)

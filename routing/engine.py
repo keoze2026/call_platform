@@ -194,7 +194,12 @@ class RoutingEngine:
             # publisher's entry for the same number must not lend its reason.
             buyer__isnull=True,
             publisher__isnull=True,
-        ).order_by('campaign_id').first()
+        )
+        if campaign_id:
+            # This campaign's block or a workspace-wide one, never another
+            # campaign's (CH-339).
+            entry = entry.filter(models.Q(campaign__isnull=True) | models.Q(campaign_id=campaign_id))
+        entry = entry.order_by('campaign_id').first()
         if not entry:
             # Refused by a check that is not the blacklist - today that is the
             # anonymous-caller block.
@@ -844,8 +849,13 @@ class RoutingEngine:
 
         trace = call_data.get('trace')
 
-        if RoutingEngine.is_blacklisted(caller_number, str(campaign.organization_id)):
-            label = RoutingEngine.block_label(caller_number, str(campaign.organization_id))
+        # CH-339: with the campaign, so a block on this campaign only (the
+        # Blocked Numbers page's campaign scope, or the automatic do-not-call
+        # / fraud entry the checks add for one campaign) refuses the call too.
+        # It was asked without it, so only workspace-wide blocks counted: on
+        # 28 Oct a caller with a C-03 do-not-call block went live on C-03.
+        if RoutingEngine.is_blacklisted(caller_number, str(campaign.organization_id), str(campaign.id)):
+            label = RoutingEngine.block_label(caller_number, str(campaign.organization_id), str(campaign.id))
             if trace: trace.step('blacklist', False, label.lower())
             return {'destination': None, 'rule': None, 'error': label}
         if trace: trace.step('blacklist', True)
