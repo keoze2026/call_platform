@@ -1604,10 +1604,13 @@ class AnalyticsService:
 
         # Destination names, resolved once rather than per row.
         from buyers.destination import Destination
-        dest_names = dict(
-            Destination.objects.filter(organization=user.organization)
-            .values_list('tfn', 'name')
-        )
+        # By buyer and number first (CH-392: one TFN can be on several
+        # buyers), then by number alone, a live destination's name winning.
+        dest_names = {}
+        for b, t, n in (Destination.objects.filter(organization=user.organization)
+                        .order_by('enabled').values_list('buyer_id', 'tfn', 'name')):
+            dest_names[t] = n
+            dest_names[(str(b), t)] = n
 
         # Qualified and Duplicate were absent, so the two columns most often
         # queried against this export could not be checked from it at all.
@@ -1658,7 +1661,7 @@ class AnalyticsService:
                 str(r.id),
                 clean_caller, r.caller_state, r.carrier or '', r.called_number,
                 r.campaign_name, r.buyer_name,
-                dest_names.get(dest_number, ''), dest_number,
+                dest_names.get((str(r.buyer_id), dest_number)) or dest_names.get(dest_number, ''), dest_number,
                 r.publisher_name,
                 AnalyticsService._export_status(r), AnalyticsService._export_reason(r),
                 r.duration_seconds, ttc,

@@ -67,7 +67,9 @@ def gather_destination_counts(org, tfns, start_date=None, end_date=None, tz_name
     1,155 queries and 1.66 seconds measured on production, and it is the
     slowest thing the Destinations page waits on.
 
-    Grouped by destination_number, which is what each per-row query filtered on.
+    Grouped by buyer and destination_number (CH-392): one TFN can be live
+    under several buyers, and each must count only the calls routed to it.
+    Read a row with `counts_for(counts, d)`.
     """
     from datetime import timedelta
     from decimal import Decimal
@@ -96,19 +98,24 @@ def gather_destination_counts(org, tfns, start_date=None, end_date=None, tz_name
     hour_ago = now - timedelta(hours=1)
 
     base = CallLog.objects.filter(organization=org, destination_number__in=tfns)
-    out = {t: {'live': 0, 'daily': 0, 'revenue': Decimal('0.00'),
-               'hourly': 0, 'monthly': 0, 'global': 0} for t in tfns}
+    out = {}
+
+    def row_for(r):
+        k = (str(r['buyer_id']) if r['buyer_id'] else None, r['destination_number'])
+        if k not in out:
+            out[k] = {'live': 0, 'daily': 0, 'revenue': Decimal('0.00'),
+                      'hourly': 0, 'monthly': 0, 'global': 0}
+        return out[k]
 
     def collect(qs, key, field='n'):
         for r in qs:
-            row = out.get(r['destination_number'])
-            if row is not None:
-                row[key] = r[field] or 0
+            row_for(r)[key] = r[field] or 0
 
+    group = ('buyer_id', 'destination_number')
     collect(base.filter(
         status__in=['in_progress', 'ringing', 'queued'], ended_at__isnull=True,
         created_at__gte=now - timedelta(hours=4),
-    ).values('destination_number').annotate(n=Count('id')), 'live')
+    ).values(*group).annotate(n=Count('id')), 'live')
 
     range_q = Q()
     if start_date:
@@ -122,18 +129,44 @@ def gather_destination_counts(org, tfns, start_date=None, end_date=None, tz_name
         if dt:
             range_q &= Q(created_at__lte=timezone.make_aware(dt) if timezone.is_naive(dt) else dt)
 
-    for r in base.filter(range_q).values('destination_number').annotate(
+    for r in base.filter(range_q).values(*group).annotate(
             n=Count('id'), rev=Coalesce(Sum('revenue'), Decimal('0.00'))):
-        row = out.get(r['destination_number'])
-        if row is not None:
-            row['daily'] = r['n'] or 0
-            row['revenue'] = r['rev'] or Decimal('0.00')
+        row = row_for(r)
+        row['daily'] = r['n'] or 0
+        row['revenue'] = r['rev'] or Decimal('0.00')
 
-    collect(base.filter(created_at__gte=hour_ago).values('destination_number').annotate(n=Count('id')), 'hourly')
-    collect(base.filter(created_at__gte=month_start).values('destination_number').annotate(n=Count('id')), 'monthly')
-    collect(base.values('destination_number').annotate(n=Count('id')), 'global')
+    collect(base.filter(created_at__gte=hour_ago).values(*group).annotate(n=Count('id')), 'hourly')
+    collect(base.filter(created_at__gte=month_start).values(*group).annotate(n=Count('id')), 'monthly')
+    collect(base.values(*group).annotate(n=Count('id')), 'global')
 
     return out
+
+
+def counts_for(counts, d):
+    """One destination's counters from gather_destination_counts: the calls
+    routed to its buyer on its number, plus any on its number with no buyer
+    recorded (never routed to anyone, so they were always counted here)."""
+    from decimal import Decimal
+
+    own = counts.get((str(d.buyer_id) if d.buyer_id else None, d.tfn), {})
+    loose = counts.get((None, d.tfn), {}) if d.buyer_id else {}
+    if not loose:
+        return own
+    keys = ('live', 'daily', 'hourly', 'monthly', 'global')
+    out = {k: (own.get(k, 0) or 0) + (loose.get(k, 0) or 0) for k in keys}
+    out['revenue'] = (own.get('revenue') or Decimal('0.00')) + (loose.get('revenue') or Decimal('0.00'))
+    return out
+
+
+def _own_calls_q(d):
+    """The calls that belong to destination `d`: its number, and its buyer
+    (or no buyer recorded). Matches counts_for."""
+    from django.db.models import Q
+
+    q = Q(destination_number=d.tfn)
+    if d.buyer_id:
+        q &= Q(buyer_id=d.buyer_id) | Q(buyer_id__isnull=True)
+    return q
 
 
 def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=None, switches=None):
@@ -172,7 +205,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
     live_q = base_live_q & Q(created_at__gte=now - timedelta(hours=4))
 
     if d.tfn:
-        live_q &= Q(destination_number=d.tfn)
+        live_q &= _own_calls_q(d)
     else:
         # Fallback if somehow there's no TFN (though unlikely for valid destinations)
         live_q &= Q(id__isnull=True) # returns empty
@@ -181,7 +214,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
         # Counts were gathered for the whole page in five grouped queries.
         # Done per row this function ran five counts each, so a page of 165
         # destinations cost 1,155 queries and 1.7 seconds.
-        row = counts.get(d.tfn, {})
+        row = counts_for(counts, d)
         live_count = row.get('live', 0)
     else:
         live_count = CallLog.objects.filter(organization=org).filter(live_q).count()
@@ -196,7 +229,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
 
     dest_q = Q(organization=org)
     if d.tfn:
-        dest_q &= Q(destination_number=d.tfn)
+        dest_q &= _own_calls_q(d)
     else:
         # No TFN means routing can never select it, so it has no calls.
         dest_q &= Q(id__isnull=True)
@@ -216,7 +249,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
         range_q &= Q(created_at__lte=dt)
 
     if counts is not None:
-        row = counts.get(d.tfn, {})
+        row = counts_for(counts, d)
         daily_count = row.get('daily', 0)
         revenue_today = float(row.get('revenue', 0) or 0)
     else:
@@ -232,7 +265,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
     month_start = local_now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
     if counts is not None:
-        row = counts.get(d.tfn, {})
+        row = counts_for(counts, d)
         hourly_count = row.get('hourly', 0)
         monthly_count = row.get('monthly', 0)
         global_count = row.get('global', 0)
@@ -386,15 +419,20 @@ def get_destination_stats(request, timezone: Optional[str] = None):
     # Everything in flight, active or paused. Unchanged.
     total_live = live_q.count()
 
-    # Only what is on an enabled destination, matched on the number dialled -
-    # the same way format_destination decides which calls belong to a row.
-    enabled_tfns = list(
-        qs.filter(enabled=True).values_list('tfn', flat=True)
-    )
-    active_live = (
-        live_q.filter(destination_number__in=enabled_tfns).count()
-        if enabled_tfns else 0
-    )
+    # Only what is on an enabled destination, matched on the number dialled
+    # AND the buyer - the same way format_destination decides which calls
+    # belong to a row (CH-392: one number can be live under several buyers).
+    enabled_pairs = {
+        (str(b) if b else None, t)
+        for b, t in qs.filter(enabled=True).values_list('buyer_id', 'tfn')
+    }
+    enabled_tfns = {t for _, t in enabled_pairs}
+    active_live = 0
+    if enabled_tfns:
+        for b, t in live_q.filter(destination_number__in=enabled_tfns).values_list(
+                'buyer_id', 'destination_number'):
+            if b is None or (str(b), t) in enabled_pairs:
+                active_live += 1
 
     stats = qs.aggregate(
         # Capacity only counts where a call could actually land.
@@ -413,12 +451,14 @@ def get_destination_stats(request, timezone: Optional[str] = None):
 
 
 
-def _enabled_clash(organization, tfn, enabled, exclude_id=None):
-    """Is another live destination already on this number?
+def _enabled_clash(organization, tfn, enabled, buyer_id=None, exclude_id=None):
+    """Is this buyer already live on this number?
 
-    Returns the message to show, or None. Calls are attributed by an exact match
-    on the number, so two live destinations sharing one means both buyers are
-    credited with the same call and both caps count it.
+    Returns the message to show, or None. The same TFN may be live under
+    different buyers (CH-392, the campaign team, 29 Oct): every count matches
+    a call's buyer as well as its number, so each buyer is credited with its
+    own calls only. The same buyer twice on one number would count every call
+    twice, so that is still refused.
     """
     from buyers.destination import Destination
 
@@ -426,7 +466,7 @@ def _enabled_clash(organization, tfn, enabled, exclude_id=None):
         return None
 
     qs = Destination.objects.filter(
-        organization=organization, tfn=tfn, enabled=True,
+        organization=organization, tfn=tfn, enabled=True, buyer_id=buyer_id,
     ).select_related('buyer')
     if exclude_id:
         qs = qs.exclude(id=exclude_id)
@@ -437,9 +477,9 @@ def _enabled_clash(organization, tfn, enabled, exclude_id=None):
 
     held_by = other.buyer.name if other.buyer else 'another destination'
     return (
-        f"{tfn} is already live on {held_by}. Two live destinations cannot share "
-        f"a number - every call to it would be counted for both. Switch that one "
-        f"off first, or use a different number."
+        f"{tfn} is already live on {held_by}. The same buyer cannot have one "
+        f"number live twice - every call to it would be counted twice. Switch "
+        f"that one off first, or use a different number."
     )
 
 
@@ -477,11 +517,12 @@ def create_destination(request, payload: DestinationSchema):
     except (Buyer.DoesNotExist, ValidationError, ValueError):
         return 400, {"detail": "Buyer not found or invalid buyer_id"}
 
-    # The database refuses two live destinations on one number. Catching it here
+    # The database refuses one buyer live twice on one number. Catching it here
     # turns an IntegrityError 500 into something the person can act on, and
     # names the buyer already holding it so they can go and look.
     clash = _enabled_clash(
         request.auth.organization, payload.get_tfn(), payload.enabled,
+        buyer_id=buyer.id,
     )
     if clash:
         return 400, {"detail": clash}
@@ -549,7 +590,8 @@ def update_destination(request, destination_id: str, payload: DestinationUpdateS
         # Both an edit to the number and switching one on can collide with a
         # destination that is already live on it.
         clash = _enabled_clash(
-            request.auth.organization, d.tfn, d.enabled, exclude_id=d.id,
+            request.auth.organization, d.tfn, d.enabled,
+            buyer_id=d.buyer_id, exclude_id=d.id,
         )
         if clash:
             return 400, {"detail": clash}
@@ -625,7 +667,8 @@ def bulk_enable(request, payload: BulkEnableSchema):
 
         if payload.enabled:
             clash = _enabled_clash(
-                request.auth.organization, d.tfn, True, exclude_id=d.id,
+                request.auth.organization, d.tfn, True,
+                buyer_id=d.buyer_id, exclude_id=d.id,
             )
             if clash:
                 failed.append({"id": raw_id, "tfn": d.tfn, "reason": clash})

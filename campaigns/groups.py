@@ -167,9 +167,11 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
             if buyer is None:
                 raise ValueError('Buyer not found')
         else:
-            # The buyer that owns this number on the Destinations page.
+            # The buyer that owns this number on the Destinations page. One
+            # number can be on several buyers (CH-392); the portal sends the
+            # buyer it means, and without one a live destination wins.
             d = (Destination.objects.filter(organization=user.organization).exclude(buyer=None)
-                 .select_related('buyer'))
+                 .select_related('buyer').order_by('-enabled', 'created_at'))
             d = next((x for x in d if digits_key(x.tfn) == key), None)
             buyer = d.buyer if d else None
         fields.setdefault('priority', 1)

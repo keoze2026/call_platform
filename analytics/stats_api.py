@@ -194,17 +194,23 @@ def destinations(request: HttpRequest, date_from: str = None, date_to: str = Non
     window = Q(created_at__gte=window_start)
     if date_to:
         window &= Q(created_at__lte=datetime.fromisoformat(date_to + 'T23:59:59').replace(tzinfo=tz))
-    incoming = dict(
+    # By buyer and number (CH-392): one TFN can be live under several buyers.
+    incoming = {}
+    for b, t, c in (
         CallLog.objects.filter(organization=request.auth.organization,
                                destination_number__in=tfns)
         .filter(window)
-        .values_list('destination_number')
+        .values_list('buyer_id', 'destination_number')
         .annotate(c=Count('id'))
-    )
+    ):
+        k = (str(b) if b else None, t)
+        incoming[k] = incoming.get(k, 0) + c
 
     rows = []
     for d in dests:
-        n = incoming.get(d.tfn, 0)
+        n = incoming.get((str(d.buyer_id) if d.buyer_id else None, d.tfn), 0)
+        if d.buyer_id:
+            n += incoming.get((None, d.tfn), 0)
         if has_calls and n == 0:
             continue
         row = format_destination(d, counts=counts)
@@ -278,7 +284,7 @@ def tfn(request: HttpRequest, number: str, date_from: str = None,
     )
     d = (
         qs.filter(organization=request.auth.organization, tfn__endswith=digits)
-        .first()
+        .order_by('-enabled', '-created_at').first()
     )
     if d is None:
         return 404, {"detail": f"No destination ends in {digits}"}

@@ -7994,3 +7994,30 @@ watching every carrier; no test call is needed for it.
 Tests: NoAutomaticTestCallsTests (+1); the old test-call tests run with the
 setting on.
 Needs the worker and beat restart. No portal change.
+
+## CH-392 - The same TFN under different buyers
+
+Campaign team, 29 Oct: "We are unable to add similar TFNs under different
+buyers, we have to pause one in order to add or send calls to another."
+One number could be live on only one destination in the whole workspace,
+because calls were once credited by the number alone. Every count now matches
+the call's buyer as well as its number, so the rule is once per buyer.
+
+  - database: unique live (organization, buyer, tfn), was (organization, tfn)
+    (migration buyers 0025; nothing to clean - the old rule was stricter)
+  - create / edit / switch on / bulk play: refused only when the SAME buyer
+    is already live on that number
+  - Destinations page, stats and the Stats API: each row counts the calls
+    routed to its own buyer on its number (plus any with no buyer recorded)
+  - call export: Destination name by buyer and number
+  - "Different" by buyer: a repeat caller is also kept off every TFN he has
+    already reached, so the other buyer on the same number does not get him
+    (Sir: "not a single call should be forwarded on the same TFN"). Nothing
+    changes where no TFN is shared.
+  - Campaign groups "Add" with no buyer sent: a live destination's buyer wins
+
+Note: each buyer's concurrency cap counts only its own calls, so two buyers
+on one line can together take the sum of their caps.
+
+Tests: buyers.test_same_tfn_two_buyers (6). Full suite 817 OK.
+Needs the migration and the web, worker and beat restart. Portal CH-392 too.

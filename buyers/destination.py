@@ -38,15 +38,17 @@ class Destination(models.Model):
         db_table = 'destinations'
         ordering = ['-created_at']
         constraints = [
-            # Calls are attributed by an exact match on this number, so two live
-            # destinations sharing one means every buyer holding it is credited
-            # with the same call and every cap counts it. Enabled only: the
-            # disabled rows are a record of numbers that were used before, and
-            # are worth keeping.
+            # One number, live once per BUYER (CH-392). It was once per
+            # organization, because calls were then credited by the number
+            # alone and two buyers on one number both counted every call. The
+            # campaign team needs the same TFN under different buyers (Sir's
+            # team, 29 Oct), and every count now matches the call's buyer as
+            # well as its number, so the same buyer twice is all that is left
+            # to refuse. Enabled only: disabled rows are kept as history.
             models.UniqueConstraint(
-                fields=['organization', 'tfn'],
+                fields=['organization', 'buyer', 'tfn'],
                 condition=models.Q(enabled=True),
-                name='unique_enabled_destination_tfn_per_organization',
+                name='unique_enabled_destination_tfn_per_buyer',
             ),
             # The one-live-destination-per-buyer constraint stood here until
             # the boss reversed the rule (CH-098). It existed because the

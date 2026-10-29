@@ -988,7 +988,13 @@ class RoutingEngine:
                 if trace: trace.step('duplicate', True, f'repeat caller; held to their original destination {dup_prior[0][0]}')
             elif getattr(campaign, 'duplicate_direction', 'destination') == 'buyer':
                 call_data['dup_exclude_buyers'] = {str(b) for _, b in dup_prior if b}
-                if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_buyers"])} buyer(s) excluded')
+                # And the TFNs he reached (CH-392). One TFN can now be on
+                # several buyers; excluding only the buyer would send him to
+                # the same line through the other buyer - Sir: "not a single
+                # call should be forwarded on the same TFN". With no TFN
+                # shared this changes nothing: that buyer is excluded anyway.
+                call_data['dup_exclude_destinations'] = {_d10(d) for d, _ in dup_prior if d}
+                if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_buyers"])} buyer(s) and their TFNs excluded')
             else:
                 call_data['dup_exclude_destinations'] = {_d10(d) for d, _ in dup_prior if d}
                 if trace: trace.step('duplicate', True, f'repeat caller; {len(call_data["dup_exclude_destinations"])} destination(s) excluded')
