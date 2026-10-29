@@ -40,6 +40,8 @@ phone system), so no carrier is marked and the team is told that instead.
 .env (optional):
   CARRIER_WATCH_ENABLED       default True
   CARRIER_WATCH_MINUTES       default 15
+  CARRIER_TEST_CALLS          default False (CH-366: no automatic test calls;
+                              the carrier refuses them, cause 127)
   CARRIER_SILENCE_MINUTES     default 20
   CARRIER_SILENCE_MIN_CALLS   default 30 (CH-363: 10 was too low - a quiet
                               evening with 14 calls in 2 hours went 20 minutes
@@ -68,6 +70,11 @@ STATE_TTL = 3 * 24 * 3600
 
 def enabled() -> bool:
     return bool(getattr(settings, 'CARRIER_WATCH_ENABLED', True))
+
+
+def test_calls_on() -> bool:
+    """CH-366: automatic carrier test calls, off unless CARRIER_TEST_CALLS=True."""
+    return bool(getattr(settings, 'CARRIER_TEST_CALLS', False))
 
 
 def every() -> timedelta:
@@ -286,6 +293,13 @@ def tick(send, now=None) -> dict:
         done.update({f'{k} (calls)': v for k, v in silence(send, now).items()})
     except Exception:  # noqa: BLE001 - the test calls still run
         logger.exception('carrier silence watch failed')
+    if not test_calls_on():
+        # CH-366: the carrier refuses our test calls to our own TFNs (Q.850
+        # cause 127), so every one "failed", filled Today's checks with
+        # Automatic test / Failed rows and worried Sir that repeated failed
+        # calls could harm the TFNs. The silence watch above does the job.
+        done['watch'] = 'test calls off'
+        return done
     if not ami.configured() or not tfn_test.test_caller_id():
         done['watch'] = 'test calls not configured'
         return done

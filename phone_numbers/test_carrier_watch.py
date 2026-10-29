@@ -21,7 +21,8 @@ LOCMEM = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'
 NOON_ET = datetime(2026, 10, 29, 12, 0, tzinfo=W.ET)
 
 
-@override_settings(CACHES=LOCMEM, TFN_TEST_CALLER_ID='+18337415406', CARRIER_WATCH_ENABLED=True)
+@override_settings(CACHES=LOCMEM, TFN_TEST_CALLER_ID='+18337415406', CARRIER_WATCH_ENABLED=True,
+                   CARRIER_TEST_CALLS=True)
 class CarrierWatchTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -278,10 +279,27 @@ class SilenceWatchTests(TestCase):
         self.calls(self.k2, 6, 60)
         out = self.tick()
         self.assertEqual(out.get('KMQ (calls)'), 'silent')
-        self.assertEqual(out.get('watch'), 'test calls not configured')
+        self.assertIn(out.get('watch'), ('test calls off', 'test calls not configured'))
 
     def test_only_from_7_30_am_to_9_pm_eastern(self):
         self.calls(self.k1, 6, 60)
         self.calls(self.k2, 6, 60)
         W.tick(self.sent.append, now=datetime(2026, 10, 29, 22, 0, tzinfo=W.ET))
         self.assertEqual(W.state(self.freedom.id), {})
+
+
+@override_settings(CACHES=LOCMEM, TFN_TEST_CALLER_ID='+18337415406', CARRIER_WATCH_ENABLED=True)
+class NoAutomaticTestCallsTests(TestCase):
+    """CH-366, Sir 29 Oct: "Who is running automatic test - hope this will
+    not kill TFN". By default the watch places no test calls at all."""
+
+    def test_no_test_call_is_placed_by_default(self):
+        org = Organization.objects.create(name='Avortyx', slug='avx')
+        camp = Campaign.objects.create(organization=org, name='C-13', status='active')
+        carrier = Carrier.objects.create(organization=org, name='Freedom', code='KMQ')
+        PhoneNumber.objects.create(organization=org, number='+18888913606', vendor='Other',
+                                   status='active', carrier=carrier, campaign=camp)
+        with mock.patch('phone_numbers.ami.configured', return_value=True):
+            out = W.tick(lambda text: None, now=NOON_ET)
+        self.assertEqual(out['watch'], 'test calls off')
+        self.assertFalse(TfnTest.objects.exists())

@@ -605,6 +605,9 @@ TFN_AUTO_TEST_ENABLED = config('TFN_AUTO_TEST_ENABLED', default=False, cast=bool
 CARRIER_WATCH_ENABLED = config('CARRIER_WATCH_ENABLED', default=True, cast=bool)
 CARRIER_WATCH_MINUTES = config('CARRIER_WATCH_MINUTES', default=15, cast=int)
 # CH-361 silence watch: busy carrier TFNs with no calls for this long = down.
+# CH-366: automatic carrier test calls off - the carrier refuses calls to our
+# own TFNs (cause 127), so they only ever showed as Failed.
+CARRIER_TEST_CALLS = config('CARRIER_TEST_CALLS', default=False, cast=bool)
 CARRIER_SILENCE_MINUTES = config('CARRIER_SILENCE_MINUTES', default=20, cast=int)
 CARRIER_SILENCE_MIN_CALLS = config('CARRIER_SILENCE_MIN_CALLS', default=30, cast=int)
 TFN_AUTO_TEST_HOURS = config('TFN_AUTO_TEST_HOURS', default=3, cast=int)

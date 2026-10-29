@@ -7980,3 +7980,17 @@ hours, then none) is still caught at 2:45 PM ET.
 
 Tests: SilenceWatchTests +1 (quiet evening left alone).
 Needs the worker and beat restart. No portal change.
+
+## CH-366 - No automatic carrier test calls
+
+Sir, 29 Oct: "Who is running automatic test - hope this will not kill TFN".
+The carrier watch (CH-360) placed a real test call through each carrier
+every 15 minutes. The carrier refuses calls from us to our own TFNs (Q.850
+cause 127), so every one showed as "Automatic test / Failed" in Today's
+checks and proved nothing. They are now off (CARRIER_TEST_CALLS, default
+False). The silence watch (CH-361-363), which reads the real calls, keeps
+watching every carrier; no test call is needed for it.
+
+Tests: NoAutomaticTestCallsTests (+1); the old test-call tests run with the
+setting on.
+Needs the worker and beat restart. No portal change.
