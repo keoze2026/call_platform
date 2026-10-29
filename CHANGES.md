@@ -8102,3 +8102,18 @@ paused during the day off the admin's Buyers card (CH-400).
 
 Tests: analytics.test_snapshot_destinations (2). Full suite 829 OK.
 Needs the web restart. Portal CH-404 goes with it.
+
+## CH-405 - Buyers list: correct figures, caps and TFN caps
+
+Sir, 30 Oct: "set correct metrics which works". The Buyers list:
+  - cut "today" and "this month" at midnight UTC (8 PM Eastern)
+  - counted "No Destination" refusals and hidden Revo retries as calls
+  - showed the publisher's payout as the buyer's spend (so spend = calls)
+  - carried no caps, so the page could not show a buyer cap at all
+
+Now (buyers/caps.py buyer_usage, also used by /api/buyers/{id}/stats):
+calls sent to the buyer, Eastern day and month, spend = revenue (what the buyer
+pays); per row the buyer's daily / monthly cap and how far into it (on the
+buyer's own day, as routing checks), and its live TFNs with their daily caps.
+
+Tests: buyers.test_buyer_list_counts. Full suite 830 OK. Needs the web restart.

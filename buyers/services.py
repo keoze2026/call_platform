@@ -249,23 +249,13 @@ class BuyerService:
         from datetime import timedelta
 
         buyer = BuyerService.get_buyer(buyer_id, user)
-        now = timezone.now()
-        hour_ago = now - timedelta(hours=1)
-        today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        # The four windows exactly as the Buyers list counts them (CH-405).
+        from buyers.caps import buyer_usage
+        u = buyer_usage(buyer.organization, [buyer.id])[buyer.id]
 
-        # Base query for this buyer
+        # Accept and conversion rates from the reporting mirror, as before.
         qs = CallRecord.objects.filter(buyer_id=buyer.id)
-
-        # Aggregate stats
         stats = qs.aggregate(
-            calls_hourly=Count('id', filter=Q(created_at__gte=hour_ago)),
-            calls_today=Count('id', filter=Q(created_at__gte=today)),
-            calls_month=Count('id', filter=Q(created_at__gte=month_start)),
-            spend_hourly=Coalesce(Sum('payout', filter=Q(created_at__gte=hour_ago)), Decimal('0.00')),
-            spend_today=Coalesce(Sum('payout', filter=Q(created_at__gte=today)), Decimal('0.00')),
-            spend_month=Coalesce(Sum('payout', filter=Q(created_at__gte=month_start)), Decimal('0.00')),
-            lifetime_spend=Coalesce(Sum('payout'), Decimal('0.00')),
             total_calls=Count('id'),
             connected_calls=Count('id', filter=Q(status='completed')),
             # This queryset is CallRecord - the reporting mirror - which has
@@ -283,14 +273,14 @@ class BuyerService:
         return {
             'buyer_id': str(buyer.id),
             'buyer_name': buyer.name,
-            'hourly_calls': stats['calls_hourly'],
-            'hourly_spend': str(stats['spend_hourly']),
-            'calls_today': stats['calls_today'],
-            'spend_today': str(stats['spend_today']),
-            'calls_month': stats['calls_month'],
-            'spend_month': str(stats['spend_month']),
-            'global_calls': stats['total_calls'],
-            'global_spend': str(stats['lifetime_spend']),
+            'hourly_calls': u['calls_hourly'],
+            'hourly_spend': str(u['spend_hourly']),
+            'calls_today': u['calls_today'],
+            'spend_today': str(u['spend_today']),
+            'calls_month': u['calls_month'],
+            'spend_month': str(u['spend_month']),
+            'global_calls': u['calls_global'],
+            'global_spend': str(u['spend_global']),
             'accept_rate': f"{accept_rate:.2f}%",
             'conversion_rate': f"{conversion_rate:.2f}%",
         }

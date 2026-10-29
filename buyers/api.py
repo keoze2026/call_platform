@@ -153,37 +153,16 @@ def list_buyers(request: HttpRequest, page: int = 1, page_size: int = 50):
     from django.utils import timezone as djtz
     from analytics.models import CallRecord
 
-    buyers = BuyerService.list_buyers(request.auth)
+    buyers = list(BuyerService.list_buyers(request.auth))
 
-    # The Manage Buyers screen (the owner's ask) needs the four spend windows
-    # on every row. The page used to fan out one /stats call per buyer - 54
-    # buyers, 54 requests. One grouped query, the SAME definitions as the
-    # per-buyer stats endpoint above, so the row and the detail page can
-    # never disagree.
-    now = djtz.now()
-    hour_ago = now - timedelta(hours=1)
-    today = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    by_buyer = {
-        r['buyer_id']: r for r in
-        CallRecord.objects.filter(organization=request.auth.organization,
-                                  buyer_id__isnull=False)
-        .values('buyer_id')
-        .annotate(
-            calls_hourly=Count('id', filter=Q(created_at__gte=hour_ago)),
-            calls_today=Count('id', filter=Q(created_at__gte=today)),
-            calls_month=Count('id', filter=Q(created_at__gte=month_start)),
-            calls_global=Count('id'),
-            spend_hourly=Coalesce(Sum('payout', filter=Q(created_at__gte=hour_ago)), Decimal('0.00')),
-            spend_today=Coalesce(Sum('payout', filter=Q(created_at__gte=today)), Decimal('0.00')),
-            spend_month=Coalesce(Sum('payout', filter=Q(created_at__gte=month_start)), Decimal('0.00')),
-            spend_global=Coalesce(Sum('payout'), Decimal('0.00')),
-        )
-    }
-    zero = Decimal('0.00')
+    # The Manage Buyers screen needs the four windows, the buyer's caps and
+    # its TFN caps on every row, in grouped queries (CH-405: counted as the
+    # routing counts caps - buyers/caps.py buyer_usage).
+    from buyers.caps import buyer_usage
+    usage = buyer_usage(request.auth.organization, [b.id for b in buyers])
     data = []
     for b in buyers:
-        s = by_buyer.get(b.id, {})
+        s = usage.get(b.id, {})
         data.append({
             'id': str(b.id),
             'name': b.name,
@@ -193,14 +172,7 @@ def list_buyers(request: HttpRequest, page: int = 1, page_size: int = 50):
             'payout_amount': str(b.payout_amount),
             'max_concurrency': b.max_concurrency,
             'created_at': b.created_at.isoformat(),
-            'calls_hourly': s.get('calls_hourly', 0),
-            'calls_today': s.get('calls_today', 0),
-            'calls_month': s.get('calls_month', 0),
-            'calls_global': s.get('calls_global', 0),
-            'spend_hourly': str(s.get('spend_hourly', zero)),
-            'spend_today': str(s.get('spend_today', zero)),
-            'spend_month': str(s.get('spend_month', zero)),
-            'spend_global': str(s.get('spend_global', zero)),
+            **{k: (str(v) if k.startswith('spend_') else v) for k, v in s.items()},
         })
     return 200, paginate_list(data, page, page_size)
 

@@ -106,3 +106,71 @@ def buyer_cap_hit(buyer, cap, now=None):
         if n >= limit:
             return f'{period} cap {n}/{limit}'
     return None
+
+
+def buyer_usage(organization, buyer_ids, now=None) -> dict:
+    """{buyer_id: counters} for the Buyers page (CH-405), counted the way the
+    routing counts caps: calls sent to the buyer (not "No Destination"
+    refusals, not hidden Revo retries), the day and month from midnight
+    Eastern - the list cut them at midnight UTC, so "today" restarted at
+    8 PM. Spend is what the buyer pays (revenue); it was the publisher's
+    payout, which is why every spend equalled the call count."""
+    from decimal import Decimal
+    from django.db.models import Count, Q, Sum
+    from django.db.models.functions import Coalesce
+    from buyers.destination import Destination
+    from buyers.models import Buyer, BuyerCap
+    from routing.models import CallLog
+
+    buyer_ids = list(buyer_ids)
+    if not buyer_ids:
+        return {}
+    hour_ago, day_start, month_start = windows(DEFAULT_TZ, now)
+    zero = Decimal('0.00')
+    money = lambda q=None: Coalesce(Sum('revenue', filter=q), zero)  # noqa: E731
+    out = {b: {'calls_hourly': 0, 'calls_today': 0, 'calls_month': 0, 'calls_global': 0,
+               'spend_hourly': zero, 'spend_today': zero, 'spend_month': zero, 'spend_global': zero,
+               'daily_cap': 0, 'monthly_cap': 0, 'cap_used_today': 0, 'cap_used_month': 0,
+               'tfn_count': 0, 'tfn_cap_total': 0, 'tfn_uncapped': 0} for b in buyer_ids}
+
+    sent = CallLog.objects.filter(organization=organization, buyer_id__in=buyer_ids) \
+        .exclude(destination_number='').filter(counted_q())
+    for r in sent.values('buyer_id').annotate(
+            calls_hourly=Count('id', filter=Q(created_at__gte=hour_ago)),
+            calls_today=Count('id', filter=Q(created_at__gte=day_start)),
+            calls_month=Count('id', filter=Q(created_at__gte=month_start)),
+            calls_global=Count('id'),
+            spend_hourly=money(Q(created_at__gte=hour_ago)),
+            spend_today=money(Q(created_at__gte=day_start)),
+            spend_month=money(Q(created_at__gte=month_start)),
+            spend_global=money()):
+        row = out.get(r.pop('buyer_id'))
+        if row is not None:
+            row.update(r)
+
+    # The buyer's own caps, and how far it is into them - on its own day, the
+    # one routing checks (buyer_cap_hit).
+    caps = {c.buyer_id: c for c in BuyerCap.objects.filter(buyer_id__in=buyer_ids)}
+    for b in Buyer.objects.filter(id__in=caps).only('id', 'timezone'):
+        cap, row = caps[b.id], out[b.id]
+        row['daily_cap'] = cap.max_calls_daily or 0
+        row['monthly_cap'] = cap.max_calls_monthly or 0
+        if (b.timezone or DEFAULT_TZ) == DEFAULT_TZ:
+            row['cap_used_today'], row['cap_used_month'] = row['calls_today'], row['calls_month']
+        else:
+            _, d0, m0 = windows(b.timezone, now)
+            mine = sent.filter(buyer_id=b.id)
+            row['cap_used_today'] = mine.filter(created_at__gte=d0).count()
+            row['cap_used_month'] = mine.filter(created_at__gte=m0).count()
+    for b, row in out.items():
+        if b not in caps:
+            row['cap_used_today'], row['cap_used_month'] = row['calls_today'], row['calls_month']
+
+    # Its live TFNs and their daily caps, for the cap breakdown.
+    for r in Destination.objects.filter(organization=organization, buyer_id__in=buyer_ids, enabled=True) \
+            .values('buyer_id').annotate(n=Count('id'), total=Coalesce(Sum('daily_cap'), 0),
+                                         uncapped=Count('id', filter=Q(daily_cap__lte=0))):
+        row = out.get(r['buyer_id'])
+        if row is not None:
+            row.update(tfn_count=r['n'], tfn_cap_total=r['total'], tfn_uncapped=r['uncapped'])
+    return out
