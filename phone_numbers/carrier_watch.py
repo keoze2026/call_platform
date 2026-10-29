@@ -27,9 +27,21 @@ no publisher are tested first, then the least-tested ones, so no number goes
 over the daily test limit. Calls go out 7:30 AM - 9 PM Eastern only (Sir's
 rule for automatic test calls).
 
+CH-361 - the silence watch. A carrier will not always complete a test call
+to our own TFN (it loops straight back to us; on 29 Oct the carrier answered
+Q.850 cause 127). So the real calls are watched too: when a carrier's live
+TFNs got calls in the past two hours (at least CARRIER_SILENCE_MIN_CALLS, on
+two or more TFNs) and then none at all for CARRIER_SILENCE_MINUTES (20), the
+carrier is marked DOWN exactly as a failed test would - Not Working in TFN
+Check, a Telegram alert - and the first call that comes in clears it. If
+every carrier goes quiet at once, the fault is more likely ours (server,
+phone system), so no carrier is marked and the team is told that instead.
+
 .env (optional):
-  CARRIER_WATCH_ENABLED   default True
-  CARRIER_WATCH_MINUTES   default 15
+  CARRIER_WATCH_ENABLED       default True
+  CARRIER_WATCH_MINUTES       default 15
+  CARRIER_SILENCE_MINUTES     default 20
+  CARRIER_SILENCE_MIN_CALLS   default 10
 """
 import logging
 from datetime import timedelta
@@ -143,14 +155,14 @@ def settle(carrier, test, send) -> str:
     label = f'{carrier.name} ({carrier.code})'
     when = _et(test.finished_at or timezone.now())
     if result == OK:
-        _save(carrier, status=OK, fails=0, number=test.number, detail=f'test call came in at {when}',
+        _save(carrier, status=OK, source='test', fails=0, number=test.number, detail=f'test call came in at {when}',
               since=prev.get('since') if prev.get('status') == OK else timezone.now().isoformat())
         if prev.get('status') == DOWN:
             send(f'✅ <b>Avortyx Guard · carrier delivering again:</b> {label}. '
                  f'Test call to {test.number} came in at {when}.')
         return OK
     if result == UNKNOWN:
-        _save(carrier, status=UNKNOWN if prev.get('status') != DOWN else DOWN,
+        _save(carrier, status=UNKNOWN if prev.get('status') != DOWN else DOWN, source=prev.get('source', ''),
               number=test.number, detail=f'test call could not be placed at {when}: {test.reason[:120]}')
         if not cache.add(f'carrier_watch:unknown_alerted:{carrier.id}', 1, 6 * 3600):
             return UNKNOWN
@@ -176,17 +188,99 @@ def settle(carrier, test, send) -> str:
     return DOWN
 
 
+def silence_minutes() -> int:
+    return max(10, int(getattr(settings, 'CARRIER_SILENCE_MINUTES', 20) or 20))
+
+
+def silence_min_calls() -> int:
+    return max(3, int(getattr(settings, 'CARRIER_SILENCE_MIN_CALLS', 10) or 10))
+
+
+def traffic(now) -> dict:
+    """{carrier_id: {'recent': calls in the silence window, 'prior': calls in
+    the two hours before it, 'tfns': TFNs with calls in those two hours,
+    'live': live TFNs}} for TFNs on an active campaign."""
+    from phone_numbers.models import PhoneNumber
+    from routing.models import CallLog
+    quiet = timedelta(minutes=silence_minutes())
+    owner, live = {}, {}
+    for number, carrier_id in (PhoneNumber.objects.filter(status='active', campaign__status='active',
+                                                          carrier__isnull=False)
+                               .values_list('number', 'carrier_id')):
+        key = ''.join(ch for ch in number if ch.isdigit())[-10:]
+        owner[key] = carrier_id
+        live[carrier_id] = live.get(carrier_id, 0) + 1
+    out = {cid: {'recent': 0, 'prior': 0, 'tfns': set(), 'live': n} for cid, n in live.items()}
+    rows = (CallLog.objects.filter(created_at__gte=now - quiet - timedelta(hours=2), created_at__lte=now)
+            .values_list('called_number', 'created_at'))
+    for called, at in rows.iterator(chunk_size=5000):
+        cid = owner.get(''.join(ch for ch in str(called or '') if ch.isdigit())[-10:])
+        if cid is None:
+            continue
+        if at >= now - quiet:
+            out[cid]['recent'] += 1
+        else:
+            out[cid]['prior'] += 1
+            out[cid]['tfns'].add(called)
+    return out
+
+
+def silence(send, now) -> dict:
+    """CH-361: mark a carrier DOWN when its busy TFNs suddenly get no calls;
+    clear it on the next call. Returns {carrier code: what happened}."""
+    from phone_numbers.models import Carrier
+    done = {}
+    if not in_hours(now):
+        return done
+    t = traffic(now)
+    busy = {cid: v for cid, v in t.items() if v['prior'] >= silence_min_calls() and len(v['tfns']) >= 2}
+    quiet = {cid for cid, v in busy.items() if v['recent'] == 0}
+    if len(busy) >= 2 and quiet == set(busy):
+        # Every busy carrier quiet at once: most likely our server or phone
+        # system, not the carriers. Say so once an hour; mark nobody.
+        if cache.add('carrier_watch:all_quiet_alerted', 1, 3600):
+            send(f'🔴 <b>Avortyx Guard · no calls on ANY carrier</b> for {silence_minutes()} minutes '
+                 f'(they had calls before). Check our server and phone system first.')
+        return {'all': 'no calls on any carrier'}
+    for carrier in Carrier.objects.filter(id__in=list(t)):
+        v = t[carrier.id]
+        prev = state(carrier.id)
+        label = f'{carrier.name} ({carrier.code})'
+        if carrier.id in quiet:
+            detail = (f'no calls on any of its {v["live"]} live TFNs for {silence_minutes()} minutes '
+                      f'(it had {v["prior"]} in the 2 hours before)')
+            was_down = prev.get('status') == DOWN
+            _save(carrier, status=DOWN, source='silence', detail=detail,
+                  since=prev.get('since') if was_down else now.isoformat())
+            if not was_down:
+                send(f'🔴 <b>Avortyx Guard · carrier went silent:</b> {label}: {detail}. '
+                     f'Its TFNs now show Not Working in TFN Check. Check the carrier balance / recharge.')
+            done[carrier.code] = 'silent'
+        elif v['recent'] > 0 and prev.get('status') == DOWN and prev.get('source') == 'silence':
+            _save(carrier, status=UNKNOWN, source='silence', fails=0,
+                  detail=f'calls coming in again ({v["recent"]} in the last {silence_minutes()} minutes)')
+            send(f'✅ <b>Avortyx Guard · carrier calls coming in again:</b> {label}.')
+            done[carrier.code] = 'calls again'
+    return done
+
+
 def tick(send, now=None) -> dict:
-    """The beat task, every 5 minutes: settle finished watch tests, start the
-    ones that are due. Returns {carrier code: what happened}."""
+    """The beat task, every 5 minutes: the silence watch (CH-361), then
+    settle finished watch tests and start the ones that are due. Returns
+    {carrier code: what happened}."""
     from phone_numbers import ami, tfn_test
     from phone_numbers.models import Carrier, TfnTest
-    done = {}
     if not enabled():
         return {'watch': 'off'}
-    if not ami.configured() or not tfn_test.test_caller_id():
-        return {'watch': 'test calls not configured'}
     now = now or timezone.now()
+    done = {}
+    try:
+        done.update({f'{k} (calls)': v for k, v in silence(send, now).items()})
+    except Exception:  # noqa: BLE001 - the test calls still run
+        logger.exception('carrier silence watch failed')
+    if not ami.configured() or not tfn_test.test_caller_id():
+        done['watch'] = 'test calls not configured'
+        return done
     for carrier in Carrier.objects.filter(is_active=True).order_by('code'):
         test_id = cache.get(TEST_KEY.format(carrier.id))
         if test_id:

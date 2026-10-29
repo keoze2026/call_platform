@@ -7934,3 +7934,25 @@ kept testing, but the TFN was not picking up calls due to a recharge issue".
 
 Tests: phone_numbers/test_carrier_watch.py (+11), test_tfn_check.py (+1).
 Needs the web, worker and beat restart; portal half CH-360 in Avortyx.
+
+## CH-361 - Silence watch: a carrier whose busy TFNs suddenly get no calls
+**2026-10-29 · TFN Check / Guard**
+
+Sir, 29 Oct: "the TFN was not picking up calls due to a recharge issue ... it's
+a loss if calls don't connect while our system shows the TFN as active". The
+CH-360 test calls to our own TFNs are refused by the carrier (Q.850 cause 127:
+the call loops straight back to us), so the real calls are watched as well.
+
+- Every 5 minutes, 7:30 AM - 9 PM Eastern: a carrier whose live TFNs had at
+  least 10 calls on 2 or more TFNs in the past 2 hours and then none for 20
+  minutes is marked DOWN - its TFNs are Not Working in TFN Check (the team
+  sees "no calls on any of its N live TFNs for 20 minutes"), and the team gets
+  a Telegram alert once. The first call that comes in clears it ("calls coming
+  in again").
+- If every busy carrier goes quiet at once, the fault is more likely ours:
+  no carrier is marked, and the team is told to check the server first.
+- Runs even when test calls cannot be placed.
+- .env: CARRIER_SILENCE_MINUTES (20), CARRIER_SILENCE_MIN_CALLS (10).
+
+Tests: phone_numbers/test_carrier_watch.py SilenceWatchTests (+6).
+Needs the web, worker and beat restart. No portal change.

@@ -165,3 +165,98 @@ class TfnCheckUsesTheWatchTests(TestCase):
         self.assertEqual(r['status'], 'working')
         self.assertEqual(r['detail'], 'The carrier delivered a test call 10 minutes ago.')
         self.assertIn('carrier_checked_at', r)
+
+
+@override_settings(CACHES=LOCMEM, CARRIER_WATCH_ENABLED=True, TFN_TEST_CALLER_ID='')
+class SilenceWatchTests(TestCase):
+    """CH-361: busy TFNs that suddenly get no calls = the carrier stopped
+    delivering (its recharge ran out, as on 28 Oct)."""
+
+    def setUp(self):
+        cache.clear()
+        from routing.models import CallLog
+        self.CallLog = CallLog
+        self.org = Organization.objects.create(name='Avortyx', slug='avx')
+        self.camp = Campaign.objects.create(organization=self.org, name='C-13', status='active')
+        self.freedom = Carrier.objects.create(organization=self.org, name='Freedom', code='KMQ')
+        self.xlr = Carrier.objects.create(organization=self.org, name='XLR', code='XLR')
+        self.k1 = PhoneNumber.objects.create(organization=self.org, number='+18888913606', vendor='Other',
+                                             status='active', carrier=self.freedom, campaign=self.camp)
+        self.k2 = PhoneNumber.objects.create(organization=self.org, number='+18888913604', vendor='Other',
+                                             status='active', carrier=self.freedom, campaign=self.camp)
+        self.x1 = PhoneNumber.objects.create(organization=self.org, number='+18552026099', vendor='Other',
+                                             status='active', carrier=self.xlr, campaign=self.camp)
+        self.x2 = PhoneNumber.objects.create(organization=self.org, number='+18552026098', vendor='Other',
+                                             status='active', carrier=self.xlr, campaign=self.camp)
+        self.now = NOON_ET
+        self.n = 0
+        self.sent = []
+
+    def calls(self, phone, count, minutes_ago):
+        for _ in range(count):
+            self.n += 1
+            c = self.CallLog.objects.create(organization=self.org, campaign=self.camp, caller_number='+15550000000',
+                                            called_number=phone.number, twilio_call_sid=f's{self.n}', status='completed')
+            self.CallLog.objects.filter(pk=c.pk).update(created_at=self.now - timedelta(minutes=minutes_ago))
+
+    def tick(self, minutes=0):
+        return W.tick(self.sent.append, now=self.now + timedelta(minutes=minutes))
+
+    def test_busy_carrier_going_quiet_is_down_and_alerts_once(self):
+        self.calls(self.k1, 6, 60)
+        self.calls(self.k2, 6, 90)          # Freedom: 12 calls before, none in the last 20 min
+        self.calls(self.x1, 6, 60)
+        self.calls(self.x2, 6, 70)
+        self.calls(self.x1, 2, 5)           # XLR still getting calls
+        self.tick()
+        self.assertEqual(W.state(self.freedom.id)['status'], 'down')
+        self.assertNotEqual(W.state(self.xlr.id).get('status'), 'down')
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn('carrier went silent', self.sent[0])
+        self.assertIn('Freedom (KMQ)', self.sent[0])
+        self.tick(5)
+        self.assertEqual(len(self.sent), 1)  # not repeated
+        r = tfn_check.check(self.org, '8888913606', staff=True)['results'][0]
+        self.assertEqual(r['status'], 'not_working')
+        self.assertIn('no calls on any of its 2 live TFNs', r['why'])
+
+    def test_the_first_call_clears_it(self):
+        self.calls(self.k1, 6, 60)
+        self.calls(self.k2, 6, 90)
+        self.calls(self.x1, 6, 30)
+        self.calls(self.x2, 6, 30)
+        self.calls(self.x1, 1, 3)
+        self.tick()
+        self.calls(self.k1, 1, -4)          # a call comes in 4 minutes later
+        self.tick(5)
+        self.assertNotEqual(W.state(self.freedom.id)['status'], 'down')
+        self.assertIn('calls coming in again', self.sent[-1])
+
+    def test_a_quiet_number_with_little_traffic_is_left_alone(self):
+        self.calls(self.k1, 4, 60)          # under the 10-call minimum
+        self.tick()
+        self.assertEqual(W.state(self.freedom.id), {})
+        self.assertEqual(self.sent, [])
+
+    def test_every_carrier_quiet_at_once_blames_our_side_not_the_carriers(self):
+        self.calls(self.k1, 6, 60)
+        self.calls(self.k2, 6, 60)
+        self.calls(self.x1, 6, 60)
+        self.calls(self.x2, 6, 60)
+        self.tick()
+        self.assertEqual(W.state(self.freedom.id), {})
+        self.assertEqual(W.state(self.xlr.id), {})
+        self.assertIn('no calls on ANY carrier', self.sent[0])
+
+    def test_runs_even_when_test_calls_are_not_possible(self):
+        self.calls(self.k1, 6, 60)
+        self.calls(self.k2, 6, 60)
+        out = self.tick()
+        self.assertEqual(out.get('KMQ (calls)'), 'silent')
+        self.assertEqual(out.get('watch'), 'test calls not configured')
+
+    def test_only_from_7_30_am_to_9_pm_eastern(self):
+        self.calls(self.k1, 6, 60)
+        self.calls(self.k2, 6, 60)
+        W.tick(self.sent.append, now=datetime(2026, 10, 29, 22, 0, tzinfo=W.ET))
+        self.assertEqual(W.state(self.freedom.id), {})

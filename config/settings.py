@@ -604,6 +604,9 @@ TFN_AUTO_TEST_ENABLED = config('TFN_AUTO_TEST_ENABLED', default=False, cast=bool
 # CH-360 carrier watch (phone_numbers/carrier_watch.py).
 CARRIER_WATCH_ENABLED = config('CARRIER_WATCH_ENABLED', default=True, cast=bool)
 CARRIER_WATCH_MINUTES = config('CARRIER_WATCH_MINUTES', default=15, cast=int)
+# CH-361 silence watch: busy carrier TFNs with no calls for this long = down.
+CARRIER_SILENCE_MINUTES = config('CARRIER_SILENCE_MINUTES', default=20, cast=int)
+CARRIER_SILENCE_MIN_CALLS = config('CARRIER_SILENCE_MIN_CALLS', default=10, cast=int)
 TFN_AUTO_TEST_HOURS = config('TFN_AUTO_TEST_HOURS', default=3, cast=int)
 TFN_AUTO_TEST_MAX = config('TFN_AUTO_TEST_MAX', default=20, cast=int)
 
