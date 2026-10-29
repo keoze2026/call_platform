@@ -8054,3 +8054,34 @@ after the CH-393 restart it would have reported the web app itself as an
 to unknown IP". `uvicorn` is now a known program, and web_calls is listed as
 "Call routing API" in the services report. Takes effect on the next minute's
 run after `git pull`; no restart.
+
+## CH-396 - Destination caps are applied (Hourly, Daily, Monthly, Global)
+
+Sir, 29 Oct: "Daily cap system is not properly functioning, you can see calls
+went extra than the daily cap limit set" - R48 13/12, Q07 20/10, Q17 6/3,
+Q28 9/7.
+
+Cause: a destination's Hourly / Daily / Monthly / Global caps were saved and
+shown on the Destinations page, and routing never read them. Only its CC cap
+and the buyer's own caps were checked.
+
+  - routing checks the line's caps before sending it a call, after CC; a full
+    line is skipped and the next one tried; when none takes the call it is
+    missed on that line ("Destination missed (cap full)" in the trace, "No
+    Destination" in the reports - as for CC full). A buyer's TFN rotation
+    skips a TFN at its cap. Cap 0 = no cap, as before.
+  - what counts (buyers/caps.py), on the page and in routing alike: calls SENT
+    to the line. Not a "No Destination" refusal stamped on it (else a full
+    line kept "filling" with the calls it refused), not a hidden Revo retry
+    (the Reports show one row per caller call). Day and month from midnight in
+    the destination's zone (Eastern by default); hour = last 60 minutes.
+  - the buyer's own daily / monthly cap: counted on the buyer's day (its zone,
+    else Eastern) - it was the UTC day, so it started again at 8 PM Eastern -
+    and on calls sent only. The buyer's global cap stays unapplied, as before.
+  - found while testing: a campaign may list a TFN without the "+", and the CC
+    and "switched off" checks matched the number exactly, so for such a line
+    neither applied. All three checks now find the line by its last ten
+    digits, a live row before a paused duplicate.
+
+Tests: buyers.test_destination_caps (10; the cap and the "+" tests fail on
+the old code). Needs the web restart (with CH-393).

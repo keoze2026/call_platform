@@ -338,31 +338,44 @@ class RoutingEngine:
 
     @staticmethod
     def check_buyer_caps(buyer) -> bool:
+        """The buyer's own daily and monthly caps (CH-396: on the buyer's day,
+        not UTC's, and counting only calls actually sent - see buyers/caps)."""
         try:
             cap = buyer.cap
         except Exception:
             return True
+        from buyers.caps import buyer_cap_hit
+        try:
+            return buyer_cap_hit(buyer, cap) is None
+        except Exception:
+            # Same as the CC check: a broken count must not stop calls, and
+            # it is logged rather than hidden.
+            logger.exception('buyer cap check failed for buyer=%s', buyer.id)
+            return True
 
-        today = timezone.now().date()
-        month_start = today.replace(day=1)
+    @staticmethod
+    def buyer_destination(buyer, number):
+        """The buyer's Destinations-page row for `number`, matched on its last
+        ten digits (a campaign may list it with or without the +); a live row
+        before a paused one."""
+        from buyers.destination import Destination
+        d10 = _d10(number)
+        if not d10:
+            return None
+        rows = [r for r in Destination.objects.filter(buyer=buyer).order_by('-enabled', '-created_at')
+                if _d10(r.tfn) == d10]
+        return rows[0] if rows else None
 
-        if cap.max_calls_daily > 0:
-            daily_count = CallLog.objects.filter(
-                buyer=buyer,
-                created_at__date=today
-            ).count()
-            if daily_count >= cap.max_calls_daily:
-                return False
-
-        if cap.max_calls_monthly > 0:
-            monthly_count = CallLog.objects.filter(
-                buyer=buyer,
-                created_at__date__gte=month_start
-            ).count()
-            if monthly_count >= cap.max_calls_monthly:
-                return False
-
-        return True
+    @staticmethod
+    def destination_cap_hit(buyer, number):
+        """'daily cap 12/12' when the line's own cap is full, else None."""
+        from buyers.caps import destination_cap_hit
+        try:
+            d = RoutingEngine.buyer_destination(buyer, number)
+            return destination_cap_hit(d) if d is not None else None
+        except Exception:
+            logger.exception('destination cap check failed for buyer=%s number=%s', buyer.id, number)
+            return None
 
     @staticmethod
     def pick_live_destination(buyer, exclude=(), only=None):
@@ -385,7 +398,6 @@ class RoutingEngine:
 
         rows = list(
             Destination.objects.filter(buyer=buyer, enabled=True)
-            .only('id', 'tfn', 'concurrency_cap')
             .order_by('created_at')
         )
         # Duplicate handling (CH-241). The rotation below chose among ALL the
@@ -400,6 +412,10 @@ class RoutingEngine:
             return pinned[0] if pinned else None
         if exclude:
             rows = [r for r in rows if _d10(r.tfn) not in exclude]
+        # CH-396: a TFN whose own Hourly / Daily / Monthly / Global cap is full
+        # takes no more calls today - unlike CC, which frees up in minutes.
+        from buyers.caps import destination_cap_hit
+        rows = [r for r in rows if not destination_cap_hit(r)]
         if not rows:
             return None
         if len(rows) == 1:
@@ -435,16 +451,16 @@ class RoutingEngine:
         
         # 1. Check destination-specific cap first if provided
         if destination_number:
-            from buyers.destination import Destination
             try:
-                buyer_dest = Destination.objects.filter(
-                    buyer=buyer,
-                    tfn=destination_number
-                ).first()
+                # CH-396: found by its digits - a campaign may list the TFN
+                # without the +, and an exact match then found no line, so
+                # its CC cap was never applied. Calls are counted on the
+                # number as dialled (the line's own spelling).
+                buyer_dest = RoutingEngine.buyer_destination(buyer, destination_number)
                 if buyer_dest and buyer_dest.concurrency_cap > 0:
                     dest_active = CallLog.objects.filter(
                         buyer=buyer,
-                        destination_number=destination_number,
+                        destination_number=buyer_dest.tfn,
                         status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
                         ended_at__isnull=True,
                         created_at__gte=timezone.now() - timedelta(hours=4)
@@ -602,11 +618,10 @@ class RoutingEngine:
         """
         if not destination_number:
             return True
-        from buyers.destination import Destination
         try:
-            row = Destination.objects.filter(
-                buyer=buyer, tfn=destination_number
-            ).only('enabled').first()
+            # CH-396: by its digits, a live row first - an exact match missed a
+            # TFN listed without the +, and could pick a paused duplicate.
+            row = RoutingEngine.buyer_destination(buyer, destination_number)
         except Exception:
             # A lookup failure must never cost a call. Worst case we route as
             # before, which is what happened for every call until now.
@@ -711,6 +726,14 @@ class RoutingEngine:
             ):
                 reason = f'buyer {buyer.name} is at concurrency limit'
                 dest_fault = 'Destination missed (CC full)'
+            else:
+                # CH-396: the line's own Hourly / Daily / Monthly / Global
+                # caps. Saved and shown, never applied: R48 took 13 on a
+                # daily cap of 12, Q07 20 on 10.
+                cap_hit = RoutingEngine.destination_cap_hit(buyer, destination.destination)
+                if cap_hit:
+                    reason = f'destination {destination.destination} reached its {cap_hit}'
+                    dest_fault = 'Destination missed (cap full)'
             # The owner's rule: a call the buyer's line could not take is
             # missed ON THAT LINE, never an anonymous campaign drop. The
             # first destination-side refusal in priority order is the line

@@ -129,15 +129,20 @@ def gather_destination_counts(org, tfns, start_date=None, end_date=None, tz_name
         if dt:
             range_q &= Q(created_at__lte=timezone.make_aware(dt) if timezone.is_naive(dt) else dt)
 
-    for r in base.filter(range_q).values(*group).annotate(
+    # CH-396: Daily / Hourly / Monthly / Global count the calls SENT to the
+    # line - what its caps limit and what routing now checks (buyers/caps.py):
+    # not a "No Destination" refusal stamped on it, not a hidden Revo retry.
+    from buyers.caps import counted_q
+    sent = base.filter(counted_q())
+    for r in sent.filter(range_q).values(*group).annotate(
             n=Count('id'), rev=Coalesce(Sum('revenue'), Decimal('0.00'))):
         row = row_for(r)
         row['daily'] = r['n'] or 0
         row['revenue'] = r['rev'] or Decimal('0.00')
 
-    collect(base.filter(created_at__gte=hour_ago).values(*group).annotate(n=Count('id')), 'hourly')
-    collect(base.filter(created_at__gte=month_start).values(*group).annotate(n=Count('id')), 'monthly')
-    collect(base.values(*group).annotate(n=Count('id')), 'global')
+    collect(sent.filter(created_at__gte=hour_ago).values(*group).annotate(n=Count('id')), 'hourly')
+    collect(sent.filter(created_at__gte=month_start).values(*group).annotate(n=Count('id')), 'monthly')
+    collect(sent.values(*group).annotate(n=Count('id')), 'global')
 
     return out
 
@@ -229,7 +234,9 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
 
     dest_q = Q(organization=org)
     if d.tfn:
-        dest_q &= _own_calls_q(d)
+        # Calls sent to the line (CH-396), as its caps count them.
+        from buyers.caps import counted_q
+        dest_q &= _own_calls_q(d) & counted_q()
     else:
         # No TFN means routing can never select it, so it has no calls.
         dest_q &= Q(id__isnull=True)
