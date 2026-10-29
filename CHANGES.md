@@ -7956,3 +7956,15 @@ the call loops straight back to us), so the real calls are watched as well.
 
 Tests: phone_numbers/test_carrier_watch.py SilenceWatchTests (+6).
 Needs the web, worker and beat restart. No portal change.
+
+## CH-362 - Silence watch: watch every TFN with a carrier, not only active campaigns
+
+On the server (29 Oct) the watch saw nothing: the busy TFNs were on paused
+campaigns or on no campaign, and CH-361 only looked at TFNs on an active
+campaign. A call is logged the moment the carrier delivers it to us,
+whatever the campaign, so the watch now uses every active TFN with a
+carrier. Test calls are not counted. The message now says "its N busy TFNs"
+(TFNs that had calls), not every TFN of the carrier.
+
+Tests: SilenceWatchTests +1 (paused campaign / no campaign still watched).
+Needs the web, worker and beat restart. No portal change.

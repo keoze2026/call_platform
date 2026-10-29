@@ -218,7 +218,21 @@ class SilenceWatchTests(TestCase):
         self.assertEqual(len(self.sent), 1)  # not repeated
         r = tfn_check.check(self.org, '8888913606', staff=True)['results'][0]
         self.assertEqual(r['status'], 'not_working')
-        self.assertIn('no calls on any of its 2 live TFNs', r['why'])
+        self.assertIn('no calls on any of its 2 busy TFNs', r['why'])
+
+    def test_tfns_on_a_paused_campaign_or_none_are_still_watched(self):
+        # 29 Oct on the server: busy TFNs sat on paused campaigns or none.
+        self.camp.status = 'paused'
+        self.camp.save(update_fields=['status'])
+        PhoneNumber.objects.filter(pk=self.k2.pk).update(campaign=None)
+        self.calls(self.k1, 6, 60)
+        self.calls(self.k2, 6, 90)
+        self.calls(self.x1, 6, 60)
+        self.calls(self.x2, 6, 70)
+        self.calls(self.x1, 2, 5)
+        self.tick()
+        self.assertEqual(W.state(self.freedom.id)['status'], 'down')
+        self.assertIn('Freedom (KMQ)', self.sent[0])
 
     def test_the_first_call_clears_it(self):
         self.calls(self.k1, 6, 60)

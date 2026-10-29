@@ -199,29 +199,35 @@ def silence_min_calls() -> int:
 def traffic(now) -> dict:
     """{carrier_id: {'recent': calls in the silence window, 'prior': calls in
     the two hours before it, 'tfns': TFNs with calls in those two hours,
-    'live': live TFNs}} for TFNs on an active campaign."""
+    'live': TFNs of the carrier}} for every active TFN with a carrier.
+
+    Campaign status is not used: a call is logged the moment the carrier
+    delivers it to us, whether its campaign runs, is paused or is gone, so
+    the calls themselves are the proof (29 Oct: most busy TFNs sat on a
+    paused campaign or none and were missed)."""
     from phone_numbers.models import PhoneNumber
     from routing.models import CallLog
     quiet = timedelta(minutes=silence_minutes())
     owner, live = {}, {}
-    for number, carrier_id in (PhoneNumber.objects.filter(status='active', campaign__status='active',
-                                                          carrier__isnull=False)
+    for number, carrier_id in (PhoneNumber.objects.filter(status='active', carrier__isnull=False)
                                .values_list('number', 'carrier_id')):
         key = ''.join(ch for ch in number if ch.isdigit())[-10:]
         owner[key] = carrier_id
         live[carrier_id] = live.get(carrier_id, 0) + 1
     out = {cid: {'recent': 0, 'prior': 0, 'tfns': set(), 'live': n} for cid, n in live.items()}
     rows = (CallLog.objects.filter(created_at__gte=now - quiet - timedelta(hours=2), created_at__lte=now)
+            .exclude(twilio_call_sid__startswith='tfntest-')
             .values_list('called_number', 'created_at'))
     for called, at in rows.iterator(chunk_size=5000):
-        cid = owner.get(''.join(ch for ch in str(called or '') if ch.isdigit())[-10:])
+        key = ''.join(ch for ch in str(called or '') if ch.isdigit())[-10:]
+        cid = owner.get(key)
         if cid is None:
             continue
         if at >= now - quiet:
             out[cid]['recent'] += 1
         else:
             out[cid]['prior'] += 1
-            out[cid]['tfns'].add(called)
+            out[cid]['tfns'].add(key)
     return out
 
 
@@ -247,8 +253,8 @@ def silence(send, now) -> dict:
         prev = state(carrier.id)
         label = f'{carrier.name} ({carrier.code})'
         if carrier.id in quiet:
-            detail = (f'no calls on any of its {v["live"]} live TFNs for {silence_minutes()} minutes '
-                      f'(it had {v["prior"]} in the 2 hours before)')
+            detail = (f'no calls on any of its {len(v["tfns"])} busy TFNs for {silence_minutes()} minutes '
+                      f'(they had {v["prior"]} calls in the 2 hours before)')
             was_down = prev.get('status') == DOWN
             _save(carrier, status=DOWN, source='silence', detail=detail,
                   since=prev.get('since') if was_down else now.isoformat())
