@@ -69,35 +69,52 @@ def snapshot(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     # Destinations live in another app; a failure there should cost that panel,
     # not the whole dashboard.
     try:
-        from buyers.destinations_api import format_destination
+        from buyers.destinations_api import format_destination, gather_destination_counts
         from buyers.destination import Destination
         start = _f(filters, 'date_from') or _f(filters, 'start_date')
         end = _f(filters, 'date_to') or _f(filters, 'end_date')
+        tz_name = _f(filters, 'timezone') or 'America/New_York'
         # Same slice as /api/destinations/: a buyer gets their own, a
         # publisher none. The dashboard card was built from this block, so
         # scoping the destinations API alone left the card still showing a
         # buyer every other buyer's traffic.
         from accounts.permissions import scope_queryset
+        from django.db.models import Q
         dests = scope_queryset(
             request.auth,
             Destination.objects.all(),
             buyer_field='buyer_id', publisher_field=None,
         ).filter(
             buyer__organization=request.auth.organization,
-            # Enabled only. format_destination runs several COUNT queries
-            # against the call log per row, and this was formatting all 165
-            # destinations on every dashboard load - over a thousand queries -
-            # to build a panel that then shows only the enabled ones. With one
-            # destination enabled, 164 of those rows were computed and thrown
-            # away, and the dashboard took seconds to arrive because of it.
-            enabled=True,
         ).select_related('buyer')
+        # The lines switched on, plus (CH-404, Sir 30 Oct) every line that had
+        # calls in the selected days even if switched off since: a buyer whose
+        # TFN was paused after its cap showed an empty card with 80 calls on
+        # the chart above it, and the Buyers card could not list the buyers
+        # that worked today. Only those two kinds are formatted - formatting
+        # all 165 rows cost seconds on every load.
+        used = _tfns_with_calls(request.auth.organization, start, end, tz_name)
+        dests = dests.filter(Q(enabled=True) | Q(tfn__in=used))
         # Honour the "All destinations" dropdown when one is picked.
         chosen = _f(filters, 'destination')
         if chosen:
             dests = dests.filter(tfn=chosen)
+        # One row per buyer and number: a buyer can keep old switched-off
+        # rows of the same TFN as history, and each would count the same
+        # calls again. The live row wins, else the one updated last.
+        seen, rows = set(), []
+        for d in dests.order_by('-enabled', '-updated_at'):
+            k = (d.buyer_id, d.tfn)
+            if k not in seen:
+                seen.add(k)
+                rows.append(d)
+        dests = rows
+        # Every counter in grouped queries, not five per row.
+        counts = gather_destination_counts(
+            request.auth.organization, [d.tfn for d in dests], start, end, tz_name)
         data["destinations"] = [
-            format_destination(d, start_date=start, end_date=end) for d in dests
+            format_destination(d, start_date=start, end_date=end, tz_name=tz_name, counts=counts)
+            for d in dests
         ]
     except Exception:
         logger.exception('snapshot: destinations section failed')
@@ -375,3 +392,27 @@ def get_caller_profile(request, caller_number: str):
     from analytics.services import CallerProfileService
     organization_id = str(request.auth.organization_id)
     return CallerProfileService.get_profile(organization_id, caller_number)
+
+def _tfns_with_calls(org, start, end, tz_name):
+    """Destination numbers sent calls between `start` and `end` (dates, in
+    the reader's zone; default today). A "No Destination" refusal stamped on a
+    line was never sent to it and does not count (buyers/caps.py)."""
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+    from django.utils import timezone
+    from routing.models import CallLog
+    try:
+        tz = ZoneInfo(tz_name)
+    except Exception:
+        tz = ZoneInfo('America/New_York')
+    today = timezone.localtime(timezone.now(), tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    try:
+        frm = datetime.fromisoformat(str(start)[:10]).replace(tzinfo=tz) if start else today
+        to = (datetime.fromisoformat(str(end)[:10]).replace(tzinfo=tz) + timedelta(days=1)) if end else None
+    except ValueError:
+        frm, to = today, None
+    qs = CallLog.objects.filter(organization=org, created_at__gte=frm).exclude(destination_number='') \
+        .exclude(block_reason='No Destination')
+    if to is not None:
+        qs = qs.filter(created_at__lt=to)
+    return set(qs.values_list('destination_number', flat=True).distinct())

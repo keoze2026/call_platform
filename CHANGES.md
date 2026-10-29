@@ -8085,3 +8085,20 @@ and the buyer's own caps were checked.
 
 Tests: buyers.test_destination_caps (10; the cap and the "+" tests fail on
 the old code). Needs the web restart (with CH-393).
+
+## CH-404 - Dashboard lists every line that had calls in the day
+
+Sir, 30 Oct (buyer access): the buyer's Destinations card was empty under a
+chart showing 80 calls - its TFN had been switched off after its cap, and the
+dashboard snapshot listed switched-on lines only. The same rule kept buyers
+paused during the day off the admin's Buyers card (CH-400).
+
+  - /api/analytics/snapshot: destinations switched on, plus every line sent
+    calls in the selected days ("No Destination" refusals do not count)
+  - one row per buyer and number: old switched-off copies of a line are
+    history and would count its calls again
+  - all counters in grouped queries (gather_destination_counts) instead of
+    five per row - fewer queries on every dashboard load than before
+
+Tests: analytics.test_snapshot_destinations (2). Full suite 829 OK.
+Needs the web restart. Portal CH-404 goes with it.
