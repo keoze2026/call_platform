@@ -8021,3 +8021,26 @@ on one line can together take the sum of their caps.
 
 Tests: buyers.test_same_tfn_two_buyers (6). Full suite 817 OK.
 Needs the migration and the web, worker and beat restart. Portal CH-392 too.
+
+## CH-393 - Web on several processes; calls on their own; automatic recovery
+
+29 Oct, 9:04-9:25 PM Nairobi: the portal and call routing stopped answering
+for about 20 minutes (routing 000 after 10 s, web CPU 0%) and came back the
+moment `web` was restarted. Afterwards routing still took 2-3 s.
+
+Cause: `web` was one daphne process, and Django runs every request of a
+process on ONE thread, one after another. Every report, page and refresh of
+every open tab queued in the same line as call routing; one stuck request
+stopped everything.
+
+  - `web`: uvicorn with 4 worker processes (WEB_WORKERS), same port 8000, same
+    app and websockets (Redis channel layer). Nginx unchanged.
+  - `web_calls` (new): the same code on 127.0.0.1:8001 with 2 processes
+    (CALL_WORKERS), for Asterisk's AGI only, so portal traffic can never make
+    a call wait. The AGI is pointed at 8001 on the server, then
+    WATCHDOG_ROUTE_SERVICE=web_calls in .env.
+  - watchdog: a service whose routing check fails twice, 20 s apart, is
+    restarted automatically (only that service, at most once per 10 minutes)
+    and the support group is told. WATCHDOG_AUTO_RESTART=0 turns it off.
+
+Restart list from now on: web web_calls celery_worker celery_beat.

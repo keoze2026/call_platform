@@ -120,8 +120,56 @@ duration() {
 # 403 is the correct answer: it wants the shared secret. Anything else - 500, 502,
 # or no answer at all - means calls cannot be routed.
 
-code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
-       -X POST http://127.0.0.1:8000/api/twilio/asterisk/route/ 2>/dev/null)
+# CH-393: a frozen web process is restarted, not only reported. On 29 Oct the
+# web process stopped answering for 20 minutes - no portal, no routing - and
+# came back the moment it was restarted. Rules, so this can never make things
+# worse: only after a second failed check 20 seconds later; at most once per 10
+# minutes per service; only a container that is up (a stopped one is section 5);
+# and only that one service, never the database or the phone system.
+# WATCHDOG_AUTO_RESTART=0 in .env turns it off.
+
+probe() {  # probe PORT -> HTTP code of the routing endpoint on that port
+    curl -s -o /dev/null -w '%{http_code}' --max-time 8 \
+         -X POST "http://127.0.0.1:$1/api/twilio/asterisk/route/" 2>/dev/null
+}
+
+recover() {  # recover SERVICE PORT -> echoes the code after any recovery
+    local svc="$1" port="$2" c
+    c=$(probe "$port")
+    [ "$c" = "403" ] && { echo "$c"; return; }
+    sleep 20
+    c=$(probe "$port")
+    [ "$c" = "403" ] && { echo "$c"; return; }
+    local auto
+    auto=$(grep -m1 '^WATCHDOG_AUTO_RESTART=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
+    local last now
+    last=$(cat "$STATE/restarted_$svc" 2>/dev/null || echo 0)
+    now=$(date -u +%s)
+    if [ "${auto:-1}" != "0" ] && [ $(( now - last )) -ge 600 ] \
+       && (cd "$APP_DIR" && docker compose ps --format '{{.Service}} {{.State}}' 2>/dev/null | grep -q "^$svc running"); then
+        echo "$now" > "$STATE/restarted_$svc"
+        echo "$(date -u +%FT%TZ) AUTO-RESTART $svc (port $port answered $c twice)" >&2
+        (cd "$APP_DIR" && docker compose restart "$svc" >/dev/null 2>&1)
+        sleep 15
+        c=$(probe "$port")
+        send "🟠 <b>AVORTYX | Automatic Recovery</b>
+The ${svc} service stopped responding and was restarted automatically. It is now answering with ${c}.
+<b>Detected:</b> $(stamp)"
+    fi
+    echo "$c"
+}
+
+# The service Asterisk sends calls to (CH-393): web_calls on 8001 once the AGI
+# points there (WATCHDOG_ROUTE_SERVICE=web_calls in .env), web on 8000 until.
+route_svc=$(grep -m1 '^WATCHDOG_ROUTE_SERVICE=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
+route_svc="${route_svc:-web}"
+[ "$route_svc" = "web_calls" ] && route_port=8001 || route_port=8000
+
+code=$(recover "$route_svc" "$route_port" 2>>/var/log/avortyx-watchdog.log)
+# The portal's backend too, when calls are on their own service.
+if [ "$route_svc" != "web" ]; then
+    web_code=$(recover web 8000 2>>/var/log/avortyx-watchdog.log)
+fi
 
 if [ "$code" = "403" ]; then
     clear_alert routing "Call Routing Restored" "AVORTYX call routing is fully operational. Calls were not forwarded for {dur}."
@@ -232,4 +280,4 @@ All systems are fully operational. Calls received today: ${calls:-0}. Server sto
     fi
 fi
 
-echo "$(date -u +%FT%TZ) ok routing=$code portal=$portal disk=${used}%"
+echo "$(date -u +%FT%TZ) ok routing=$code${web_code:+ web=$web_code} portal=$portal disk=${used}%"

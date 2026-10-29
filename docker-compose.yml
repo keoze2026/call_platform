@@ -40,7 +40,16 @@ services:
 
   web:
     build: .
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    # CH-393: several processes, not one. Under daphne every Django request in
+    # the process ran on ONE thread, one after another: a slow report made
+    # every other request - call routing included - wait behind it, and on
+    # 29 Oct one stuck request froze the portal and routing for 20 minutes.
+    # Each uvicorn worker is its own process with its own lane. Same port,
+    # same app, same websockets (Redis channel layer); Nginx is unchanged.
+    # WEB_WORKERS in .env changes the count (default 4).
+    command: >
+      uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+      --workers ${WEB_WORKERS:-4} --lifespan off --timeout-keep-alive 5
     volumes:
       - .:/app
     # Fixed port: Nginx proxies to 127.0.0.1:8000. Do NOT change this to a range
@@ -52,6 +61,26 @@ services:
       # reach Daphne directly and skip Nginx, and with it every rate limit,
       # header and TLS check configured there.
       - "127.0.0.1:8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  # CH-393: call routing on its own processes (port 8001), so no amount of
+  # portal traffic can make a call wait. Same code as `web`; Asterisk's AGI
+  # is pointed at 127.0.0.1:8001 (see CHANGES.md CH-393). Until it is, this
+  # simply idles and calls keep using `web` on 8000.
+  web_calls:
+    build: .
+    command: >
+      uvicorn config.asgi:application --host 0.0.0.0 --port 8000
+      --workers ${CALL_WORKERS:-2} --lifespan off --timeout-keep-alive 5
+    volumes:
+      - .:/app
+    ports:
+      - "127.0.0.1:8001:8000"
     env_file:
       - .env
     depends_on:
