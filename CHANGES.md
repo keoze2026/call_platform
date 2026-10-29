@@ -8044,3 +8044,13 @@ stopped everything.
     and the support group is told. WATCHDOG_AUTO_RESTART=0 turns it off.
 
 Restart list from now on: web web_calls celery_worker celery_beat.
+
+## CH-395 - Server watcher knows the new web processes (follows CH-393)
+
+CH-393 runs the web app under uvicorn and adds the web_calls service. The
+server watcher (scripts/host_watch.py) knew the web app only as `daphne`, so
+after the CH-393 restart it would have reported the web app itself as an
+"Unknown process" and its calls to Telegram and Revo as "Outbound connection
+to unknown IP". `uvicorn` is now a known program, and web_calls is listed as
+"Call routing API" in the services report. Takes effect on the next minute's
+run after `git pull`; no restart.

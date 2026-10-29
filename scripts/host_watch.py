@@ -70,12 +70,12 @@ WATCHED_LOGS = ['/var/log/auth.log', '/var/log/syslog', '/var/log/asterisk/messa
                 '/var/log/asterisk/cdr-csv/Master.csv', '/var/log/nginx/access.log', '/var/log/ufw.log']
 SYSTEMD = [('asterisk', 'SIP engine'), ('kamailio', 'Cancel-hold relay'), ('nginx', 'Web server'),
            ('docker', 'Docker'), ('fail2ban', 'fail2ban'), ('cron', 'Cron jobs')]
-CONTAINERS = [('web', 'Backend API'), ('postgres', 'Database'), ('redis', 'Redis/queue'),
+CONTAINERS = [('web', 'Backend API'), ('web_calls', 'Call routing API'), ('postgres', 'Database'), ('redis', 'Redis/queue'),
               ('celery_worker', 'Worker'), ('celery_beat', 'Scheduler')]
 COMPOSE_PROJECT = os.environ.get('COMPOSE_PROJECT', 'call_platform')
 # Programs expected to use CPU or to open connections out of this server.
 KNOWN_PROGRAMS = {
-    'asterisk', 'kamailio', 'python', 'python3', 'daphne', 'celery', 'postgres', 'redis-server', 'redis-serve',
+    'asterisk', 'kamailio', 'python', 'python3', 'daphne', 'uvicorn', 'celery', 'postgres', 'redis-server', 'redis-serve',
     'tcpdump', 'node', 'ffmpeg', 'lame', 'sox', 'dockerd', 'containerd', 'containerd-shim', 'containerd-shim-runc-v2',
     'docker-proxy', 'docker', 'nginx', 'sshd', 'ssh', 'gzip', 'xz', 'tar', 'pg_dump', 'rclone', 'b2', 'apt', 'apt-get',
     'http', 'https', 'dpkg', 'unattended-upgr', 'fail2ban-server', 'f2b/server', 'journald', 'systemd',
