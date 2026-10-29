@@ -7968,3 +7968,15 @@ carrier. Test calls are not counted. The message now says "its N busy TFNs"
 
 Tests: SilenceWatchTests +1 (paused campaign / no campaign still watched).
 Needs the web, worker and beat restart. No portal change.
+
+## CH-363 - Silence watch: no alert on a quiet evening
+
+29 Oct, 8:24 PM ET: Freedom was flagged after 14 calls in 2 hours and then
+20 minutes without a call. That is normal evening traffic, not an outage.
+A carrier now needs at least 30 calls in the 2 hours before (about 5 every
+20 minutes) before silence counts. The 28 Oct outage (about 200 calls in 2
+hours, then none) is still caught at 2:45 PM ET.
+.env: CARRIER_SILENCE_MIN_CALLS default 10 -> 30.
+
+Tests: SilenceWatchTests +1 (quiet evening left alone).
+Needs the worker and beat restart. No portal change.

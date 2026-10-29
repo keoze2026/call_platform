@@ -41,7 +41,9 @@ phone system), so no carrier is marked and the team is told that instead.
   CARRIER_WATCH_ENABLED       default True
   CARRIER_WATCH_MINUTES       default 15
   CARRIER_SILENCE_MINUTES     default 20
-  CARRIER_SILENCE_MIN_CALLS   default 10
+  CARRIER_SILENCE_MIN_CALLS   default 30 (CH-363: 10 was too low - a quiet
+                              evening with 14 calls in 2 hours went 20 minutes
+                              without a call and was flagged)
 """
 import logging
 from datetime import timedelta
@@ -193,7 +195,7 @@ def silence_minutes() -> int:
 
 
 def silence_min_calls() -> int:
-    return max(3, int(getattr(settings, 'CARRIER_SILENCE_MIN_CALLS', 10) or 10))
+    return max(3, int(getattr(settings, 'CARRIER_SILENCE_MIN_CALLS', 30) or 30))
 
 
 def traffic(now) -> dict:

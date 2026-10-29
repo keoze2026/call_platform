@@ -167,7 +167,7 @@ class TfnCheckUsesTheWatchTests(TestCase):
         self.assertIn('carrier_checked_at', r)
 
 
-@override_settings(CACHES=LOCMEM, CARRIER_WATCH_ENABLED=True, TFN_TEST_CALLER_ID='')
+@override_settings(CACHES=LOCMEM, CARRIER_WATCH_ENABLED=True, TFN_TEST_CALLER_ID='', CARRIER_SILENCE_MIN_CALLS=10)
 class SilenceWatchTests(TestCase):
     """CH-361: busy TFNs that suddenly get no calls = the carrier stopped
     delivering (its recharge ran out, as on 28 Oct)."""
@@ -233,6 +233,17 @@ class SilenceWatchTests(TestCase):
         self.tick()
         self.assertEqual(W.state(self.freedom.id)['status'], 'down')
         self.assertIn('Freedom (KMQ)', self.sent[0])
+
+    @override_settings(CARRIER_SILENCE_MIN_CALLS=30)
+    def test_a_quiet_evening_is_not_an_outage(self):
+        # CH-363, 29 Oct 8:24 PM ET: 14 calls in 2 hours, then 20 minutes
+        # without one, was flagged. At the default of 30 it is left alone.
+        self.calls(self.k1, 7, 60)
+        self.calls(self.k2, 7, 90)
+        self.calls(self.x1, 2, 5)
+        self.tick()
+        self.assertEqual(W.state(self.freedom.id), {})
+        self.assertEqual(self.sent, [])
 
     def test_the_first_call_clears_it(self):
         self.calls(self.k1, 6, 60)
