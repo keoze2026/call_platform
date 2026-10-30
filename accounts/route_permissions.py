@@ -78,6 +78,10 @@ RULES = [
     # applied through groups is "Edit Forward Calls To" in every campaign.
     _rule(r'^/campaign-groups/apply$', 'call-flows', extra={'POST': [('campaigns', 'edit-forward')]}),
     _rule(r'^/campaign-groups/[^/]+/destinations$', 'call-flows'),
+    # CH-415: one destination in some of the group's campaigns - the same
+    # change as /apply, so the same ticks; its Change history is viewing.
+    _rule(r'^/campaign-groups/[^/]+/line$', 'call-flows', extra={'POST': [('campaigns', 'edit-forward')]}),
+    _rule(r'^/campaign-groups/[^/]+/history$', 'campaigns', {'GET': 'view'}),
     _rule(r'^/campaign-groups(/[^/]+)?$', 'campaigns',
           {'GET': 'view', 'POST': 'edit-campaign', 'PATCH': 'edit-campaign', 'DELETE': 'edit-campaign'}),
 

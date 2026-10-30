@@ -120,6 +120,8 @@ POST /api/campaign-groups/apply
 DELETE /api/campaign-groups/{}
 PATCH /api/campaign-groups/{}
 GET /api/campaign-groups/{}/destinations
+GET /api/campaign-groups/{}/history
+POST /api/campaign-groups/{}/line
 GET /api/campaigns/
 POST /api/campaigns/
 DELETE /api/campaigns/{}

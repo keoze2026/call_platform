@@ -8140,3 +8140,16 @@ or at a different priority / weight in each.
 
 Tests: campaigns.test_groups (GroupLineTests, 5). Needs the web restart.
 Portal CH-415 goes with it.
+
+## CH-418 - Tests: register the CH-415 Campaign Groups endpoints
+
+The GitHub test run on CH-415 failed two guard tests, not the CH-415 code:
+every new endpoint must have its permission tick and be listed in
+docs/api-paths.txt.
+  - accounts/route_permissions.py: POST /campaign-groups/{id}/line needs the
+    same ticks as /apply (call-flows + campaigns edit-forward); GET
+    /campaign-groups/{id}/history is campaigns view.
+  - docs/api-paths.txt regenerated (python manage.py api_paths --write).
+
+Full suite 836 OK, migrations check and secrets check pass. No restart needed
+for this on its own; it goes with the CH-415 restart.
