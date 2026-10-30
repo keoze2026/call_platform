@@ -224,6 +224,7 @@ GET /api/owner/carrier-statement
 GET /api/owner/carrier-statement/cdrs
 PATCH /api/owner/carriers/{}/costs
 GET /api/owner/company-profit
+GET /api/owner/company-profit-statement
 GET /api/owner/expenses
 GET /api/owner/guest-visits
 GET /api/owner/organizations

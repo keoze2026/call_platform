@@ -8200,3 +8200,30 @@ endpoints are unchanged.
 
 Tests: phone_numbers.test_carrier_statement (9). docs/api-paths.txt
 regenerated. Needs the web restart; portal CH-433 goes with it.
+
+## CH-434 - Company Profit page (Sir's design)
+
+Sir, 30 Oct: the Company Profit page - what customers paid us minus what the
+carriers charge us, before tax, Today / Yesterday / This week / This month /
+any dates. GET /api/owner/company-profit-statement (phone_numbers/
+company_profit.py):
+  - charged to customers: the money actually taken from customer workspaces
+    (our own workspace is not a customer), refunds off; each call's charge is
+    split from the call itself into minutes, recording (the call has a
+    recording) and VoIP Shield (the caller was checked); rejected-call fees,
+    TFN purchases, portal fees and other charges; lines rounded by largest
+    remainder so they add up to the cent
+  - carrier costs: the CH-433 statements (build_statement), so Carrier Costs
+    and Company Profit always agree
+  - what-if: every answered forwarded call at the price list, each call
+    rounded up to the minute as customers are billed, against the carrier
+    minutes and fixed fees of the period
+  - by customer: charges against what its own traffic cost (minutes on its
+    TFNs, its TFN fees, termination of its calls)
+  - price vs cost per minute: each code's rate + termination against the
+    price list
+carrier_statement.build_statement() now also returns per-workspace costs
+(not sent by the statement endpoint).
+
+Tests: phone_numbers.test_company_profit (7). Full suite 854 OK.
+docs/api-paths.txt regenerated. Goes with the CH-433 restart.

@@ -123,6 +123,15 @@ def carrier_statement(request: HttpRequest, start: Optional[str] = None, end: Op
     """The carriers' statements for `start`..`end` (Eastern days, default today)."""
     require_owner(request)
     first, last, lo, hi = _period(start, end)
+    out = build_statement(first, last, lo, hi)
+    out.pop('per_org')
+    return 200, out
+
+
+def build_statement(first: date, last: date, lo: datetime, hi: datetime) -> dict:
+    """The statements as a dict. `per_org` (not sent by the statement
+    endpoint) is what each workspace's own traffic cost: the minutes on its
+    TFNs, its TFN fees and the termination of its forwarded calls (CH-434)."""
     months = _months(first, last)
     month_share = sum((Decimal(days) / Decimal(n) for _, _, days, n in months), ZERO)
     month_lo = _at(months[0][0])
@@ -174,6 +183,7 @@ def carrier_statement(request: HttpRequest, start: Optional[str] = None, end: Op
         (by_carrier.setdefault(n.carrier_id, []) if n.carrier_id else unassigned).append((n, share))
 
     companies = {}
+    per_org = {}
 
     def company(name):
         key = _word(name).lower()
@@ -200,6 +210,10 @@ def carrier_statement(request: HttpRequest, start: Optional[str] = None, end: Op
             deleted += gone
             live += not gone
             s = stats_of(n)
+            n_billed = s['tcl'] if inc <= 1 else s.get(f'b{inc}', s['tcl'])
+            o = per_org.setdefault(n.organization_id, {'minutes_cost': ZERO, 'tfn_fees': ZERO, 'termination': ZERO})
+            o['tfn_fees'] += fee
+            o['minutes_cost'] += Decimal(n_billed) / Decimal(60) * c.per_minute_cost
             calls += s['calls']
             connected += s['connected']
             tcl += s['tcl']
@@ -259,6 +273,12 @@ def carrier_statement(request: HttpRequest, start: Optional[str] = None, end: Op
     rate = _routing_rate()
     r = _routing_window(lo, hi, rate.billing_increment)
     r_minutes = (Decimal(r['billed']) / Decimal(60)).quantize(CENT)
+    for row in (
+        CallLog.objects.filter(created_at__gte=lo, created_at__lt=hi).exclude(destination_number='')
+        .values('organization_id').annotate(b=_billed(rate.billing_increment, FORWARDED_CONNECTED))
+    ):
+        o = per_org.setdefault(row['organization_id'], {'minutes_cost': ZERO, 'tfn_fees': ZERO, 'termination': ZERO})
+        o['termination'] += Decimal(row['b']) / Decimal(60) * rate.per_minute_cost
     g = company(rate.name or 'Termination')
     g['termination'] = {
         'kind': 'termination',
@@ -329,7 +349,8 @@ def carrier_statement(request: HttpRequest, start: Optional[str] = None, end: Op
     if unassigned:
         warnings.append({'kind': 'no_carrier', 'numbers': len(unassigned), 'calls': un_calls})
 
-    return 200, {
+    return {
+        'per_org': per_org,
         'start': first.isoformat(),
         'end': last.isoformat(),
         'days': (last - first).days + 1,
