@@ -256,6 +256,161 @@ def apply_many(user, group_ids, action, items, priority=None, weight=None, **bil
     return out
 
 
+def set_line(user, group, number, campaigns, buyer_id=None, **billing):
+    """CH-415 (Sir's Campaign Group design): one destination in a group, in
+    exactly the campaigns marked included, each with its own priority and
+    weight. Campaigns not listed are left as they are.
+
+    `campaigns` is [{campaign_id, included, priority?, weight?}]. Included and
+    missing -> added (Rate and Convert ON given, else copied from the line's
+    row in another campaign of the group); included and there -> its priority
+    / weight set; not included and there -> removed. One transaction: all of
+    it, or (on any refusal) none of it."""
+    from routing.models import RuleDestination
+    key = digits_key(number)
+    if len(key) != 10:
+        raise ValueError('A destination number needs 10 digits')
+    members = {str(c.id): c for c in _members([group])}
+    wanted, seen = [], set()
+    for item in campaigns or []:
+        cid = str((item or {}).get('campaign_id') or '')
+        c = members.get(cid)
+        if c is None:
+            raise ValueError('Campaign not in this group')
+        if cid in seen:
+            raise ValueError(f'{c.name} is listed twice')
+        seen.add(cid)
+        fields = {}
+        if item.get('priority') not in (None, ''):
+            fields['priority'] = _int(item['priority'], 'Priority', 1, 999)
+        if item.get('weight') not in (None, ''):
+            fields['weight'] = _int(item['weight'], 'Weight', 0, 1000)
+        wanted.append((c, bool(item.get('included')), fields))
+    if not wanted:
+        raise ValueError('Pick at least one campaign')
+
+    # The line as it is now in the group: its buyer and its billing, for the
+    # campaigns it is added to.
+    existing = []
+    for c in members.values():
+        rule = campaign_rule(c)
+        if rule:
+            existing += [d for d in rule.destinations.select_related('buyer').all() if digits_key(d.destination) == key]
+    given = _billing(billing, required=False)
+    buyer = None
+    if buyer_id:
+        from buyers.models import Buyer
+        buyer = Buyer.objects.filter(id=buyer_id, organization=user.organization).first()
+        if buyer is None:
+            raise ValueError('Buyer not found')
+    elif existing:
+        buyer = next((d.buyer for d in existing if d.buyer_id), None)
+    else:
+        from buyers.destination import Destination
+        d = (Destination.objects.filter(organization=user.organization).exclude(buyer=None)
+             .select_related('buyer').order_by('-enabled', 'created_at'))
+        d = next((x for x in d if digits_key(x.tfn) == key), None)
+        buyer = d.buyer if d else None
+    model = existing[0] if existing else None
+    adds = {}
+    if any(inc for _, inc, _ in wanted):
+        if model is not None:
+            adds_billing = {'revenue': model.revenue, 'convert_on': model.convert_on,
+                            'convert_seconds': model.convert_seconds}
+            adds_billing.update(given)
+        else:
+            adds_billing = _billing(billing, required=True)
+        adds = adds_billing
+
+    results = []
+    _via_group([group.name])
+    with transaction.atomic():
+        for c, included, fields in wanted:
+            rule = campaign_rule(c, create=included, user=user)
+            rows = [d for d in (rule.destinations.all() if rule else []) if digits_key(d.destination) == key]
+            note = ' · also in an advanced routing plan (left as is)' if _in_other_rules(c, rule, key) else ''
+            row = {'campaign_id': str(c.id), 'campaign_name': c.name, 'group': group.name}
+            if included and not rows:
+                new = RuleDestination(rule=rule, destination_type=RuleDestination.DestinationType.PHONE,
+                                      destination=to_e164(number), buyer=buyer,
+                                      priority=fields.get('priority', 1), weight=fields.get('weight', 100))
+                for f, v in adds.items():
+                    setattr(new, f, v)
+                new.save()
+                results.append({**row, 'result': 'added', 'detail': f'priority {new.priority} · weight {new.weight}' + note})
+            elif included:
+                changes = []
+                for d in rows:
+                    for f, v in fields.items():
+                        old = getattr(d, f)
+                        if old != v:
+                            changes.append(f'{f} {old}→{v}')
+                            setattr(d, f, v)
+                    for f, v in given.items():
+                        old = getattr(d, f)
+                        if old != v:
+                            changes.append(f'{f.replace("_", " ")} {old}→{v}')
+                            setattr(d, f, v)
+                    d.save()
+                results.append({**row, 'result': 'changed' if changes else 'unchanged',
+                                'detail': (', '.join(dict.fromkeys(changes)) or 'already set') + note})
+            elif rows:
+                for d in rows:
+                    d.delete()
+                results.append({**row, 'result': 'removed', 'detail': note.lstrip(' ·')})
+            else:
+                results.append({**row, 'result': 'unchanged', 'detail': 'not in this campaign' + note})
+    changed = sum(1 for r in results if r['result'] != 'unchanged')
+    added = [r['campaign_name'] for r in results if r['result'] == 'added']
+    removed = [r['campaign_name'] for r in results if r['result'] == 'removed']
+    edited = [r['campaign_name'] for r in results if r['result'] == 'changed']
+    parts = ([f'added in {", ".join(added)}'] if added else []) + \
+            ([f'removed from {", ".join(removed)}'] if removed else []) + \
+            ([f'changed in {", ".join(edited)}'] if edited else [])
+    if parts:
+        _log_text(user, group, f'destination {to_e164(number)} ' + '; '.join(parts))
+    return {'action': 'set', 'number': to_e164(number), 'groups': [group.name],
+            'results': results, 'changed': changed, 'campaigns': len(wanted)}
+
+
+def history(group, limit=100):
+    """CH-415: the group's Change history tab - the activity lines written for
+    it (destinations added, removed or changed through it, campaigns moved in
+    or out), newest first."""
+    from accounts.models import ActivityLog
+    qs = (ActivityLog.objects.filter(metadata__target_type='campaign_group', metadata__target_id=str(group.id))
+          .select_related('user').order_by('-created_at')[:limit])
+    out = []
+    for a in qs:
+        m = a.metadata or {}
+        text = m.get('group_action') or ''
+        changes = m.get('changes') or {}
+        if not text and 'campaigns' in changes:
+            ch = changes['campaigns'] or {}
+            text = f'campaigns: {ch.get("old", "")} → {ch.get("new", "")}'
+        elif changes and 'campaigns' not in changes:
+            shown = ', '.join(f'{k.replace("_", " ")} {v.get("new", "")}' for k, v in changes.items()
+                              if isinstance(v, dict))
+            if shown:
+                text = f'{text} ({shown})' if text else shown
+        u = a.user
+        out.append({'id': str(a.id), 'at': a.created_at.isoformat(),
+                    'by': (u.get_full_name() or u.email or u.username) if u else '',
+                    'text': text})
+    return out
+
+
+def _log_text(user, group, text):
+    from accounts.models import ActivityLog
+    try:
+        ActivityLog.objects.create(
+            user=user, action=ActivityLog.Action.RECORD_UPDATED,
+            metadata={'target_type': 'campaign_group', 'target_id': str(group.id), 'target_name': group.name,
+                      'group_action': text, 'changes': {}})
+    except Exception:  # noqa: BLE001 - the log line never costs the change
+        pass
+
+
 def _in_other_rules(campaign, rule, key) -> bool:
     from routing.models import RuleDestination
     qs = RuleDestination.objects.filter(rule__campaign=campaign)

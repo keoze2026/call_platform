@@ -7,6 +7,9 @@
     GET    /api/campaign-groups/{id}/destinations   every destination across it
     POST   /api/campaign-groups/apply            one change, every campaign of the groups
                                                  (numbers: [...] for several destinations, CH-353)
+    POST   /api/campaign-groups/{id}/line        one destination: which campaigns, and each one's
+                                                 priority / weight (CH-415)
+    GET    /api/campaign-groups/{id}/history     the group's change history (CH-415)
 """
 from typing import List, Optional
 
@@ -53,6 +56,22 @@ class ApplyIn(Schema):
     buyer_id: Optional[str] = None
     priority: Optional[int] = None
     weight: Optional[int] = None
+    revenue: Optional[float] = None
+    convert_on: Optional[str] = None
+    convert_seconds: Optional[int] = None
+
+
+class LineCampaign(Schema):
+    campaign_id: str
+    included: bool
+    priority: Optional[int] = None
+    weight: Optional[int] = None
+
+
+class LineIn(Schema):
+    number: str
+    buyer_id: Optional[str] = None
+    campaigns: List[LineCampaign]
     revenue: Optional[float] = None
     convert_on: Optional[str] = None
     convert_seconds: Optional[int] = None
@@ -157,3 +176,25 @@ def group_destinations(request: HttpRequest, group_id: str):
     _staff(request.auth, 'call-flows', 'view')
     g = _get(request.auth, group_id)
     return 200, {'group': G.format_group(g), 'items': G.group_destinations(g)}
+
+
+@router.post("/{group_id}/line", response={200: dict, 400: dict})
+def set_line(request: HttpRequest, group_id: str, data: LineIn):
+    """CH-415: one destination in the group - in exactly these campaigns, each
+    with its own priority and weight. All or nothing."""
+    removing = any(not c.included for c in data.campaigns)
+    _staff(request.auth, 'call-flows', 'delete' if removing else 'edit')
+    require(request.auth, Capability.EDIT)
+    g = _get(request.auth, group_id)
+    try:
+        return 200, G.set_line(request.auth, g, data.number, [c.dict() for c in data.campaigns],
+                               buyer_id=data.buyer_id, revenue=data.revenue,
+                               convert_on=data.convert_on, convert_seconds=data.convert_seconds)
+    except ValueError as e:
+        return 400, {'detail': str(e)}
+
+
+@router.get("/{group_id}/history", response={200: dict})
+def group_history(request: HttpRequest, group_id: str):
+    _staff(request.auth)
+    return 200, {'items': G.history(_get(request.auth, group_id))}

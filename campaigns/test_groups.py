@@ -188,3 +188,66 @@ class BulkDestinationTests(CampaignGroupTests.__base__):
             'group_ids': [a], 'action': 'remove',
             'numbers': [{'number': '8005550100'}, {'number': '+1 800 555 0100'}]})
         self.assertEqual(r.status_code, 400)
+
+
+@override_settings(ALLOWED_HOSTS=['*'])
+class GroupLineTests(CampaignGroupTests.__base__):
+    """CH-415: one destination, per campaign - Sir's Campaign Group design."""
+    setUp = CampaignGroupTests.setUp
+    post = CampaignGroupTests.post
+    make_group = CampaignGroupTests.make_group
+    rows = CampaignGroupTests.rows
+
+    def test_in_some_campaigns_each_with_its_own_priority(self):
+        a = self.make_group('Group A', self.camps[:4])          # C-01..C-03 have it, C-04 has no rule
+        body = {'number': '+18005550100', 'campaigns': [
+            {'campaign_id': str(self.camps[0].id), 'included': True, 'priority': 1},
+            {'campaign_id': str(self.camps[1].id), 'included': True, 'priority': 10, 'weight': 50},
+            {'campaign_id': str(self.camps[2].id), 'included': False},
+            {'campaign_id': str(self.camps[3].id), 'included': True, 'priority': 3}]}
+        r = self.post(f'/api/campaign-groups/{a}/line', body)
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([d.priority for d in self.rows(self.camps[0])], [1])
+        self.assertEqual([(d.priority, d.weight) for d in self.rows(self.camps[1])], [(10, 50)])
+        self.assertEqual(self.rows(self.camps[2]), [])
+        added = self.rows(self.camps[3])
+        self.assertEqual([d.priority for d in added], [3])
+        self.assertEqual(added[0].buyer_id, self.buyer.id)                 # same buyer as the line
+        results = {x['campaign_name']: x['result'] for x in r.json()['results']}
+        self.assertEqual(results, {'C-01': 'changed', 'C-02': 'changed', 'C-03': 'removed', 'C-04': 'added'})
+
+    def test_campaigns_not_listed_are_left_alone(self):
+        a = self.make_group('Group A', self.camps[:3])
+        r = self.post(f'/api/campaign-groups/{a}/line', {'number': '8005550100', 'campaigns': [
+            {'campaign_id': str(self.camps[0].id), 'included': True, 'priority': 7}]})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([d.priority for d in self.rows(self.camps[1])], [2])
+
+    def test_a_new_line_needs_its_rate_and_nothing_changes_without(self):
+        a = self.make_group('Group A', self.camps[:2])
+        body = {'number': '8005559999', 'campaigns': [
+            {'campaign_id': str(self.camps[0].id), 'included': True},
+            {'campaign_id': str(self.camps[1].id), 'included': True}]}
+        r = self.post(f'/api/campaign-groups/{a}/line', body)
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.rows(self.camps[0], '8005559999'), [])
+        r = self.post(f'/api/campaign-groups/{a}/line', {**body, 'revenue': 12, 'convert_on': 'connected'})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(len(self.rows(self.camps[1], '8005559999')), 1)
+
+    def test_a_campaign_outside_the_group_is_refused_and_nothing_changes(self):
+        a = self.make_group('Group A', self.camps[:2])
+        r = self.post(f'/api/campaign-groups/{a}/line', {'number': '8005550100', 'campaigns': [
+            {'campaign_id': str(self.camps[0].id), 'included': True, 'priority': 9},
+            {'campaign_id': str(self.camps[5].id), 'included': True}]})
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual([d.priority for d in self.rows(self.camps[0])], [2])
+
+    def test_history_lists_what_was_done_through_the_group(self):
+        a = self.make_group('Group A', self.camps[:2])
+        self.post(f'/api/campaign-groups/{a}/line', {'number': '8005550100', 'campaigns': [
+            {'campaign_id': str(self.camps[1].id), 'included': False}]})
+        r = self.c.get(f'/api/campaign-groups/{a}/history')
+        self.assertEqual(r.status_code, 200, r.content)
+        texts = [x['text'] for x in r.json()['items']]
+        self.assertTrue(any('removed from C-02' in t for t in texts), texts)
