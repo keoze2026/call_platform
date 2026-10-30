@@ -8117,3 +8117,26 @@ pays); per row the buyer's daily / monthly cap and how far into it (on the
 buyer's own day, as routing checks), and its live TFNs with their daily caps.
 
 Tests: buyers.test_buyer_list_counts. Full suite 830 OK. Needs the web restart.
+
+## CH-408 - Campaign summary: unique callers
+
+Sir's campaign page design shows Unique Callers. The campaign summary now
+counts each caller once for the day (analytics/services.py).
+
+Tests: analytics.test_unique_callers. Needs the web restart. Portal CH-408
+goes with it.
+
+## CH-415 - Campaign Groups: one destination per campaign, and Change history
+
+Sir's Campaign Group design: a destination in only some of a group's campaigns,
+or at a different priority / weight in each.
+  - POST /api/campaign-groups/{id}/line: one destination, exactly the campaigns
+    marked included, each with its own priority and weight; not included =
+    removed; campaigns not listed are left alone. One transaction: all or
+    nothing. A line added where it is missing keeps the billing it has in the
+    group's other campaigns; a brand-new line needs Rate and Convert ON (CH-248).
+  - GET /api/campaign-groups/{id}/history: the group's activity lines, newest
+    first (destinations added, removed or changed, campaigns moved).
+
+Tests: campaigns.test_groups (GroupLineTests, 5). Needs the web restart.
+Portal CH-415 goes with it.
