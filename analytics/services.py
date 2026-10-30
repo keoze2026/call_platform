@@ -684,7 +684,9 @@ class AnalyticsService:
                     status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS],
                 )), 0.0),
                 spam_blocked=Count('id', filter=Q(is_spam=True)),
-                
+                # CH-408: callers, each once (the campaign page's Unique callers).
+                unique_callers=Count('caller_number', distinct=True),
+
                 # Columns the summary table was deriving client-side. Definitions
                 # agreed with the frontend: connected and not-connected are
                 # complements, so the two always sum to total_calls.
@@ -723,6 +725,24 @@ class AnalyticsService:
             )
         )
 
+        # CH-408: a caller on a live call is a unique caller too, unless he
+        # already called this campaign in the range (then he is counted).
+        # Never at the cost of the report: on any error the live callers are
+        # simply not added.
+        new_live_callers = {}
+        try:
+            live_pairs = set(live_qs.exclude(campaign_id=None).values_list('campaign_id', 'caller_number'))
+            if live_pairs:
+                seen = set(
+                    qs.filter(campaign_id__in={c for c, _ in live_pairs},
+                              caller_number__in={n for _, n in live_pairs})
+                    .values_list('campaign_id', 'caller_number').distinct()
+                )
+                for c, _ in live_pairs - seen:
+                    new_live_callers[c] = new_live_callers.get(c, 0) + 1
+        except Exception:
+            new_live_callers = {}
+
         # One lookup per request, not per row.
         rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
@@ -746,6 +766,7 @@ class AnalyticsService:
                 'total_profit':    r['total_profit'],
                 'avg_duration':    round(r['avg_duration'] or 0, 1),
                 'spam_blocked':    r['spam_blocked'],
+                'unique_callers':  r['unique_callers'] + new_live_callers.pop(cid, 0),
                 'duplicate_calls': r['repeat_answered'],
                 # Aliases: the summary table's DUPE column has been seen reading
                 # each of these spellings.
@@ -781,6 +802,7 @@ class AnalyticsService:
                     'total_profit': Decimal('0'),
                     'avg_duration': 0.0,
                     'spam_blocked': 0,
+                    'unique_callers': new_live_callers.get(cid, 0),
                     'duplicate_calls': 0,
                     'dupe': 0,
                     'duplicates': 0,
