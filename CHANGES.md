@@ -8228,13 +8228,24 @@ carrier_statement.build_statement() now also returns per-workspace costs
 Tests: phone_numbers.test_company_profit (7). Full suite 854 OK.
 docs/api-paths.txt regenerated. Goes with the CH-433 restart.
 
-## CH-449 - Download Reports stays off unless switched on
-**2026-10-31 - Publisher / buyer access**
+## CH-449 - Download Reports: off unless the main account switches it on
 
-Sir, 31 Oct: Download Reports switched off for a publisher "keeps turning
-on"; a publisher or buyer must not download reports unless the main account
-switches it on. On the server the setting stayed off (backend CH-449). On the
-partner's own login, when its settings could not be read the portal fell back
-to defaults with Download Reports ON, so the download could come back. The
-fallback is now OFF, and the settings page's offline list shows it off by
-default too, matching the backend.
+Sir, 31 Oct: "When you uncheck download report option so publisher cannot
+download report - after sometime automatically it goes back to the same -
+check box on". "Publisher or buyer cannot download report unless it's on by
+main account."
+
+Checked first on the server: ADST and 6 other publishers have Download
+Reports stored OFF, and the activity log shows no change turning it back on.
+So the stored setting held. What could still give a partner the download:
+  - accounts/partner_permissions.py: Download Reports defaulted to ON, so a
+    publisher or buyer nobody had set got it;
+  - accounts/partner_settings_api.py: a permissions save filled every toggle
+    it did not name from the defaults, so a save naming other toggles only
+    would switch Download Reports back on.
+Now Download Reports defaults to OFF for publishers and buyers, and a save
+changes only the toggles it sends; the rest keep their stored value. The
+portal side is in portal CH-449.
+
+Tests: accounts.test_download_reports_default (2). Full suite 856 OK.
+No new endpoints. Needs a restart of web to take effect.

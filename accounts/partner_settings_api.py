@@ -139,7 +139,12 @@ def write_settings(request: HttpRequest, kind: str, partner_id: str):
                 'detail': f"Unknown permission(s): {', '.join(unknown)}. "
                           f"Read /api/accounts/partner-permissions for the list."
             }
-        partner.permissions = clean_permissions(incoming)
+        # CH-449: only the toggles sent change. Filling the rest from the
+        # defaults would switch a Download Reports the admin had turned off
+        # back on whenever a save named other toggles only.
+        merged = clean_permissions(partner.permissions)
+        merged.update({k: bool(v) for k, v in incoming.items()})
+        partner.permissions = merged
         fields.append('permissions')
 
     if 'timezone' in body and body['timezone'] is not None:

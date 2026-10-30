@@ -72,7 +72,9 @@ PERMISSIONS = [
         'key': DOWNLOAD_REPORTS,
         'label': 'Download Reports',
         'description': 'Users can download reports about their call activity.',
-        'default': True,
+        # CH-449 (Sir, 31 Oct): "Publisher or buyer cannot download report
+        # unless it's on by main account". Off until the admin switches it on.
+        'default': False,
     },
     {
         'key': TFN_TEST,

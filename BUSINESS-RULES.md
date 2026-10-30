@@ -7,7 +7,7 @@ repository, and the portal's CHANGES.md for the screen side).
 **When Sir gives a new rule, add it here in the same change that builds it.**
 A rule that is waiting for his OK goes under "Waiting for Sir", not above.
 
-Last updated: 28 Oct 2026.
+Last updated: 31 Oct 2026.
 
 ---
 
@@ -150,6 +150,9 @@ Last updated: 28 Oct 2026.
   Publishers can test **only their own** TFNs, when "TFN Test Calls" is on in
   their Publisher Access (CH-240).
 - Do not show customers or partners internal codes or carrier details.
+- **Download Reports:** a publisher or buyer can download reports **only when
+  the main account switches it on** in their access settings; off by default,
+  and it stays off until switched on (CH-449).
 
 ---
 
