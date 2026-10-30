@@ -40,7 +40,11 @@ def list_publishers(request: HttpRequest, page: int = 1, page_size: int = 50):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'view')
     from config.pagination import paginate_list
-    publishers = PublisherService.list_publishers(request.auth)
+    publishers = list(PublisherService.list_publishers(request.auth))
+    # CH-423 (Sir's Publishers design): each row's calls, counted as the
+    # Reports page counts them (publishers/usage.py), and the page's totals.
+    from .usage import publisher_usage, publishers_summary
+    usage = publisher_usage(request.auth.organization, [p.id for p in publishers])
     data = [
         {
             'id': str(p.id),
@@ -50,10 +54,15 @@ def list_publishers(request: HttpRequest, page: int = 1, page_size: int = 50):
             'payout_amount': str(p.payout_amount),
             'unique_id': p.unique_id,
             'created_at': p.created_at.isoformat(),
+            **usage.get(str(p.id), {}),
         }
         for p in publishers
     ]
-    return 200, paginate_list(data, page, page_size)
+    out = paginate_list(data, page, page_size)
+    # A publisher login sees only itself; the workspace totals are the team's.
+    if getattr(request.auth, 'role', '') != 'publisher':
+        out['summary'] = publishers_summary(request.auth.organization)
+    return 200, out
 
 
 @router.get("/{publisher_id}", response={200: PublisherOutSchema, 404: dict})

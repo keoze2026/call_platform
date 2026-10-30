@@ -8153,3 +8153,19 @@ docs/api-paths.txt.
 
 Full suite 836 OK, migrations check and secrets check pass. No restart needed
 for this on its own; it goes with the CH-415 restart.
+
+## CH-423 - Publishers list: real calls per publisher, page totals
+
+Sir's Publishers design shows each publisher's calls (hourly, daily with the
+connection rate, monthly, global), its campaigns and TFNs, payable calls today
+with an hourly chart, and pending payouts. The list sent name and status only;
+the page estimated the rest. Now (publishers/usage.py), counted as the Reports
+page counts them:
+  - payable = the Reports "Paid" calls (converted, with a payout)
+  - per publisher: payable last hour / today / month / all time, calls sent and
+    answered today (connection rate), its live TFNs and their campaigns
+  - summary: payable today and per Eastern hour, pending payout transactions
+Today and the month cut at midnight Eastern.
+
+Tests: publishers.test_publisher_list_counts (2). Full suite 838 OK. Needs the
+web restart. Portal CH-423 goes with it.
