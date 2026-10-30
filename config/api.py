@@ -10,6 +10,7 @@ from phone_numbers.api import carriers_router
 from phone_numbers.check_api import router as tfn_check_router, public_router as tfn_check_public_router
 from accounts.owner_api import owner_router
 import phone_numbers.owner_costs  # noqa: F401  (adds the Carrier Costs routes to owner_router)
+import phone_numbers.carrier_statement  # noqa: F401  (CH-433: Carrier Costs statements)
 from routing.api import router as routing_router
 from ivr.api import router as ivr_router
 from rtb.api import router as rtb_router

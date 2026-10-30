@@ -8169,3 +8169,34 @@ Today and the month cut at midnight Eastern.
 
 Tests: publishers.test_publisher_list_counts (2). Full suite 838 OK. Needs the
 web restart. Portal CH-423 goes with it.
+
+## CH-433 - Carrier Costs as statements (Sir's design)
+
+Sir, 30 Oct: Carrier Costs as one statement per carrier, then merged, for
+Today / Yesterday / This week / This month / any dates - "make sure all
+metrics are 100% correct". New owner endpoints (phone_numbers/
+carrier_statement.py):
+  - GET /api/owner/carrier-statement?start&end: each carrier (TFN codes that
+    share the first word of their name, e.g. XOLO = XLR, HYU, XHR; Freedom =
+    KMQ) with per code TFNs (live / deleted), TFN fees, calls, TCL, billed
+    minutes, ACL and minute cost; the termination (routing rate) with the
+    carrier its name starts with; monthly charges; totals; TFN list; warnings
+  - GET /api/owner/carrier-statement/cdrs?start&end: every call with its
+    inbound leg (carrier code, billed seconds, cost) and forwarded leg
+    (termination billed seconds, cost), for checking an invoice
+How the figures are counted:
+  - a TFN counts in a month when it was live at any moment from the 1st to the
+    end of the period (a TFN deleted on the 14th is still billed for that
+    month); the period carries its share of the month (1 day of October =
+    1/31, all of October = 31/31); the TFN's own price, else the carrier's
+  - minutes = connected seconds with each call rounded the way the carrier
+    bills (exact, 6, 30 or 60 s) / 60; minute cost = minutes x rate
+  - calls counted once per caller call as the reports do; hidden retries'
+    seconds are still billed; ACL = TCL / connected calls
+  - monthly charges (portal fee, termination fee) by the period's share
+  - money lines rounded to the cent; totals add those lines up
+The existing /carrier-costs, /company-profit, /expenses and /routing-cost
+endpoints are unchanged.
+
+Tests: phone_numbers.test_carrier_statement (9). docs/api-paths.txt
+regenerated. Needs the web restart; portal CH-433 goes with it.
