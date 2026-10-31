@@ -16,9 +16,8 @@ logger = logging.getLogger(__name__)
 
 
 def cooldown_minutes() -> int:
-    """CH-456 (Sir, 31 Oct): after a visit ends, its number rests this long
-    before another visitor is shown it, so a late call is not credited to the
-    wrong visitor."""
+    """CH-456's server-wide cool-down; since CH-460 each pool has its own
+    (DNIPool.cooldown_seconds). Kept for anything still asking."""
     return int(getattr(settings, 'DNI_COOLDOWN_MINUTES', 10))
 
 
@@ -70,7 +69,7 @@ class DNIService:
             campaign=campaign,
             name=data.name,
             description=data.description or '',
-            session_duration_minutes=data.session_duration_minutes or 30,
+            session_duration_minutes=data.session_duration_minutes or 5,
             fallback_number=data.fallback_number or '',
             allowed_domains=data.allowed_domains or [],
             replacement_number=getattr(data, 'replacement_number', '') or '',
@@ -83,11 +82,32 @@ class DNIService:
         idle = getattr(data, 'idle_time_sec', None)
         if idle:
             pool.session_duration_minutes = max(1, math.ceil(idle / 60))
-            pool.save(update_fields=['session_duration_minutes'])
+        DNIService._apply_design_fields(pool, data)
+        pool.save()
         ids = getattr(data, 'attached_number_ids', None)
         if ids:
             DNIService.sync_numbers(pool, ids, user)
+        for lander in getattr(data, 'landers', None) or []:
+            DNIService.add_lander(pool, lander.get('url', ''), swap=lander.get('swap'), found=lander.get('found'))
         return pool
+
+    @staticmethod
+    def _apply_design_fields(pool: DNIPool, data):
+        """CH-460: country, cool-down, closed-browser delay, captured URL
+        parameters and the spam rules (when sent)."""
+        from dni.protection import clean_rules
+        if getattr(data, 'country', None):
+            pool.country = str(data.country).strip().upper()[:2]
+        if getattr(data, 'cooldown_seconds', None) is not None:
+            pool.cooldown_seconds = max(0, min(int(data.cooldown_seconds), 3600))
+        if getattr(data, 'closed_browser_delay_seconds', None) is not None:
+            pool.closed_browser_delay_seconds = max(0, min(int(data.closed_browser_delay_seconds), 3600))
+        if getattr(data, 'closed_browser_delay_sec', None) is not None:
+            pool.closed_browser_delay_seconds = max(0, min(int(data.closed_browser_delay_sec), 3600))
+        if getattr(data, 'capture_params', None) is not None:
+            pool.capture_params = [str(k).strip()[:40] for k in data.capture_params if str(k).strip()][:20]
+        if getattr(data, 'protection', None) is not None:
+            pool.protection = {**(pool.protection or {}), **clean_rules(data.protection)}
 
     @staticmethod
     def get_pool(pool_id: str, user: User) -> DNIPool:
@@ -140,6 +160,7 @@ class DNIService:
             else:
                 pool.campaign = None
 
+        DNIService._apply_design_fields(pool, data)
         pool.save()
         if getattr(data, 'attached_number_ids', None) is not None:
             DNIService.sync_numbers(pool, data.attached_number_ids, user)
@@ -217,102 +238,29 @@ class DNIService:
     # ── Number assignment (called by JS snippet) ──────────────────────────────
 
     @staticmethod
-    @transaction.atomic
     def assign_number(data, ip_address: str = '', user_agent: str = '', origin: str = '') -> dict:
-        """
-        Core DNI logic — assigns a free number from the pool to this visitor.
-        If visitor already has an active session, returns same number.
-        If pool is exhausted, returns fallback number.
-        """
-        # First expire any stale sessions
+        """The first snippet's POST /api/dni/assign, kept working: the same
+        logic as /api/dni/v1/number (dni/visitor.py)."""
+        from dni.visitor import give_number
         DNIService.expire_sessions()
-
         try:
-            pool = DNIPool.objects.select_for_update().get(
-                id=data.pool_id,
-                status=DNIPool.Status.ACTIVE
-            )
-        except DNIPool.DoesNotExist:
+            pool = DNIPool.objects.get(id=data.pool_id, status=DNIPool.Status.ACTIVE)
+        except (DNIPool.DoesNotExist, ValueError, Exception):
             raise ValueError("Pool not found or inactive")
-        # CH-456: only the pool's own websites, when it lists any.
         if origin and not _host_allowed(origin, pool.allowed_domains):
             raise PermissionError("This website is not allowed for this pool")
-
-        # Check if visitor already has an active session
-        existing = DNISession.objects.filter(
-            pool=pool,
-            visitor_id=data.visitor_id,
-            status=DNISession.Status.ACTIVE,
-            expires_at__gt=timezone.now()
-        ).first()
-
-        if existing:
-            # Extend session and return same number
-            existing.expires_at = timezone.now() + timedelta(
-                minutes=pool.session_duration_minutes
-            )
-            existing.save(update_fields=['expires_at', 'updated_at'])
-            return {
-                'phone_number': existing.assigned_number,
-                'session_id':   str(existing.id),
-                'expires_at':   existing.expires_at.isoformat(),
-            }
-
-        # Find an available number
-        # CH-456: a number that has just finished a visit rests for the
-        # cool-down, and the free number used longest ago goes first, so the
-        # calls spread over the pool.
-        available = (
-            DNINumber.objects.select_for_update().filter(pool=pool, status=DNINumber.Status.AVAILABLE)
-            .exclude(id__in=cooling_number_ids(pool))
-            .annotate(last_used=Max('sessions__created_at'))
-            .order_by(models_nulls_first('last_used'), 'created_at')
-            .first()
-        )
-
-        if not available:
-            # Pool exhausted — return fallback. Counted, so the pool page can
-            # say the pool is too small (CH-456).
-            _count_fallback(pool)
-            fallback = pool.fallback_number or ''
-            return {
-                'phone_number': fallback,
-                'session_id':   '',
-                'expires_at':   '',
-            }
-
-        # Mark number as in use
-        available.status = DNINumber.Status.IN_USE
-        available.save(update_fields=['status'])
-
-        # Create session
-        expires_at = timezone.now() + timedelta(minutes=pool.session_duration_minutes)
-
-        session = DNISession.objects.create(
-            pool=pool,
-            dni_number=available,
-            visitor_id=data.visitor_id,
-            ip_address=ip_address or None,
-            user_agent=user_agent,
-            utm_source=data.utm_source or '',
-            utm_medium=data.utm_medium or '',
-            utm_campaign=data.utm_campaign or '',
-            utm_term=data.utm_term or '',
-            utm_content=data.utm_content or '',
-            gclid=data.gclid or '',
-            fbclid=data.fbclid or '',
-            referrer=data.referrer or '',
-            landing_page=data.landing_page or '',
-            assigned_number=available.number,
-            status=DNISession.Status.ACTIVE,
-            expires_at=expires_at,
-        )
-
-        return {
-            'phone_number': available.number,
-            'session_id':   str(session.id),
-            'expires_at':   expires_at.isoformat(),
-        }
+        fields = {k: (getattr(data, k, '') or '')[:255] for k in
+                  ('utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'gclid', 'fbclid')}
+        fields['referrer'] = (getattr(data, 'referrer', '') or '')[:200]
+        fields['landing_page'] = (getattr(data, 'landing_page', '') or '')[:200]
+        out = give_number(pool, data.visitor_id, fields=fields, ip=ip_address, user_agent=user_agent,
+                          origin=origin, page_url=fields['landing_page'])
+        shown = pool.fallback_number if out['fallback'] else ('+1' + out['number'] if len(out['number']) == 10 else out['number'])
+        if not out['fallback']:
+            from dni.models import DNISession as _S
+            s = _S.objects.filter(id=out['session_id']).first()
+            shown = s.assigned_number if s else shown
+        return {'phone_number': shown, 'session_id': out['session_id'], 'expires_at': out['expires_at']}
 
     @staticmethod
     def release_number(assigned_number: str):
@@ -373,26 +321,61 @@ class DNIService:
         return DNISession.objects.filter(pool=pool).order_by('-created_at')[:100]
 
     @staticmethod
-    def format_pool(pool: DNIPool) -> dict:
-        numbers = list(pool.numbers.all())
+    def format_pool(pool: DNIPool, detail: bool = True) -> dict:
+        """Everything the pool list and the pool page show (CH-460)."""
+        from dni.models import DNICall
+        from dni.protection import blocked_counts, rules
+        from dni.visitor import display, impressions_today, swap_list
+
+        now = timezone.now()
+        day_start = timezone.localtime(now).replace(hour=0, minute=0, second=0, microsecond=0)
+        numbers = list(pool.numbers.all().order_by('number'))
         total = len(numbers)
-        cooling_ids = cooling_number_ids(pool)
-        in_use = sum(1 for n in numbers if n.status == DNINumber.Status.IN_USE)
-        cooling = sum(1 for n in numbers if n.status == DNINumber.Status.AVAILABLE and n.id in cooling_ids)
-        free = sum(1 for n in numbers if n.status == DNINumber.Status.AVAILABLE and n.id not in cooling_ids)
+        cooling = cooling_number_ids(pool, now)
+
+        def state(n):
+            if n.status == DNINumber.Status.QUARANTINED:
+                return 'quarantined'
+            if n.status == DNINumber.Status.IN_USE:
+                return 'in_use'
+            return 'cooling' if n.id in cooling else 'available'
+
+        states = {n.id: state(n) for n in numbers}
+        in_use = sum(1 for v in states.values() if v == 'in_use')
+        cool = sum(1 for v in states.values() if v == 'cooling')
+        free = sum(1 for v in states.values() if v == 'available')
+        quarantined = sum(1 for v in states.values() if v == 'quarantined')
         peak = peak_visitors(pool)
+        misses = DNISession.objects.filter(pool=pool, overflow=True, created_at__gte=day_start).count()
+        calls = DNICall.objects.filter(pool=pool, started_at__gte=day_start, blocked_reason='')
+        calls_n = calls.count()
+        attributed = calls.filter(session__isnull=False).count()
         try:
             fallback = int(cache.get(_fallback_key(pool.id, timezone.localdate())) or 0)
         except Exception:
             fallback = 0
-        return {
+        if pool.status != DNIPool.Status.ACTIVE:
+            label = 'paused'
+        elif total == 0 or misses > 0 or quarantined > 0 or (total and in_use >= total):
+            label = 'attention'
+        else:
+            label = 'active'
+
+        out = {
             'id':                       str(pool.id),
             'name':                     pool.name,
             'status':                   pool.status,
+            'status_label':             label,
+            'public_key':               pool.public_key or '',
             'description':              pool.description,
             'campaign_id':              str(pool.campaign_id) if pool.campaign_id else None,
             'campaign_name':            pool.campaign.name if pool.campaign else '',
+            'country':                  pool.country,
             'session_duration_minutes': pool.session_duration_minutes,
+            'cooldown_seconds':         pool.cooldown_seconds,
+            'closed_browser_delay_seconds': pool.closed_browser_delay_seconds,
+            'capture_params':           pool.capture_params or [],
+            'protection':               rules(pool),
             'fallback_number':          pool.fallback_number,
             'allowed_domains':          pool.allowed_domains,
             'replacement_number':       pool.replacement_number,
@@ -411,20 +394,189 @@ class DNIService:
             'organization_id':   str(pool.organization_id),
             'created_at':        pool.created_at.isoformat(),
             'updated_at':        pool.updated_at.isoformat(),
-            # CH-456: what the portal reads, and the pool's figures.
+            # CH-456 names the portal reads.
             'active':              pool.status == DNIPool.Status.ACTIVE,
             'number_count':        total,
             'attached_number_ids': [str(n.phone_number_id) for n in numbers if n.phone_number_id],
             'idle_time_sec':       pool.session_duration_minutes * 60,
-            'calls_today':         calls_today(pool, numbers),
+            'closed_browser_delay_sec': pool.closed_browser_delay_seconds,
+            # Every call on the pool's numbers today (call logs, as in CH-456) -
+            # also counts calls from before the pool kept its own call list.
+            'calls_today':         max(calls_n, calls_today(pool, numbers)),
             'numbers_in_use':      in_use,
-            'numbers_cooling':     cooling,
+            'numbers_cooling':     cool,
             'numbers_free':        free,
+            'numbers_quarantined': quarantined,
             'peak_visitors_7d':    peak,
-            'fallback_today':      fallback,
-            'cooldown_minutes':    cooldown_minutes(),
-            'too_small':           total == 0 or peak >= total or fallback > 0,
+            'fallback_today':      max(fallback, misses),
+            'cooldown_minutes':    max(1, round(pool.cooldown_seconds / 60)) if pool.cooldown_seconds else 0,
+            'too_small':           total == 0 or peak >= total or misses > 0,
+            # CH-460: Sir's design figures.
+            'impressions_today':   impressions_today(pool),
+            'misses_today':        misses,
+            'attributed_today':    attributed,
+            'snippet_seen_at':     pool.snippet_seen_at.isoformat() if pool.snippet_seen_at else None,
+            'snippet_seen_host':   pool.snippet_seen_host,
+            'landers_count':       pool.landers.count(),
         }
+        if not detail:
+            return out
+
+        live = {s.dni_number_id: s for s in DNISession.objects.filter(
+            pool=pool, status=DNISession.Status.ACTIVE, expires_at__gt=now, dni_number__isnull=False)}
+        per_number = {}
+        for nid in calls.values_list('number_id', flat=True):
+            per_number[nid] = per_number.get(nid, 0) + 1
+
+        def source(s):
+            if s is None:
+                return ''
+            parts = [p for p in (s.utm_source, s.utm_term or s.utm_campaign) if p]
+            return ' / '.join(parts) or (s.captured or {}).get('sub_id', '') or 'direct'
+
+        out['number_rows'] = [{
+            'id': str(n.id),
+            'number': n.number,
+            'display': display(n.number),
+            'phone_number_id': str(n.phone_number_id) if n.phone_number_id else None,
+            'state': states[n.id],
+            'shown_to': (n.status_reason if states[n.id] == 'quarantined' else source(live.get(n.id))),
+            'held_for_sec': int((now - live[n.id].created_at).total_seconds()) if n.id in live else None,
+            'calls_today': per_number.get(n.id, 0),
+        } for n in numbers]
+
+        by_source = {}
+        for c in calls.select_related('session'):
+            key = source(c.session) if c.session_id else 'Not attributed'
+            by_source[key] = by_source.get(key, 0) + 1
+        out['calls_by_source'] = sorted(({'source': k, 'calls': v} for k, v in by_source.items()),
+                                        key=lambda x: (x['source'] == 'Not attributed', -x['calls']))
+        out['spam'] = blocked_counts(pool, day_start)
+        out['blocked_today'] = DNICall.objects.filter(pool=pool, started_at__gte=day_start).exclude(blocked_reason='').count()
+        out['landers'] = [DNIService.format_lander(l) for l in pool.landers.all()]
+        out['swap_numbers'] = swap_list(pool)
+        return out
+
+    # ── CH-460: numbers in and out of rotation ────────────────────────────────
+
+    @staticmethod
+    def set_number_status(pool_id: str, number_id: str, status: str, reason: str, user: User) -> DNINumber:
+        """Pull a number out of rotation (quarantined) or put it back."""
+        pool = DNIService.get_pool(pool_id, user)
+        n = (DNINumber.objects.filter(pool=pool, id=number_id).first() if _is_uuid(number_id) else None) \
+            or (DNINumber.objects.filter(pool=pool, phone_number_id=number_id).first() if _is_uuid(number_id) else None)
+        if n is None:
+            raise ValueError("Number not found in pool")
+        now = timezone.now()
+        if status == 'quarantined':
+            DNISession.objects.filter(dni_number=n, status=DNISession.Status.ACTIVE).update(
+                status=DNISession.Status.RELEASED, updated_at=now)
+            n.status, n.status_reason = DNINumber.Status.QUARANTINED, (reason or 'Pulled by hand')[:255]
+        elif status in ('available', 'active'):
+            n.status, n.status_reason = DNINumber.Status.AVAILABLE, ''
+        else:
+            raise ValueError("Status must be quarantined or available")
+        n.status_changed_at = now
+        n.save(update_fields=['status', 'status_reason', 'status_changed_at'])
+        return n
+
+    # ── CH-460: landers ───────────────────────────────────────────────────────
+
+    @staticmethod
+    def format_lander(l) -> dict:
+        return {
+            'id': str(l.id), 'url': l.url, 'found': l.found or [], 'swap': l.swap or [],
+            'scan_error': l.scan_error,
+            'last_scanned_at': l.last_scanned_at.isoformat() if l.last_scanned_at else None,
+            'snippet_seen_at': l.snippet_seen_at.isoformat() if l.snippet_seen_at else None,
+        }
+
+    @staticmethod
+    def add_lander(pool: DNIPool, url: str, swap=None, found=None):
+        from dni.models import DNILander
+        from dni.scanner import ScanError, scan
+        from dni.visitor import digits10
+        url = (url or '').strip()
+        if not url:
+            raise ValueError("Enter the landing page address")
+        if not url.lower().startswith(('http://', 'https://')):
+            url = 'https://' + url
+        lander = DNILander(pool=pool, url=url[:1000])
+        if found is None:
+            try:
+                found = scan(url)
+                lander.scan_error = ''
+            except ScanError as e:
+                found, lander.scan_error = [], str(e)[:255]
+            except Exception:
+                found, lander.scan_error = [], 'The page could not be read.'
+            lander.last_scanned_at = timezone.now()
+        else:
+            found = [
+                {'number': digits10(f.get('number', '')), 'display': str(f.get('display', ''))[:20],
+                 'where': str(f.get('where', ''))[:200], 'label': str(f.get('label', ''))[:40]}
+                for f in (found if isinstance(found, list) else [])[:50]
+                if isinstance(f, dict) and len(digits10(str(f.get('number', '')))) == 10
+            ]
+        lander.found = found or []
+        picked = swap if swap is not None else [f['number'] for f in lander.found]
+        lander.swap = sorted({digits10(str(d)) for d in picked if len(digits10(str(d))) == 10})
+        lander.save()
+        return lander
+
+    @staticmethod
+    def rescan_lander(lander):
+        from dni.scanner import ScanError, scan
+        try:
+            lander.found, lander.scan_error = scan(lander.url), ''
+        except ScanError as e:
+            lander.scan_error = str(e)[:255]
+        except Exception:
+            lander.scan_error = 'The page could not be read.'
+        lander.last_scanned_at = timezone.now()
+        if not lander.swap:
+            lander.swap = sorted({f['number'] for f in lander.found})
+        lander.save()
+        return lander
+
+    @staticmethod
+    def get_lander(lander_id: str, user: User):
+        from dni.models import DNILander
+        if not _is_uuid(lander_id):
+            raise ValueError("Lander not found")
+        l = DNILander.objects.select_related('pool').filter(id=lander_id, pool__organization=user.organization).first()
+        if l is None:
+            raise ValueError("Lander not found")
+        return l
+
+    # ── CH-460: calls and complaints ──────────────────────────────────────────
+
+    @staticmethod
+    def list_calls(pool_id: str, user: User, limit: int = 100) -> list:
+        from dni.models import DNICall
+        from dni.visitor import display
+        pool = DNIService.get_pool(pool_id, user)
+        rows = (DNICall.objects.filter(pool=pool).select_related('number', 'session', 'call_log')
+                .order_by('-started_at')[:max(1, min(limit, 500))])
+        out = []
+        for c in rows:
+            s = c.session
+            out.append({
+                'id': c.id,
+                'started_at': c.started_at.isoformat(),
+                'caller': c.caller_id,
+                'number': display(c.number.number) if c.number else display(c.called),
+                'source': (' / '.join(p for p in (s.utm_source, s.utm_term or s.utm_campaign) if p) or 'direct') if s else '',
+                'utm': ({k: getattr(s, k) for k in ('utm_source', 'utm_medium', 'utm_campaign', 'utm_term',
+                                                     'utm_content', 'gclid', 'msclkid', 'fbclid') if getattr(s, k)}
+                        | (s.captured or {})) if s else {},
+                'landing_page': s.landing_page if s else '',
+                'blocked_reason': c.blocked_reason,
+                'duration_sec': c.duration_sec,
+                'call_log_id': str(c.call_log_id) if c.call_log_id else None,
+                'status': c.call_log.status if c.call_log else ('blocked' if c.blocked_reason else ''),
+            })
+        return out
 
 
 def _is_uuid(value) -> bool:
@@ -442,15 +594,10 @@ def models_nulls_first(field: str):
 
 
 def cooling_number_ids(pool: DNIPool, now=None):
-    """Numbers whose last visit ended inside the cool-down (CH-456)."""
-    now = now or timezone.now()
-    cut = now - timedelta(minutes=cooldown_minutes())
-    return set(
-        DNISession.objects.filter(pool=pool, dni_number__isnull=False).filter(
-            Q(status__in=[DNISession.Status.CALLED, DNISession.Status.RELEASED], updated_at__gte=cut)
-            | Q(status=DNISession.Status.EXPIRED, expires_at__gte=cut)
-        ).values_list('dni_number_id', flat=True)
-    )
+    """Numbers whose last visit ended inside the pool's cool-down (CH-460:
+    per pool, Sir's design default 2 minutes)."""
+    from dni.visitor import cooling_ids
+    return cooling_ids(pool, now)
 
 
 def _fallback_key(pool_id, day) -> str:

@@ -12,7 +12,8 @@ class DniConfig(AppConfig):
         from corsheaders.signals import check_request_enabled
 
         def allow_number_pool_script(sender, request, **kwargs):
-            return request.path.rstrip('/') == '/api/dni/assign'
+            path = request.path.rstrip('/')
+            return path == '/api/dni/assign' or path.startswith('/api/dni/v1/')
 
         check_request_enabled.connect(allow_number_pool_script, weak=False,
                                       dispatch_uid='dni_assign_cors')

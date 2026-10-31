@@ -157,7 +157,12 @@ Last updated: 31 Oct 2026.
 - **Number pools:** for **advertisers only** - never publisher or buyer
   logins. After a visit ends its number rests **10 minutes** before another
   visitor is shown it; a pool that runs out shows its fallback number
-  (CH-456).
+  (CH-456). Since CH-460 the rest is set per pool (Sir's design default
+  **2 minutes**; pools made before keep 10), a closed page holds its number
+  **30 seconds**, and each pool's spam rules block a caller **24 hours** for
+  more than **5 calls in 10 minutes** or **3 calls under 4 seconds in 30
+  minutes**, and pull a number getting more than **20 calls a minute** out of
+  rotation (CH-460).
 - **Download Reports:** a publisher or buyer can download reports **only when
   the main account switches it on** in their access settings; off by default,
   and it stays off until switched on (CH-449).

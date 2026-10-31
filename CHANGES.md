@@ -8331,3 +8331,56 @@ Tests: dni.test_pool_features (8). Full suite 872 OK. No migrations, no new
 endpoints. Needs a restart of web and web_calls (the portal side is portal
 CH-456).
 
+
+## CH-460 - Number pools: Sir's full design (script, landers, spam rules, pool page)
+
+Sir, 31 Oct, sent the full number pool design (a Node service, SQL, the
+website script, an Asterisk file, the list page, the 5-step New pool and the
+pool page). Built inside our own system and database instead of a second
+service, so nothing new runs on the server and nothing changes on Asterisk:
+our phone system already reports every call and every hang-up to us
+(routing/asterisk_handler), and the pool rules run there.
+
+  - website script: `<script src="https://<api>/api/dni/avx-dni.js"
+    data-pool="pk_..." async>`. Each pool has a public key (pk_...). The
+    script swaps the pool's numbers on the page (text, tel: links and any
+    class="avx-number"), keeps the number every 60 s while the page is open
+    and says when the page closes. Public calls: GET /api/dni/v1/number,
+    /v1/ping, /v1/release (CORS open to websites on these only; a pool that
+    lists its domains answers only them, others get the fallback number).
+  - handing out numbers (dni/visitor.py): a visitor keeps their number;
+    otherwise the free number used longest ago; not one resting after a
+    visit (cool-down, per pool, default 2 min; pools made before this keep
+    the 10 min of CH-456); none free -> the fallback number, counted as a
+    miss. A closed page holds the number for the closed-browser delay
+    (default 30 s). More than 30 numbers to one IP in 10 min -> fallback.
+    Impressions (numbers asked for) counted per day.
+  - landers: a pool's landing pages are read (dni/scanner.py, public
+    websites only, 6 s, 2 MB) and every phone number listed with where it
+    sits (header, headline, call button, footer...). The ticked numbers are
+    the ones the script swaps. Rescan, edit, remove. Chosen URL parameters
+    (gclid, msclkid, utm_*, sub_id...) are kept with each visit.
+  - spam rules (dni/protection.py), per pool, on calls to pool numbers:
+    the same caller more than 5 times in 10 min -> refused and blocked 24 h;
+    a number getting more than 20 calls a minute -> pulled out of rotation
+    (quarantined) and the attack stays on it; 3 calls under 4 s from one
+    caller in 30 min (silent / no-audio robots) -> blocked 24 h; calls with
+    no caller ID refused when switched on. Blocks go to Blocked Numbers
+    (automatic, with an expiry) on the pool's campaign. Every check lets the
+    call carry on if anything in it goes wrong.
+  - numbers pulled out by hand (complaint) or put back:
+    POST /api/dni/pools/{id}/numbers/{nid}/status. Complaints:
+    /api/dni/complaints.
+  - pool page figures: status (active / attention / paused), in use x of y,
+    impressions, calls attributed, misses, each number's state (in use /
+    available / cooling / quarantined) with who it is shown to, calls today
+    by source, spam blocked, landers, "snippet seen on <site> <time> ago".
+    Calls to pool numbers kept in dni_calls, tied to the visit.
+  - pool settings: country, cool-down, closed-browser delay, captured URL
+    parameters, spam rules; landers can be sent with a new pool.
+Not built: "add 5 numbers at 85%" (it needs automatic TFN buying).
+
+Tests: dni.test_number_pool_design (24); full suite 896 OK. Migration dni 0004 (new columns and
+tables dni_landers, dni_calls, dni_complaints; no data changed except pool
+keys and the cool-down above). Needs migrate, then a restart of web and
+web_calls. The portal side is portal CH-461.

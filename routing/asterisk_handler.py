@@ -235,6 +235,18 @@ def _route_incoming_call(request):
     except Exception:
         logger.exception('blocked caller check failed for %s; routing decides', caller)
 
+    # CH-460: a number-pool number - the pool's spam rules (repeat callers,
+    # call floods, anonymous). Fail-open: any error and the call carries on.
+    pool_ctx = None
+    try:
+        from dni.protection import check_inbound
+        pool_ctx = check_inbound(called, caller)
+    except Exception:
+        logger.exception('number pool check failed for %s; call continues', caller)
+    if pool_ctx is not None and pool_ctx.blocked:
+        logger.warning('number pool refused %s on %s: %s', caller, called, pool_ctx.blocked)
+        return JsonResponse({"action": "hangup", "reason": "number_pool_" + pool_ctx.blocked})
+
     call_sid = asterisk_call_id or f"asterisk-{uuid.uuid4()}"
 
     # Has this caller reached this campaign before, inside its window? Checked
@@ -302,6 +314,14 @@ def _route_incoming_call(request):
             link(call_log, retry_of)
         except Exception:
             logger.exception('could not group %s with its previous try', caller)
+
+    # CH-460: keep the pool call, tied to the website visit it came from.
+    if pool_ctx is not None:
+        try:
+            from dni.protection import record_call
+            record_call(pool_ctx, call_log)
+        except Exception:
+            logger.exception('number pool call not recorded for %s', call_log.id)
 
     # Carrier lookup runs in a worker, not here. It is a blocking HTTP request
     # with a 5s timeout and nothing about routing depends on its result, so
@@ -1080,5 +1100,12 @@ def call_ended(request):
             retire_used_number.delay(call_log.called_number, str(call_log.id))
         except Exception:
             logger.warning('retire_not_queued: call_log=%s', call_log.id)
+
+    # CH-460: a number-pool call - its length, and the silent-caller rule.
+    try:
+        from dni.protection import on_call_end
+        on_call_end(call_log)
+    except Exception:
+        logger.exception('number pool hang-up check failed for %s', call_log.id)
 
     return JsonResponse({"received": True, "call_log_id": str(call_log.id), "converted": converted})

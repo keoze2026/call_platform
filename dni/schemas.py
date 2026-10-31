@@ -9,7 +9,7 @@ class CreateDNIPoolSchema(Schema):
     name:                     str
     campaign_id:              Optional[str] = None
     description:              Optional[str] = ''
-    session_duration_minutes: Optional[int] = 30
+    session_duration_minutes: Optional[int] = None
     fallback_number:          Optional[str] = ''
     allowed_domains:          Optional[List[str]] = []
     rotation_strategy:        Optional[str] = 'round-robin'
@@ -24,6 +24,14 @@ class CreateDNIPoolSchema(Schema):
     traffic_sources_enabled:  Optional[bool] = False
     traffic_sources:          Optional[list] = []
     attached_number_ids:      Optional[List[str]] = None
+    # CH-460: Sir's number pool design.
+    country:                  Optional[str] = None
+    cooldown_seconds:         Optional[int] = None
+    closed_browser_delay_seconds: Optional[int] = None
+    closed_browser_delay_sec: Optional[int] = None
+    capture_params:           Optional[List[str]] = None
+    protection:               Optional[dict] = None
+    landers:                  Optional[List[dict]] = None
 
 
 class UpdateDNIPoolSchema(Schema):
@@ -48,6 +56,13 @@ class UpdateDNIPoolSchema(Schema):
     active:                   Optional[bool] = None
     campaign_id:              Optional[str] = None
     attached_number_ids:      Optional[List[str]] = None
+    # CH-460: Sir's number pool design.
+    country:                  Optional[str] = None
+    cooldown_seconds:         Optional[int] = None
+    closed_browser_delay_seconds: Optional[int] = None
+    closed_browser_delay_sec: Optional[int] = None
+    capture_params:           Optional[List[str]] = None
+    protection:               Optional[dict] = None
 
 
 class AddNumberToPoolSchema(Schema):
@@ -157,3 +172,30 @@ class DNISessionOutSchema(Schema):
 class MessageResponseSchema(Schema):
     message: str
     success: bool = True
+
+
+# ── CH-460 ───────────────────────────────────────────────────────────────────
+
+class NumberStatusSchema(Schema):
+    status: str
+    reason: Optional[str] = ''
+
+
+class LanderInSchema(Schema):
+    url: str
+    swap: Optional[List[str]] = None
+
+
+class LanderUpdateSchema(Schema):
+    swap: List[str]
+
+
+class ScanSchema(Schema):
+    url: str
+
+
+class ComplaintInSchema(Schema):
+    tfn: Optional[str] = ''
+    source: Optional[str] = ''
+    notes: Optional[str] = ''
+

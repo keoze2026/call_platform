@@ -64,20 +64,27 @@ def mark_called(call) -> bool:
 def visit_for_call(call):
     """The website visit this call came from, or None.
 
-    CH-456: a call that comes in during the cool-down after the visit ended
-    still belongs to that visit - nobody else was shown the number then.
+    A call up to the pool's grace time after the visit ended still belongs to
+    that visit (CH-460, Sir's design: 10 minutes) - with the cool-down nobody
+    else was shown the number in between.
     """
     from datetime import timedelta
     from dni.models import DNISession
-    from dni.services import cooldown_minutes
+    from dni.protection import rules
 
     when = call.created_at
     if when is None:
         return None
-    return _sessions_for(call).filter(
-        status__in=[DNISession.Status.ACTIVE, DNISession.Status.CALLED, DNISession.Status.EXPIRED],
-        created_at__lte=when, expires_at__gte=when - timedelta(minutes=cooldown_minutes()),
-    ).first()
+    candidates = _sessions_for(call).filter(
+        status__in=[DNISession.Status.ACTIVE, DNISession.Status.CALLED, DNISession.Status.EXPIRED,
+                    DNISession.Status.RELEASED],
+        created_at__lte=when, overflow=False,
+    )[:5]
+    for s in candidates:
+        grace = timedelta(seconds=rules(s.pool)['call_grace_sec'])
+        if s.expires_at >= when - grace:
+            return s
+    return None
 
 
 def visit_event(call):

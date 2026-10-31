@@ -13,6 +13,9 @@ from .schemas import (
     MessageResponseSchema,
 )
 from .services import DNIService
+from .schemas import (
+    ComplaintInSchema, LanderInSchema, LanderUpdateSchema, NumberStatusSchema, ScanSchema,
+)
 
 router = Router(tags=["DNI"], auth=JWTAuth())
 
@@ -27,7 +30,7 @@ def _advertisers_only(request):
 
 # ── Pools ─────────────────────────────────────────────────────────────────────
 
-@router.post("/pools", response={201: DNIPoolOutSchema, 400: dict})
+@router.post("/pools", response={201: dict, 400: dict})
 def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'edit')
@@ -48,11 +51,11 @@ def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
     _advertisers_only(request)
     from config.pagination import paginate_list
     pools = DNIService.list_pools(request.auth)
-    data = [DNIService.format_pool(p) for p in pools]
+    data = [DNIService.format_pool(p, detail=False) for p in pools]
     return 200, paginate_list(data, page, page_size)
 
 
-@router.get("/pools/{pool_id}", response={200: DNIPoolOutSchema, 404: dict})
+@router.get("/pools/{pool_id}", response={200: dict, 404: dict})
 def get_pool(request: HttpRequest, pool_id: str):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'view')
@@ -64,7 +67,7 @@ def get_pool(request: HttpRequest, pool_id: str):
         return 404, {"detail": str(e)}
 
 
-@router.patch("/pools/{pool_id}", response={200: DNIPoolOutSchema, 400: dict})
+@router.patch("/pools/{pool_id}", response={200: dict, 400: dict})
 def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'edit')
@@ -251,3 +254,193 @@ def _build_snippet(pool_id: str, base_url: str) -> str:
   }}
 }})();
 """.strip()
+
+
+# ── CH-460: Sir's number pool design ─────────────────────────────────────────
+
+@router.post("/pools/{pool_id}/numbers/{number_id}/status", response={200: dict, 400: dict})
+def number_status(request: HttpRequest, pool_id: str, number_id: str, data: NumberStatusSchema):
+    """Pull a number out of rotation (quarantined) or restore it."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
+    try:
+        n = DNIService.set_number_status(pool_id, number_id, data.status, data.reason or '', request.auth)
+        return 200, {'id': str(n.id), 'status': n.status, 'reason': n.status_reason}
+    except ValueError as e:
+        return 400, {"detail": str(e)}
+
+
+@router.post("/scan", response={200: dict, 400: dict})
+def scan_page(request: HttpRequest, data: ScanSchema):
+    """Read a landing page and list its phone numbers (the New pool wizard)."""
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
+    from dni.scanner import ScanError, scan
+    try:
+        return 200, {'url': data.url, 'found': scan(data.url)}
+    except ScanError as e:
+        return 400, {"detail": str(e)}
+
+
+@router.get("/pools/{pool_id}/landers", response={200: list, 404: dict})
+def list_landers(request: HttpRequest, pool_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'view')
+    _advertisers_only(request)
+    try:
+        pool = DNIService.get_pool(pool_id, request.auth)
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+    return 200, [DNIService.format_lander(l) for l in pool.landers.all()]
+
+
+@router.post("/pools/{pool_id}/landers", response={201: dict, 400: dict})
+def add_lander(request: HttpRequest, pool_id: str, data: LanderInSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
+    try:
+        pool = DNIService.get_pool(pool_id, request.auth)
+        return 201, DNIService.format_lander(DNIService.add_lander(pool, data.url, swap=data.swap))
+    except ValueError as e:
+        return 400, {"detail": str(e)}
+
+
+@router.post("/landers/{lander_id}/rescan", response={200: dict, 404: dict})
+def rescan_lander(request: HttpRequest, lander_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
+    try:
+        return 200, DNIService.format_lander(DNIService.rescan_lander(DNIService.get_lander(lander_id, request.auth)))
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+
+
+@router.patch("/landers/{lander_id}", response={200: dict, 404: dict})
+def update_lander(request: HttpRequest, lander_id: str, data: LanderUpdateSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
+    try:
+        l = DNIService.get_lander(lander_id, request.auth)
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+    from dni.visitor import digits10
+    l.swap = sorted({digits10(d) for d in data.swap if len(digits10(d)) == 10})
+    l.save(update_fields=['swap'])
+    return 200, DNIService.format_lander(l)
+
+
+@router.delete("/landers/{lander_id}", response={200: dict, 404: dict})
+def delete_lander(request: HttpRequest, lander_id: str):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'delete')
+    _advertisers_only(request)
+    try:
+        DNIService.get_lander(lander_id, request.auth).delete()
+        return 200, {'deleted': True}
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+
+
+@router.get("/pools/{pool_id}/calls", response={200: list, 404: dict})
+def pool_calls(request: HttpRequest, pool_id: str, limit: int = 100):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'view')
+    _advertisers_only(request)
+    try:
+        return 200, DNIService.list_calls(pool_id, request.auth, limit)
+    except ValueError as e:
+        return 404, {"detail": str(e)}
+
+
+@router.get("/complaints", response={200: list})
+def list_complaints(request: HttpRequest):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'view')
+    _advertisers_only(request)
+    from dni.models import DNIComplaint
+    return 200, [{'id': str(c.id), 'tfn': c.tfn, 'source': c.source, 'notes': c.notes,
+                  'received_at': c.received_at.isoformat()}
+                 for c in DNIComplaint.objects.filter(organization=request.auth.organization)[:200]]
+
+
+@router.post("/complaints", response={201: dict, 400: dict})
+def add_complaint(request: HttpRequest, data: ComplaintInSchema):
+    from accounts.workspace_permissions import require_perm
+    require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
+    from dni.models import DNIComplaint
+    if not (data.source or '').strip():
+        return 400, {"detail": "Say where the complaint came from (carrier, FTC, buyer, caller...)."}
+    from dni.visitor import digits10
+    c = DNIComplaint.objects.create(organization=request.auth.organization, tfn=digits10(data.tfn or ''),
+                                    source=data.source.strip()[:60], notes=(data.notes or '')[:2000])
+    return 201, {'id': str(c.id), 'tfn': c.tfn, 'source': c.source, 'notes': c.notes,
+                 'received_at': c.received_at.isoformat()}
+
+
+# ── CH-460: the website script's public endpoints ────────────────────────────
+
+def _public_pool(key: str):
+    from dni.models import DNIPool
+    if not key or len(key) > 40:
+        return None
+    return DNIPool.objects.filter(public_key=key, status=DNIPool.Status.ACTIVE).first()
+
+
+def _client_ip(request) -> str:
+    return (request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip()
+            or request.META.get('REMOTE_ADDR', ''))
+
+
+@router.get("/v1/number", auth=None, response={200: dict, 400: dict, 404: dict})
+def v1_number(request: HttpRequest, pool: str = '', vid: str = ''):
+    """The visitor's number (see dni/visitor.py)."""
+    from dni.visitor import VID, give_number, visit_fields
+    from dni.services import _host_allowed
+    if not VID.match(vid or ''):
+        return 400, {"error": "bad_request"}
+    p = _public_pool(pool)
+    if p is None:
+        return 404, {"error": "pool_not_found"}
+    DNIService.expire_sessions()
+    params = request.GET
+    origin = request.META.get('HTTP_ORIGIN', '') or params.get('url', '')
+    if origin and not _host_allowed(origin, p.allowed_domains):
+        from dni.visitor import _answer
+        return 200, _answer(p)
+    return 200, give_number(p, vid, fields=visit_fields(p, params), ip=_client_ip(request),
+                            user_agent=request.META.get('HTTP_USER_AGENT', ''),
+                            origin=request.META.get('HTTP_ORIGIN', ''), page_url=params.get('url', ''))
+
+
+@router.get("/v1/ping", auth=None, response={200: dict, 400: dict})
+def v1_ping(request: HttpRequest, pool: str = '', vid: str = ''):
+    from dni.visitor import VID, keep
+    p = _public_pool(pool)
+    if p is None or not VID.match(vid or ''):
+        return 400, {"error": "bad_request"}
+    return 200, keep(p, vid)
+
+
+@router.api_operation(["GET", "POST"], "/v1/release", auth=None, response={200: dict, 400: dict})
+def v1_release(request: HttpRequest, pool: str = '', vid: str = ''):
+    from dni.visitor import VID, let_go
+    p = _public_pool(pool)
+    if p is None or not VID.match(vid or ''):
+        return 400, {"error": "bad_request"}
+    return 200, let_go(p, vid)
+
+
+@router.get("/avx-dni.js", auth=None, response=None)
+def avx_dni_js(request: HttpRequest):
+    """The website script: <script src=".../api/dni/avx-dni.js" data-pool="pk_..." async>"""
+    from dni.script import SCRIPT
+    r = HttpResponse(SCRIPT, content_type='application/javascript')
+    r['Cache-Control'] = 'public, max-age=300'
+    return r
+
