@@ -150,6 +150,10 @@ Last updated: 31 Oct 2026.
   Publishers can test **only their own** TFNs, when "TFN Test Calls" is on in
   their Publisher Access (CH-240).
 - Do not show customers or partners internal codes or carrier details.
+- **TCPA Shield:** when a customer switches it on for campaigns, every caller
+  on those campaigns is checked against the TCPA litigator and do-not-call
+  lists (RealValidito); a **litigator** is blocked on that campaign from their
+  next call, a do-not-call listing is only flagged (CH-451).
 - **Download Reports:** a publisher or buyer can download reports **only when
   the main account switches it on** in their access settings; off by default,
   and it stays off until switched on (CH-449).

@@ -40,7 +40,10 @@ def check_and_record(call_log) -> dict:
     check did not run. Never raises: a compliance flag is worth having and is
     never worth losing the enrichment it travels with.
     """
-    if not getattr(settings, 'DNC_CHECK_ENABLED', False):
+    # CH-451: a customer's TCPA Shield on this call's campaign asks for the
+    # check too, whatever the server-wide switch says.
+    shield = tcpa_shield_on(call_log)
+    if not shield and not getattr(settings, 'DNC_CHECK_ENABLED', False):
         return {}
 
     number = (call_log.caller_number or '').strip()
@@ -49,7 +52,7 @@ def check_and_record(call_log) -> dict:
 
     try:
         from spam_protection.realvalidito import DNCLookup
-        result = DNCLookup.check(number)
+        result = DNCLookup.check(number, force=shield)
     except Exception:
         logger.exception('dnc lookup failed for %s', number)
         return {}
@@ -80,23 +83,68 @@ def check_and_record(call_log) -> dict:
     # in, and that shows up in the flag, not in a block.
     if getattr(settings, 'DNC_BLOCK_LISTED', False):
         _blacklist(call_log, number, reason)
+    elif shield and reason == LITIGATOR:
+        # CH-451: the TCPA Shield blocks known TCPA litigators on the campaigns
+        # it covers, from their next call. A number that is only on a do-not-
+        # call register is flagged, not blocked: the register is about who may
+        # be called, and these callers rang us.
+        _blacklist(call_log, number, reason, campaign=call_log.campaign)
 
     return {'is_dnc': True, 'dnc_reason': reason}
 
 
-def _blacklist(call_log, number, reason):
+LITIGATOR = 'TCPA litigator'
+_TCPA_META = '__tcpa_meta__|'
+
+
+def _meta_active(blocked_carriers) -> bool:
+    """The TCPA Shield page keeps its on/off switch inside a JSON entry in
+    `blocked_carriers` ("__tcpa_meta__|{...}"); no entry means on."""
+    import json
+    for entry in blocked_carriers or []:
+        if isinstance(entry, str) and entry.startswith(_TCPA_META):
+            try:
+                return bool(json.loads(entry[len(_TCPA_META):]).get('active', True))
+            except Exception:
+                return True
+    return True
+
+
+def tcpa_shield_on(call_log) -> bool:
+    """True when one of the workspace's TCPA Shields is switched on and covers
+    this call's campaign (CH-451)."""
+    campaign_id = getattr(call_log, 'campaign_id', None)
+    if not campaign_id:
+        return False
+    try:
+        from spam_protection.models import Shield
+        shields = Shield.objects.filter(
+            organization_id=call_log.organization_id, shield_type='tcpa', is_active=True,
+        ).only('campaign_ids', 'blocked_carriers')
+        for s in shields:
+            if str(campaign_id) in {str(c) for c in (s.campaign_ids or [])} and _meta_active(s.blocked_carriers):
+                return True
+    except Exception:
+        logger.exception('could not read TCPA shields for call %s', getattr(call_log, 'id', ''))
+    return False
+
+
+def _blacklist(call_log, number, reason, campaign=None):
     """Stop the next call from this number, with no external request.
 
     `RoutingEngine.is_blacklisted` reads this table at routing time. Writing
     here means the second call from a listed number is refused locally, which
     is the protection the call path can afford.
+
+    `campaign`: None blocks it workspace-wide (the server-wide DNC setting);
+    a TCPA Shield blocks it on the campaign the call came in on (CH-451).
     """
     from spam_protection.models import Blacklist
 
     try:
         entry, created = Blacklist.objects.get_or_create(
             organization_id=call_log.organization_id,
-            campaign=None,          # org-wide: a litigator is not one campaign's problem
+            campaign=campaign,
             phone_number=number,
             defaults={
                 'reason': Blacklist.Reason.AUTO,
@@ -106,7 +154,8 @@ def _blacklist(call_log, number, reason):
             },
         )
         if created:
-            logger.warning('blacklisted %s org-wide after a DNC hit (%s)', number, reason)
+            logger.warning('blacklisted %s %s after a DNC hit (%s)', number,
+                           'on its campaign' if campaign else 'org-wide', reason)
         elif not entry.is_active:
             # Somebody switched it off. Left alone - a person decided that, and
             # overriding them silently is how a block list stops being trusted.

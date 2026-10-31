@@ -144,16 +144,19 @@ class DNCLookup:
         return getattr(settings, 'REALVALIDITO_DNC_CACHE_DAYS', 7) * 86400
 
     @classmethod
-    def check(cls, number: str) -> dict:
+    def check(cls, number: str, force: bool = False) -> dict:
         """Is this number safe to call?
 
         Returns {'listed': bool, 'reason': str, 'checked': bool}. `checked` is
         False when the lookup could not run, so a caller can tell "we know this
         number is clean" from "we could not find out".
+
+        `force`: run even with DNC_CHECK_ENABLED off - a customer's TCPA Shield
+        on the call's campaign asks for the check (CH-451).
         """
         unknown = {'listed': False, 'reason': '', 'checked': False}
 
-        if not getattr(settings, 'DNC_CHECK_ENABLED', False):
+        if not force and not getattr(settings, 'DNC_CHECK_ENABLED', False):
             return unknown
 
         digits = normalise(number)

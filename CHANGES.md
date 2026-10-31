@@ -8249,3 +8249,23 @@ portal side is in portal CH-449.
 
 Tests: accounts.test_download_reports_default (2). Full suite 856 OK.
 No new endpoints. Needs a restart of web to take effect.
+
+## CH-451 - TCPA Shield switch now runs the litigator check
+
+Sir, 31 Oct: "If any customer activate ... TCPA shield, do we have any
+background software". The TCPA Shield page saved a provider, its campaigns and
+an on/off switch, and nothing read them: the do-not-call / litigator check
+(RealValidito) ran only on the server-wide DNC_CHECK_ENABLED setting.
+
+Now, when a workspace has a TCPA Shield switched on that covers the call's
+campaign (spam_protection/dnc.py tcpa_shield_on - the switch the page keeps
+inside blocked_carriers, plus is_active and campaign_ids), the RealValidito
+check runs for that call even with the server setting off. A TCPA litigator is
+added to that campaign's blocked list, so their next call there is refused at
+routing; a number only on a federal or state do-not-call register is flagged
+on the call, not blocked (these callers rang us). Like the VoIP Shield it runs
+after the call is routed, so a litigator's first call still goes through. It
+uses our RealValidito DNC credits; the provider login the page asks for
+(TCPA Litigator / Blacklist Alliance) is not called.
+
+Tests: spam_protection.test_tcpa_shield (4).
