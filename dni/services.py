@@ -132,7 +132,7 @@ class DNIService:
         If pool is exhausted, returns fallback number.
         """
         # First expire any stale sessions
-        DNIService._expire_sessions()
+        DNIService.expire_sessions()
 
         try:
             pool = DNIPool.objects.select_for_update().get(

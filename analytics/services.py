@@ -877,6 +877,13 @@ class AnalyticsService:
                 'detail': {'carrier': call.carrier or None, 'line_type': call.ipqs_line_type or None},
             })
 
+        # CH-452: the website visit a number-pool call came from, with its ad
+        # source (UTM tags, click ids, referrer, landing page).
+        from dni.attribution import visit_event
+        visit = visit_event(call)
+        if visit:
+            timeline.append(visit)
+
         if call.destination_number:
             timeline.append({
                 'event': 'destination_dialed',

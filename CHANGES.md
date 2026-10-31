@@ -8269,3 +8269,27 @@ uses our RealValidito DNC credits; the provider login the page asks for
 (TCPA Litigator / Blacklist Alliance) is not called.
 
 Tests: spam_protection.test_tcpa_shield (4).
+
+## CH-452 - Number pools: numbers can be handed out again; calls tied to the visit
+
+Sir, 31 Oct: "Also do study how number pool works". Found while testing:
+  - dni/services.py: handing a website visitor a pool number called
+    DNIService._expire_sessions(), which does not exist, so /api/dni/assign
+    failed every time and no visitor ever got a pool number. Now calls
+    expire_sessions().
+  - a call on a pool number was never tied back to the visit: the session was
+    not marked called, the number stayed held for the rest of its 30 minutes,
+    and the call showed no ad source.
+New dni/attribution.py: the caller-lookup worker (tasks.enrich_call_carrier,
+after routing, not on the call path) marks the visit holding the called number
+as called and puts the number back in the pool; the call's activity panel gets
+a "Website Visit" line with the pool and the visit's UTM tags, Google /
+Facebook click id, referrer and landing page. No new columns: the visit is
+found by the number it was given and the time it was valid.
+Still open: the snippet posts from the customer's website, and the API only
+allows the origins in CORS_ALLOWED_ORIGINS, so a customer's own domain must be
+allowed before the snippet works there.
+
+Tests: dni.test_call_attribution (4). Full suite 864 OK. No migrations, no new
+endpoints. Needs a restart of web, web_calls and celery_worker.
+

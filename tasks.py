@@ -543,6 +543,17 @@ def enrich_call_carrier(call_log_id, caller_number):
     fields.update(ipqs_fields)
 
     CallLog.objects.filter(id=call_log_id).update(**fields)
+
+    # CH-452: a call on a number-pool number closes the website visit that
+    # number was handed to, so the number goes back to the pool at once and
+    # the call shows the visit's ad source. Here, after the call is routed.
+    try:
+        from dni.attribution import mark_called
+        mark_called(call_log)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception('number pool check failed for %s', call_log_id)
+
     flag = ' [DNC]' if dnc_fields.get('is_dnc') else ''
     if ipqs_fields.get('ipqs_block_reason'):
         flag += f" [{ipqs_fields['ipqs_block_reason']}]"
