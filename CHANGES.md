@@ -8303,3 +8303,14 @@ the uploaded logo when there is one; without one, the website's own icon
 (read from its address) with the name under it; the globe only when the site
 has no icon either. Nothing needs re-entering: every service already has its
 website address.
+
+## CH-454 - Download Reports stays off unless switched on
+**2026-10-31 - Publisher / buyer access**
+
+Sir, 31 Oct: Download Reports switched off for a publisher "keeps turning
+on"; a publisher or buyer must not download reports unless the main account
+switches it on. On the server the setting stayed off (backend CH-449). On the
+partner's own login, when its settings could not be read the portal fell back
+to defaults with Download Reports ON, so the download could come back. The
+fallback is now OFF, and the settings page's offline list shows it off by
+default too, matching the backend.
