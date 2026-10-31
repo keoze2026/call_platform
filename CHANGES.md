@@ -8293,3 +8293,13 @@ allowed before the snippet works there.
 Tests: dni.test_call_attribution (4). Full suite 864 OK. No migrations, no new
 endpoints. Needs a restart of web, web_calls and celery_worker.
 
+
+## CH-453 - Marketplace: logos for every service
+**2026-10-31 - Marketplace**
+
+Sir, 31 Oct: the logos are missing on the Marketplace services. Most services
+have no logo uploaded, so their cards showed a grey globe. A card now shows
+the uploaded logo when there is one; without one, the website's own icon
+(read from its address) with the name under it; the globe only when the site
+has no icon either. Nothing needs re-entering: every service already has its
+website address.
