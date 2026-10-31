@@ -8293,24 +8293,41 @@ allowed before the snippet works there.
 Tests: dni.test_call_attribution (4). Full suite 864 OK. No migrations, no new
 endpoints. Needs a restart of web, web_calls and celery_worker.
 
+## CH-456 - Number pools: advertisers only, TFNs from Phone Numbers, cool-down, pool figures
 
-## CH-453 - Marketplace: logos for every service
-**2026-10-31 - Marketplace**
+Sir, 31 Oct, what a number pool must do: a pool of TFNs for one advertiser,
+each website visitor shown a number held for their visit, the call tied to the
+ad that sent it, the number back in the pool after; advertisers only; pool
+sized to peak visitors; a cool-down before a number is shown again; a
+fallback number. What was missing or broken, and what changed (dni/):
 
-Sir, 31 Oct: the logos are missing on the Marketplace services. Most services
-have no logo uploaded, so their cards showed a grey globe. A card now shows
-the uploaded logo when there is one; without one, the website's own icon
-(read from its address) with the name under it; the globe only when the site
-has no icon either. Nothing needs re-entering: every service already has its
-website address.
+  - advertisers only: a publisher login could create pools and a buyer login
+    could list them. Every pool endpoint now refuses publisher and buyer
+    logins (403); /assign and /snippet stay public for the website script.
+  - adding TFNs: the portal sends the TFN's id from Phone Numbers
+    (`number_id`) and saves the ticked list as `attached_number_ids`; the API
+    wanted a typed `number` and ignored the list, so no pool ever got a
+    number. Both now work; a TFN can be in one pool only; removing a number
+    works by its Phone Numbers id too.
+  - cool-down: a number whose visit ended (called, expired, released) rests
+    DNI_COOLDOWN_MINUTES (default 10) before another visitor is shown it; a
+    call inside the cool-down is still credited to that visit. Free numbers
+    are handed out least recently used first, so calls spread over the pool.
+  - pool figures (on every pool): numbers in use / cooling / free, peak
+    visitors at once over 7 days, fallback shown today, calls today on the
+    pool's numbers, and `too_small` (no numbers, peak >= pool size, or the
+    fallback was shown today). The portal's own names are sent too (active,
+    number_count, attached_number_ids, idle_time_sec, calls_today); `active`
+    and `idle_time_sec` from the portal now save (status / session length).
+  - websites: the script on the advertiser's site was refused by the
+    browser (CORS) - /api/dni/assign now answers any website (dni/apps.py,
+    that path only), and a pool that lists its domains serves only those.
+  - the script posted to "https://yourdomain.com" (no BASE_URL setting); it
+    now posts back to the server it was loaded from.
+Also moved out of this file the portal's CH-453 and CH-454 notes that were
+added here by mistake (they are in the portal's CHANGES.md).
 
-## CH-454 - Download Reports stays off unless switched on
-**2026-10-31 - Publisher / buyer access**
+Tests: dni.test_pool_features (8). Full suite 872 OK. No migrations, no new
+endpoints. Needs a restart of web and web_calls (the portal side is portal
+CH-456).
 
-Sir, 31 Oct: Download Reports switched off for a publisher "keeps turning
-on"; a publisher or buyer must not download reports unless the main account
-switches it on. On the server the setting stayed off (backend CH-449). On the
-partner's own login, when its settings could not be read the portal fell back
-to defaults with Download Reports ON, so the download could come back. The
-fallback is now OFF, and the settings page's offline list shows it off by
-default too, matching the backend.

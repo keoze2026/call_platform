@@ -17,12 +17,21 @@ from .services import DNIService
 router = Router(tags=["DNI"], auth=JWTAuth())
 
 
+def _advertisers_only(request):
+    """CH-456 (Sir, 31 Oct): number pools are for advertisers only - not for
+    publisher or buyer logins."""
+    from ninja.errors import HttpError
+    if getattr(request.auth, 'role', '') in ('buyer', 'publisher'):
+        raise HttpError(403, "Number pools are for advertisers only.")
+
+
 # ── Pools ─────────────────────────────────────────────────────────────────────
 
 @router.post("/pools", response={201: DNIPoolOutSchema, 400: dict})
 def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
     require(request.auth, Capability.CREATE)
     try:
         pool = DNIService.create_pool(data, request.auth)
@@ -36,6 +45,7 @@ def create_pool(request: HttpRequest, data: CreateDNIPoolSchema):
 def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'view')
+    _advertisers_only(request)
     from config.pagination import paginate_list
     pools = DNIService.list_pools(request.auth)
     data = [DNIService.format_pool(p) for p in pools]
@@ -46,6 +56,7 @@ def list_pools(request: HttpRequest, page: int = 1, page_size: int = 50):
 def get_pool(request: HttpRequest, pool_id: str):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'view')
+    _advertisers_only(request)
     try:
         pool = DNIService.get_pool(pool_id, request.auth)
         return 200, DNIService.format_pool(pool)
@@ -57,6 +68,7 @@ def get_pool(request: HttpRequest, pool_id: str):
 def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
     require(request.auth, Capability.EDIT)
     try:
         DNIService.update_pool(pool_id, data, request.auth)
@@ -70,6 +82,7 @@ def update_pool(request: HttpRequest, pool_id: str, data: UpdateDNIPoolSchema):
 def delete_pool(request: HttpRequest, pool_id: str):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'delete')
+    _advertisers_only(request)
     require(request.auth, Capability.DELETE)
     try:
         DNIService.delete_pool(pool_id, request.auth)
@@ -84,6 +97,7 @@ def delete_pool(request: HttpRequest, pool_id: str):
 def add_number(request: HttpRequest, pool_id: str, data: AddNumberToPoolSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'edit')
+    _advertisers_only(request)
     require(request.auth, Capability.CREATE)
     try:
         number = DNIService.add_number(pool_id, data, request.auth)
@@ -96,6 +110,7 @@ def add_number(request: HttpRequest, pool_id: str, data: AddNumberToPoolSchema):
 def remove_number(request: HttpRequest, pool_id: str, number_id: str):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'delete')
+    _advertisers_only(request)
     require(request.auth, Capability.DELETE)
     try:
         DNIService.remove_number(pool_id, number_id, request.auth)
@@ -110,6 +125,7 @@ def remove_number(request: HttpRequest, pool_id: str, number_id: str):
 def list_sessions(request: HttpRequest, pool_id: str, page: int = 1, page_size: int = 50):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'view')
+    _advertisers_only(request)
     try:
         sessions = DNIService.list_sessions(pool_id, request.auth)
         from config.pagination import paginate_list
@@ -127,7 +143,7 @@ def list_sessions(request: HttpRequest, pool_id: str, page: int = 1, page_size: 
 
 # ── Public endpoint — called by JS snippet (no auth) ─────────────────────────
 
-@router.post("/assign", auth=None, response={200: AssignNumberResponseSchema, 400: dict})
+@router.post("/assign", auth=None, response={200: AssignNumberResponseSchema, 400: dict, 403: dict})
 def assign_number(request: HttpRequest, data: AssignNumberSchema):
     """
     JS snippet calls this to get a tracked number for the visitor.
@@ -137,8 +153,11 @@ def assign_number(request: HttpRequest, data: AssignNumberSchema):
         ip  = request.META.get('HTTP_X_FORWARDED_FOR', '').split(',')[0].strip() \
               or request.META.get('REMOTE_ADDR', '')
         ua  = request.META.get('HTTP_USER_AGENT', '')
-        result = DNIService.assign_number(data, ip_address=ip, user_agent=ua)
+        origin = request.META.get('HTTP_ORIGIN', '') or request.META.get('HTTP_REFERER', '')
+        result = DNIService.assign_number(data, ip_address=ip, user_agent=ua, origin=origin)
         return 200, result
+    except PermissionError as e:
+        return 403, {"detail": str(e)}
     except ValueError as e:
         return 400, {"detail": str(e)}
 
@@ -148,8 +167,11 @@ def assign_number(request: HttpRequest, data: AssignNumberSchema):
 @router.get("/snippet/{pool_id}", auth=None, response=None)
 def get_snippet(request: HttpRequest, pool_id: str):
     """Returns the JavaScript snippet for this pool."""
+    # CH-456: settings has no BASE_URL, so the script posted to
+    # "https://yourdomain.com". It now posts back to the address it was
+    # loaded from.
     from django.conf import settings
-    base_url = getattr(settings, 'BASE_URL', 'https://yourdomain.com')
+    base_url = (getattr(settings, 'BASE_URL', '') or request.build_absolute_uri('/')).rstrip('/')
     js = _build_snippet(pool_id, base_url)
     return HttpResponse(js, content_type='application/javascript')
 

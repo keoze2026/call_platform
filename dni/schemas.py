@@ -23,6 +23,7 @@ class CreateDNIPoolSchema(Schema):
     vendor_id:                Optional[str] = None
     traffic_sources_enabled:  Optional[bool] = False
     traffic_sources:          Optional[list] = []
+    attached_number_ids:      Optional[List[str]] = None
 
 
 class UpdateDNIPoolSchema(Schema):
@@ -43,17 +44,24 @@ class UpdateDNIPoolSchema(Schema):
     vendor_id:                Optional[str] = None
     traffic_sources_enabled:  Optional[bool] = None
     traffic_sources:          Optional[list] = None
+    # CH-456: the portal's switch, campaign and the TFNs ticked on the page.
+    active:                   Optional[bool] = None
+    campaign_id:              Optional[str] = None
+    attached_number_ids:      Optional[List[str]] = None
 
 
 class AddNumberToPoolSchema(Schema):
-    number:          str
+    number:          Optional[str] = None
     phone_number_id: Optional[str] = None
+    # CH-456: what the portal sends - the TFN's id from Phone Numbers.
+    number_id:       Optional[str] = None
 
 
 class DNINumberOutSchema(Schema):
     id:     str
     number: str
     status: str
+    phone_number_id: Optional[str] = None
 
 
 class DNIPoolOutSchema(Schema):
@@ -78,6 +86,18 @@ class DNIPoolOutSchema(Schema):
     organization_id:          str
     created_at:               str
     updated_at:               str
+    active:                   bool = True
+    number_count:             int = 0
+    attached_number_ids:      List[str] = []
+    idle_time_sec:            int = 0
+    calls_today:              int = 0
+    numbers_in_use:           int = 0
+    numbers_cooling:          int = 0
+    numbers_free:             int = 0
+    peak_visitors_7d:         int = 0
+    fallback_today:           int = 0
+    cooldown_minutes:         int = 10
+    too_small:                bool = False
 
 
 class DNIPoolListSchema(Schema):

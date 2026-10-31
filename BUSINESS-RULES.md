@@ -154,6 +154,10 @@ Last updated: 31 Oct 2026.
   on those campaigns is checked against the TCPA litigator and do-not-call
   lists (RealValidito); a **litigator** is blocked on that campaign from their
   next call, a do-not-call listing is only flagged (CH-451).
+- **Number pools:** for **advertisers only** - never publisher or buyer
+  logins. After a visit ends its number rests **10 minutes** before another
+  visitor is shown it; a pool that runs out shows its fallback number
+  (CH-456).
 - **Download Reports:** a publisher or buyer can download reports **only when
   the main account switches it on** in their access settings; off by default,
   and it stays off until switched on (CH-449).
