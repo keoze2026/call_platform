@@ -8583,3 +8583,25 @@ Nothing on the live server changes.
 - Asterisk is checked from B only, so one fault sends one alert.
 - `all` is one server doing everything, as before. It is the default, so
   the current server's behaviour is unchanged.
+
+## CH-468 - Load test: SIPp 3.7.7 instead of Ubuntu's 3.7.2 (BACKEND)
+
+The test callers froze or crashed during the 600-call test
+(`Segmentation fault`, `buffer overflow detected`). The cause is a bug in
+SIPp 3.7.2, Ubuntu's version of the test program, not in our system.
+- On every call that plays audio, 3.7.2 reads the audio file again and never
+  frees the previous copy. It also frees a record that the calls already
+  playing still use.
+- SIPp 3.7.3 fixed it: "Fix crash when using PCAP play with more than one
+  call". The same release restored `-mp`, which 3.7.2 rejected.
+- Measured with our test caller, 600 calls at once, 3,000 calls: memory grew
+  from 0.8 GB to 2.0 GB on 3.7.2; it stayed flat at 24 MB on 3.7.7. That
+  growth is the 2 GB to 5 GB seen on Server A during the test.
+
+`scripts/loadtest/install_sipp.sh` builds SIPp 3.7.7 on Server A as
+`/usr/local/bin/sipp`:
+- the build runs at the lowest CPU priority;
+- Asterisk, Kamailio and the routing are not touched;
+- Ubuntu's `/usr/bin/sipp` stays as it is.
+
+`docs/LOADTEST.md` explains it. Test: `routing/test_loadtest_kit.py`.

@@ -31,6 +31,33 @@ recorded, as live calls are. The recordings are deleted afterwards.
 SIPp itself runs on Server A as well, so A carries more load in this test
 than with real traffic.
 
+## The test program: SIPp 3.7.7, not Ubuntu's 3.7.2 (CH-468)
+
+Ubuntu's SIPp, 3.7.2 (package `sip-tester`), has a bug when it plays audio
+on many calls. On every call it reads the audio file again and never frees
+the previous copy. It also frees a record that the calls already playing
+still use. Memory grows by about 1 MB per call, and the test callers freeze
+or crash (`Segmentation fault`, `buffer overflow detected`). SIPp 3.7.3
+fixed this ("Fix crash when using PCAP play with more than one call") and
+restored the `-mp` option.
+
+Same test caller, 600 calls at once, 3,000 calls of 60 s:
+
+| | Memory | Calls failed |
+|---|---|---|
+| SIPp 3.7.2 | 0.8 GB, growing to 2.0 GB | 0 (this run) |
+| SIPp 3.7.7 | 24 MB, flat | 0 |
+
+At 16,000 calls, 3.7.2 would need about 11 GB.
+
+Install 3.7.7 once on Server A (about 1 minute, lowest CPU priority; it does
+not touch Asterisk or Kamailio):
+
+    sudo bash scripts/loadtest/install_sipp.sh
+
+Then run the test with `/usr/local/bin/sipp`, for both the callers and the
+buyers. Ubuntu's `/usr/bin/sipp` is left as it is.
+
 ## Files (`scripts/loadtest/`)
 
 | File | Runs on | What it is |
@@ -40,6 +67,7 @@ than with real traffic.
 | `pjsip_loadtest.conf`, `extensions_loadtest.conf` | A | The test callers' and test buyers' SIP settings, and the test dial plan. The dial plan follows the same steps as live calls, but the buyer leg goes to SIPp on A. |
 | `caller.xml`, `make_pcap.py` | A | The SIPp test caller and its audio. |
 | `watch.sh` | A | Prints one line every 10 seconds: calls up, calls per test buyer, held reports, load, memory. |
+| `install_sipp.sh` | A | Installs SIPp 3.7.7 as `/usr/local/bin/sipp` (see above). |
 
 The step-by-step commands, and which PC runs each one, are in the install
 message for CH-465.
