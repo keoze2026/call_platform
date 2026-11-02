@@ -36,21 +36,30 @@ only:
 cd /opt/call_platform && git pull && docker compose restart web web_calls
 ```
 
-**A**, steps 1 to 4:
+**A**, the first time:
 
-1. Load the code:
+1. Load the code, install it and start the sync service:
 
    ```bash
    cd /opt/call_platform && git pull
+   bash scripts/fallback/install_a.sh
+   systemctl enable avx-fallback-sync
    ```
 
-2. Create the state folder, owned by the asterisk user, who runs the AGI:
+   `install_a.sh` (CH-466) does the following:
+   - copies the fallback code to `/usr/local/lib/avortyx/fallback`. Server A
+     keeps `/opt/call_platform` readable by root only, and the routing script
+     runs as the asterisk user. Before CH-466 the routing script could not
+     load the fallback at all, so with B off it hung up as the old one did.
+     The load test found this;
+   - installs the routing script;
+   - lets the asterisk user pass through `/var/lib/avortyx` to its own folder;
+   - restarts the sync service;
+   - ends with a check run as the asterisk user.
 
-   ```bash
-   install -d -o asterisk -g asterisk -m 750 /var/lib/avortyx/fallback /var/lib/avortyx/fallback/pending
-   ```
+   **Run it again after every `git pull` that changes `scripts/fallback/`.**
 
-3. Install the new hang-up script. Server A's copy came from the current
+2. Install the new hang-up script. Server A's copy came from the current
    server with B's address put in, so the address is put in again:
 
    ```bash
@@ -60,28 +69,11 @@ cd /opt/call_platform && git pull && docker compose restart web web_calls
    chmod 755 /usr/local/bin/call_ended.sh
    ```
 
-4. Start the sync service, and check that the plan arrived:
+   The new routing script reads the shared secret from
+   `/etc/asterisk/call_ended.secret`, the file `call_ended.sh` uses, instead
+   of having it written in the script.
 
-   ```bash
-   cp /opt/call_platform/deploy/avx-fallback-sync.service /etc/systemd/system/
-   systemctl daemon-reload && systemctl enable --now avx-fallback-sync
-   sleep 10; python3 /opt/call_platform/scripts/fallback/fallback_sync.py --status
-   ```
-
-5. Install the new routing script. It is the old one with two changes: a
-   call B cannot take is routed by A instead of hung up, and the secret is
-   read from `/etc/asterisk/call_ended.secret` instead of being written in
-   the file:
-
-   ```bash
-   cp /usr/share/asterisk/agi-bin/route_call.py /root/route_call.py.before-ch464
-   install -o asterisk -g asterisk -m 755 /opt/call_platform/scripts/fallback/route_call.py /usr/share/asterisk/agi-bin/route_call.py
-   ls -l /etc/asterisk/call_ended.secret
-   ```
-
-   To go back: `cp /root/route_call.py.before-ch464 /usr/share/asterisk/agi-bin/route_call.py`.
-
-6. The hang-up reports that could not be delivered are resent every minute
+3. The hang-up reports that could not be delivered are resent every minute
    by the asterisk user's crontab (as on the current server). Added on the
    switch night, with A's other jobs:
 

@@ -8528,3 +8528,25 @@ applied while B is off.
 
 Nothing on the live server changes. The test settings are added to Server A
 for the test only and removed afterwards.
+
+## CH-466 - Server A: the routing script can load the fallback (BACKEND)
+
+The load test found that Server A's fallback never ran. Server A keeps
+`/opt/call_platform` and `/var/lib/avortyx` readable by root only. The
+routing script (AGI) runs as the asterisk user, so it could not load the
+fallback code. With Server B off, it hung up every call, as the old script
+did. The journal was empty, and the tests passed because they run as root.
+
+- New `scripts/fallback/install_a.sh`, run as root on Server A after every
+  `git pull` that changes `scripts/fallback/`. It:
+  - copies the fallback code to `/usr/local/lib/avortyx/fallback`, readable
+    by all;
+  - installs the routing script;
+  - lets the asterisk user pass through `/var/lib/avortyx` to its own
+    folder, without listing it;
+  - restarts the sync service;
+  - ends with a check run as the asterisk user.
+- `route_call.py` and `deploy/avx-fallback-sync.service` use that folder.
+- `/opt/call_platform` and `.env` stay root-only.
+
+Nothing on the live server changes.

@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """AGI script - bridges Asterisk to Django routing engine.
 
-Server A's copy (CH-464). Install as /usr/share/asterisk/agi-bin/route_call.py.
+Server A's copy (CH-464). Installed as /usr/share/asterisk/agi-bin/route_call.py
+by scripts/fallback/install_a.sh, which also puts the fallback code where the
+asterisk user can read it: /usr/local/lib/avortyx/fallback (CH-466).
 It is the script that ran on the old server, with two changes:
 
   1. When Server B cannot be reached it no longer hangs up: Server A routes
@@ -21,7 +23,7 @@ sys.dont_write_bytecode = True
 
 DJANGO_BASE = os.environ.get("AVX_ROUTE_BASE", "http://10.20.0.2:8001")
 SECRET_FILE = os.environ.get("AVX_SECRET_FILE", "/etc/asterisk/call_ended.secret")
-FALLBACK_DIR = os.environ.get("AVX_FALLBACK_CODE", "/opt/call_platform/scripts/fallback")
+FALLBACK_DIR = os.environ.get("AVX_FALLBACK_CODE", "/usr/local/lib/avortyx/fallback")
 ROUTE_TIMEOUT = float(os.environ.get("AVX_ROUTE_TIMEOUT", "30"))
 
 

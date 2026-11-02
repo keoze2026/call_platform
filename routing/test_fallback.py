@@ -580,3 +580,19 @@ class RouteCallAgiTests(FallbackBase):
         self.assertEqual(seen, {'caller_number': '+15551234567', 'called_number': '+18888910343',
                                 'asterisk_call_id': '1793.42', 'secret': SECRET})
         self.assertEqual(fb.Journal().db.execute('SELECT source, dest FROM calls').fetchall(), [('b', C)])
+
+
+class InstallPathTests(TestCase):
+    """CH-466: the routing script runs as the asterisk user, who cannot read
+    /opt/call_platform on Server A. The AGI, the sync service and the
+    installer must all use the readable copy."""
+
+    def test_one_readable_place(self):
+        lib = '/usr/local/lib/avortyx/fallback'
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        for path in ('scripts/fallback/route_call.py', 'scripts/fallback/install_a.sh',
+                     'deploy/avx-fallback-sync.service'):
+            with open(os.path.join(base, path)) as f:
+                self.assertIn(lib, f.read(), path)
+        with open(os.path.join(base, 'deploy/avx-fallback-sync.service')) as f:
+            self.assertNotIn('/opt/call_platform/scripts/fallback/fallback_sync.py', f.read())
