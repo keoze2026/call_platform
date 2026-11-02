@@ -8384,3 +8384,25 @@ Tests: dni.test_number_pool_design (24); full suite 896 OK. Migration dni 0004 (
 tables dni_landers, dni_calls, dni_complaints; no data changed except pool
 keys and the cool-down above). Needs migrate, then a restart of web and
 web_calls. The portal side is portal CH-461.
+
+## CH-462 - Reports: today served from the cache while its calls stay the same
+**2026-11-02 - Reports / Performance** (portal side: portal CH-462)
+
+A reload of Reports on today showed the loading panel for a long time: only
+finished days were cached (CH-097), so every reload of today ran the call log
+and the four summaries from scratch, and the page waits for all five.
+- analytics/report_cache.py: today is cached too, keyed by the report stamp
+  (CH-219). A call that arrives, is answered, ends, is charged or leaves the
+  report changes the stamp, so the next request recomputes. Kept 60 s at most,
+  for changes the stamp cannot see (a campaign or buyer renamed, a rate
+  changed). The stamp itself is kept 3 s, so the five requests of one reload
+  pay for it once. Past days are unchanged (6 h).
+- A cache that cannot be read (Redis down) no longer fails the report: it is
+  computed from the database, as a failed write already was.
+- analytics/report_stamp.py: the stamp also covers the calls' total cost - a
+  rejected-call fee (tasks.py) is written with .update(), which leaves
+  updated_at alone.
+Nothing in call handling reads or writes this cache.
+
+Tests: analytics.test_report_cache_today (7); full suite 903 OK. No
+migration. Live after a restart of web.

@@ -15,6 +15,8 @@ The fingerprint covers
   - finished calls (the reports mirror): how many, how many completed, their
     total seconds, and the latest change to any of them;
   - calls still in progress: how many, and the latest change to any of them.
+  - the finished calls' total cost (CH-462): a rejected-call fee is written
+    with .update(), which leaves updated_at alone.
 A call that is grouped into another (CH-215) leaves the mirror, so the count
 changes too.
 """
@@ -39,6 +41,7 @@ def report_stamp(user, filters) -> dict:
         completed=Count('id', filter=Q(status='completed')),
         seconds=Coalesce(Sum('duration_seconds'), 0),
         changed=Max('updated_at'),
+        cost=Sum('platform_cost'),
     )
     live = AnalyticsService._live_qs(user, filters).aggregate(
         n=Count('id'),
@@ -46,6 +49,7 @@ def report_stamp(user, filters) -> dict:
     )
     raw = '|'.join(str(part) for part in (
         hist['n'], hist['completed'], hist['seconds'], _iso(hist['changed']),
+        hist['cost'],
         live['n'], _iso(live['changed']),
     ))
     return {

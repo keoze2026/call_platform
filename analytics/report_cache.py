@@ -14,6 +14,14 @@ Two deliberate choices:
   six hours, not forever              "a closed day never changes" is almost
   true: repairs and backfills do change history (CH-097 repaired two calls
   from weeks back). A TTL bounds how stale a repaired day can look.
+
+Today (CH-462) is cached too, but only while its calls stay the same. Every
+reload of today ran the call log and the four summaries from scratch, and the
+page showed nothing until the slowest was done. The key now carries the
+report stamp (analytics/report_stamp.py): a call that arrives, is answered,
+ends or is charged changes the stamp, so the next request misses and
+recomputes. A minute at most, for what the stamp cannot see - a campaign or
+buyer renamed, a rate changed, a field written with .update().
 """
 import hashlib
 from datetime import timedelta
@@ -22,6 +30,10 @@ from django.core.cache import cache
 from django.utils import timezone
 
 TTL_SECONDS = 6 * 3600
+TODAY_TTL_SECONDS = 60
+# The five requests of one reload share one stamp instead of each paying for
+# it. A call that lands inside these seconds shows on the next request after.
+STAMP_TTL_SECONDS = 3
 
 # A day is closed this long after it ends, not at midnight (CH-287). A call
 # is recorded when it ENDS but belongs to the day it started, so a call still
@@ -37,6 +49,44 @@ _KEY_FIELDS = (
     'search', 'granularity', 'limit', 'offset',
     'is_qualified', 'is_converted', 'is_duplicate', 'is_spam',
 )
+# The fields the stamp's querysets read - not limit/offset/search, so the
+# call log and the four summaries of one view find the same stamp.
+_STAMP_FIELDS = (
+    'date_from', 'date_to', 'start_date', 'end_date', 'timezone',
+    'campaign_id', 'buyer_id', 'publisher_id', 'status',
+)
+
+
+def _cache_get(key):
+    try:
+        return cache.get(key)
+    except Exception:
+        # Redis down: the report comes from the database, as before.
+        return None
+
+
+def _cache_set(key, value, ttl):
+    try:
+        cache.set(key, value, ttl)
+    except Exception:
+        # A cache that cannot store must never fail the report.
+        pass
+
+
+def _hash(filters, fields) -> str:
+    raw = '|'.join(f'{f}={getattr(filters, f, None)}' for f in fields)
+    return hashlib.sha256(raw.encode()).hexdigest()
+
+
+def _today_stamp(user, filters, audience) -> str:
+    from analytics.report_stamp import report_stamp
+    key = (f'reports:stamp:{user.organization_id}:{audience}:'
+           f'{_hash(filters, _STAMP_FIELDS)}')
+    stamp = _cache_get(key)
+    if stamp is None:
+        stamp = report_stamp(user, filters)['stamp']
+        _cache_set(key, stamp, STAMP_TTL_SECONDS)
+    return stamp
 
 
 def _range_is_closed(filters, user) -> bool:
@@ -51,29 +101,35 @@ def _range_is_closed(filters, user) -> bool:
 
 def closed_range_response(request, filters, name, compute):
     user = request.auth
-    if not _range_is_closed(filters, user):
-        return compute()
-
     if getattr(user, 'role', '') in ('buyer', 'publisher'):
         audience = f'partner:{user.id}'
     else:
         audience = f'role:{user.role}'
-    raw = '|'.join(f'{f}={getattr(filters, f, None)}' for f in _KEY_FIELDS)
+
+    if _range_is_closed(filters, user):
+        ttl = TTL_SECONDS
+        state = 'closed'
+    else:
+        try:
+            state = 'today:' + _today_stamp(user, filters, audience)
+        except Exception:
+            # No stamp, no safe key: compute, exactly as before CH-462.
+            return compute()
+        ttl = TODAY_TTL_SECONDS
+
     # v2 (CH-284): the call log gained `cost` and publishers `total_cost`;
     # entries cached before that would show "-" for up to six hours.
     # v3 (CH-352): Cost now adds charged and uncharged calls.
     key = (f'reports:v3:{name}:{user.organization_id}:{audience}:'
-           f'{hashlib.sha256(raw.encode()).hexdigest()}')
+           f'{_hash(filters, _KEY_FIELDS)}')
+    if state != 'closed':
+        key += f':{state}'
 
-    hit = cache.get(key)
+    hit = _cache_get(key)
     if hit is not None:
         return hit
     result = compute()
-    try:
-        cache.set(key, result, TTL_SECONDS)
-    except Exception:
-        # A cache that cannot store must never fail the report.
-        pass
+    _cache_set(key, result, ttl)
     return result
 
 
