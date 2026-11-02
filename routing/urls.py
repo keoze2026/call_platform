@@ -2,6 +2,7 @@ from django.urls import path
 from . import twilio_handler
 from call_queue import views as queue_views
 from . import asterisk_handler
+from . import fallback
 
 urlpatterns = [
     path('incoming-call/', twilio_handler.incoming_call, name='incoming_call'),
@@ -14,4 +15,7 @@ urlpatterns = [
     path('asterisk/call-ended/', asterisk_handler.call_ended, name='asterisk_call_ended'),
     path('asterisk/active-channels/', asterisk_handler.active_channels, name='asterisk_active_channels'),
     path('asterisk/held-answer/', asterisk_handler.held_answer_report, name='asterisk_held_answer'),
+    # CH-464: Server A routes on its own while Server B is down.
+    path('asterisk/fallback-plan/', fallback.fallback_plan, name='asterisk_fallback_plan'),
+    path('asterisk/fallback-calls/', fallback.fallback_calls, name='asterisk_fallback_calls'),
 ] 

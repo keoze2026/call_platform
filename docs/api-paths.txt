@@ -347,6 +347,8 @@ POST /api/team-report/chats/{}/send-test
 POST /api/team-report/connect-link
 ANY /api/twilio/asterisk/active-channels/
 ANY /api/twilio/asterisk/call-ended/
+ANY /api/twilio/asterisk/fallback-calls/
+ANY /api/twilio/asterisk/fallback-plan/
 ANY /api/twilio/asterisk/held-answer/
 ANY /api/twilio/asterisk/route/
 ANY /api/twilio/call-status/

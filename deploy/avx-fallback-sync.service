@@ -1,0 +1,18 @@
+# Server A only (CH-464): keeps the fallback routing plan fresh and sends the
+# calls Server A routed on its own to Server B. Install:
+#   cp /opt/call_platform/deploy/avx-fallback-sync.service /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now avx-fallback-sync
+[Unit]
+Description=Avortyx fallback routing sync (Server A <-> Server B)
+After=network-online.target wg-quick@wg0.service
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/bin/python3 /opt/call_platform/scripts/fallback/fallback_sync.py --loop
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/fallback_sync.log
+StandardError=append:/var/log/fallback_sync.log
+
+[Install]
+WantedBy=multi-user.target

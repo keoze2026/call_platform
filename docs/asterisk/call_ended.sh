@@ -46,6 +46,11 @@ LOG="${CALL_ENDED_LOG:-/tmp/call_end_debug.log}"
 MAX_AGE="${CALL_ENDED_MAX_AGE:-86400}"   # give up on a report after a day
 ATTEMPTS="${CALL_ENDED_ATTEMPTS:-2}"     # tries before spooling
 CURL_MAX="${CALL_ENDED_CURL_MAX:-10}"    # seconds per try
+# CH-464: a call Server A routed on its own while Server B was down has a
+# marker here until B has written the call (scripts/fallback/fallback_sync.py).
+# Its report waits in the spool until then: sent earlier, B would answer 404
+# (unknown call) and the report would be dropped, so the call never billed.
+PENDING="${CALL_ENDED_PENDING:-/var/lib/avortyx/fallback/pending}"
 
 log() { { echo "$(date -Is) $*" >> "$LOG"; } 2>/dev/null; }
 
@@ -88,6 +93,25 @@ is_final() {
     esac
 }
 
+held() { [ -n "$1" ] && [ -e "$PENDING/$1" ]; }
+
+# A hang-up without its call id (a transfer at the buyer replaced the channel)
+# belongs to the held call of the same caller, if there is one: the marker
+# holds the caller's last ten digits. Prints that call's id.
+held_for_caller() {
+    local key m
+    key=$(printf '%s' "$1" | tr -cd '0-9' | tail -c 10)
+    [ ${#key} -ge 7 ] || return 1
+    for m in "$PENDING"/*; do
+        [ -f "$m" ] || continue
+        if [ "$(head -1 "$m" 2>/dev/null)" = "$key" ]; then
+            basename "$m"
+            return 0
+        fi
+    done
+    return 1
+}
+
 ensure_spool() {
     mkdir -p "$SPOOL" 2>/dev/null && [ -w "$SPOOL" ] && return 0
     SPOOL="/tmp/call_ended_spool"
@@ -104,6 +128,16 @@ if [ "${1:-}" = "--replay" ]; then
     now=$(date +%s)
     for f in "$SPOOL"/*.json; do
         [ -e "$f" ] || continue
+        cid=$(grep -o '"call_log_id": *"[^"]*"' "$f" 2>/dev/null | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+        case "$(basename "$f")" in
+            held-*) cid=$(basename "$f" | cut -d- -f2-6) ;;   # a hang-up without its id
+        esac
+        if held "$cid"; then
+            # Server B does not have this call yet (CH-464). Kept fresh, so a
+            # long outage does not age the report out before B has the call.
+            touch "$f" 2>/dev/null
+            continue
+        fi
         born=$(stat -c %Y "$f" 2>/dev/null || echo "$now")
         if [ $((now - born)) -gt "$MAX_AGE" ]; then
             mkdir -p "$SPOOL/dead" && mv "$f" "$SPOOL/dead/" 2>/dev/null
@@ -173,7 +207,17 @@ TMP=$(mktemp /tmp/call_ended.XXXXXX) || exit 1
 printf '%s' "$PAYLOAD" > "$TMP"
 
 code="000"
-if load_secret; then
+HOLD_FOR=""
+if [ -z "$CALL_LOG_ID" ] && [ -d "$PENDING" ]; then
+    HOLD_FOR=$(held_for_caller "$CALLER")
+fi
+if held "$CALL_LOG_ID"; then
+    log "report for call '$CALL_LOG_ID' held until Server B has the call (routed by Server A)"
+    code="held"
+elif [ -n "$HOLD_FOR" ]; then
+    log "report without a call id from $CALLER held with call '$HOLD_FOR' until Server B has it"
+    code="held"
+elif load_secret; then
     n=0
     while [ "$n" -lt "$ATTEMPTS" ]; do
         n=$((n + 1))
@@ -193,7 +237,11 @@ if is_final "$code"; then
     esac
 else
     if ensure_spool; then
-        OUT="$SPOOL/$(date +%s)-$$-$RANDOM.json"
+        if [ -n "$HOLD_FOR" ]; then
+            OUT="$SPOOL/held-$HOLD_FOR-$(date +%s)-$$-$RANDOM.json"
+        else
+            OUT="$SPOOL/$(date +%s)-$$-$RANDOM.json"
+        fi
         if mv "$TMP" "$OUT" 2>/dev/null; then
             chmod 600 "$OUT" 2>/dev/null
             TMP=""

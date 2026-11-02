@@ -8427,3 +8427,78 @@ backup; recordings removed from A only after 7 days and only once Backblaze
 holds an identical copy.
 
 No code change. Nothing on the live server changes.
+
+## CH-464 - Server A keeps routing calls while Server B is down (BACKEND)
+
+Sir's conditions for the server move (2 Nov): (1) Server A keeps routing
+when Server B is down, (2) buyer caps and concurrency limits still apply on
+A while B is down, and all calls made during the outage are logged and
+synced to B so billing stays accurate.
+
+How it works:
+- **B** publishes a routing plan every minute
+  (`GET /api/twilio/asterisk/fallback-plan/`, shared secret). It holds:
+  - every active number with its campaign;
+  - the campaign's rules and lines;
+  - buyers and their TFNs;
+  - every campaign, buyer and line cap, with how much of it is used;
+  - concurrency limits, blocked and allowed callers, balance.
+  (`routing/fallback.py`.)
+- **A** routes with that plan only when B gives no answer: nothing listens,
+  no answer within 1.5 s, or a 5xx. It follows `routing/engine.py` and the
+  route endpoint step by step:
+  - blocked, allowed and anonymous callers, and the duplicate block;
+  - campaign caps and concurrency, and balance;
+  - Original / Different duplicates, and buyer blocks;
+  - rules by priority, then weight;
+  - per line: buyer paused, line off, buyer caps, buyer and line
+    concurrency, line caps;
+  - then the buyer's own TFN, or its live TFNs in rotation.
+
+  Concurrency is counted from Asterisk's own live channels. A notes every
+  call B routes too, so it always knows what is live.
+  (`scripts/fallback/avx_fallback.py`, `fallback_agi.py`.)
+- **Sync:** a service on A (`deploy/avx-fallback-sync.service`,
+  `scripts/fallback/fallback_sync.py`) sends A's own calls to B every 5 s
+  (`POST /api/twilio/asterisk/fallback-calls/`). B writes each one as the
+  route endpoint would, with A's call id and the time the call really came
+  in. If B had answered too late and also written the call, that row is
+  hidden, so the call counts once.
+- **Billing:** each call's hang-up report waits on A until B has the call
+  (`docs/asterisk/call_ended.sh`: held, kept fresh, also when it arrives
+  without the call id after a transfer). It is then delivered, and the call
+  is billed exactly as usual.
+
+When B is up nothing changes: B's answer is used as it is. The existing
+route, call-ended and channel-sync endpoints are untouched, and there is no
+migration. The live server's AGI and `call_ended.sh` are not in git, so
+pulling this changes nothing there.
+
+While B is away, A is stricter, never looser:
+- The duplicate rules only see calls that went through A, and count every
+  call sent to a line, not only answered ones.
+- Caps are B's last counts plus every call B has not counted yet.
+- Balance is as at the last plan. A plan older than 48 h is not used.
+- RTB campaigns are refused. Number-pool spam rules are not run, as on any
+  error today.
+
+Found, not changed: with a campaign's "duplicate call block" switched on,
+the live routing counts the call's own new row as an earlier call and
+would refuse every call on that campaign (`RoutingEngine.is_duplicate`).
+
+Tests: `routing/test_fallback.py`, 41 tests:
+- A decides the same as the live routing on the same setup;
+- caps across a new plan and across midnight;
+- concurrency from live channels;
+- blocks, whitelist and duplicates;
+- a plan that is too old;
+- sync, phantom rows and billing through call-ended;
+- the AGI wrapper: B up, B refusing connections, B switched off, 5xx, 403;
+- `route_call.py` itself, run as Asterisk runs it, with B down and B up.
+
+Server A's routing script is now in git (`scripts/fallback/route_call.py`):
+the old one with the fallback added and the shared secret read from
+`/etc/asterisk/call_ended.secret` instead of written in the file.
+
+`docs/api-paths.txt` has the two new paths. Install steps for A and B are in
+`docs/FALLBACK-ROUTING.md`.
