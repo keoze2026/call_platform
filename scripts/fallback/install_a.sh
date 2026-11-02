@@ -20,6 +20,7 @@ install -o "$AU" -g "$AU" -m 755 "$SRC/route_call.py" /usr/share/asterisk/agi-bi
 chmod 711 /var/lib/avortyx
 install -d -o "$AU" -g "$AU" -m 750 "$STATE" "$STATE/pending"
 if [ -f "$STATE/journal.sqlite3" ]; then chown "$AU:$AU" "$STATE/journal.sqlite3"; fi
+[ -f "$STATE/.decide.lock" ] || install -o "$AU" -g "$AU" -m 644 /dev/null "$STATE/.decide.lock"
 if [ -f "$STATE/plan.sqlite3" ]; then chmod 644 "$STATE/plan.sqlite3"; fi
 install -m 644 /opt/call_platform/deploy/avx-fallback-sync.service /etc/systemd/system/avx-fallback-sync.service
 systemctl daemon-reload

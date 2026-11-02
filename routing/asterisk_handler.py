@@ -165,18 +165,54 @@ def _take_dup_lock(request, organization_id, caller) -> None:
         logger.exception('duplicate routing lock failed for %s; routing anyway', caller)
 
 
+# CH-467: buyer, line and campaign concurrency limits are exact. Routing reads
+# "how many calls does this buyer have now" and then saves the new call as
+# sent: two steps. With 12 call workers deciding at the same moment, several
+# calls each saw "249 of 250" and all went through - the load test put 267
+# calls on a buyer limited to 250 (Sir, 2 Nov: limits must still apply).
+# The decision and the save are now done one call at a time per workspace,
+# which holds a buyer's limit across all its campaigns. The lock lives only
+# while one call is routed (tens of milliseconds) and is never waited on for
+# longer than ROUTE_LOCK_WAIT: a stuck lock must not hold up calls.
+ROUTE_LOCK_SECONDS = 10
+ROUTE_LOCK_WAIT = 3.0
+
+
+def _route_lock_key(organization_id) -> str:
+    return f'route_lock:{organization_id}'
+
+
+def _take_route_lock(request, organization_id) -> None:
+    import time as _time
+    key = _route_lock_key(organization_id)
+    deadline = _time.monotonic() + ROUTE_LOCK_WAIT
+    try:
+        while True:
+            if cache.add(key, 1, ROUTE_LOCK_SECONDS):
+                request._route_lock_key = key
+                return
+            if _time.monotonic() >= deadline:
+                logger.warning('routing lock for %s still held after %ss; routing anyway',
+                               organization_id, ROUTE_LOCK_WAIT)
+                return
+            _time.sleep(0.01)
+    except Exception:
+        logger.exception('routing lock failed for %s; routing anyway', organization_id)
+
+
 @csrf_exempt
 @require_http_methods(["POST"])
 def route_incoming_call(request):
     try:
         return _route_incoming_call(request)
     finally:
-        key = getattr(request, '_dup_lock_key', None)
-        if key:
-            try:
-                cache.delete(key)
-            except Exception:
-                logger.exception('could not release %s', key)
+        for attr in ('_route_lock_key', '_dup_lock_key'):
+            key = getattr(request, attr, None)
+            if key:
+                try:
+                    cache.delete(key)
+                except Exception:
+                    logger.exception('could not release %s', key)
 
 
 def _route_incoming_call(request):
@@ -337,6 +373,8 @@ def _route_incoming_call(request):
 
     if getattr(campaign, 'duplicate_handling', '') == 'different':
         _take_dup_lock(request, campaign.organization_id, caller)
+    # CH-467: from here until the call is saved as sent, one call at a time.
+    _take_route_lock(request, campaign.organization_id)
 
     decision = RoutingEngine.route_call(str(campaign.id), {
         'caller_number': caller,

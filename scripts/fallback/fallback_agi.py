@@ -83,13 +83,40 @@ def b_is_down(exc):
                             ConnectionError, OSError, ValueError))
 
 
+DECIDE_LOCK_WAIT = 3.0
+
+
+def _decide_lock():
+    """CH-467: A's own decisions one at a time, so two calls deciding at the
+    same moment cannot both take a buyer's last free place. Waited on for at
+    most DECIDE_LOCK_WAIT; a decision takes about 20 ms."""
+    import fcntl
+    try:
+        f = open(os.path.join(fb.STATE_DIR, '.decide.lock'), 'a')
+    except OSError:
+        return None
+    deadline = time.monotonic() + DECIDE_LOCK_WAIT
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return f
+        except OSError:
+            if time.monotonic() >= deadline:
+                return f            # route anyway; never hold up the call
+            time.sleep(0.005)
+
+
 def own_decision(called, caller, uniqueid, log=None):
+    lock = _decide_lock()
     try:
         reply = fb.decide(called, caller, uniqueid)
     except Exception as e:  # the fallback itself failed: hang up, as before
         if log:
             log(f'fallback routing failed: {e!r}')
         return {'action': 'hangup', 'reason': 'fallback_error'}
+    finally:
+        if lock is not None:
+            lock.close()            # closing the file releases the lock
     if log:
         log(f"Server B unreachable; routed by Server A: {reply.get('action')} "
             f"{reply.get('buyer_number') or reply.get('reason', '')}")

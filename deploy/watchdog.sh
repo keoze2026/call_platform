@@ -14,11 +14,31 @@
 #
 #   */2 * * * * /opt/call_platform/deploy/watchdog.sh >> /var/log/avortyx-watchdog.log 2>&1
 #
+# CH-467, two servers. WATCHDOG_ROLE in .env says which server this is:
+#   web    Server B (portal, database): routing endpoint, portal, nginx,
+#          containers, traffic, disk, heartbeat - and the phone system on
+#          Server A, checked over the private link (its AMI port answering).
+#   calls  Server A (Asterisk): Kamailio, the call services (fallback sync,
+#          SIP capture), the recordings site, Server B reachable for routing,
+#          disk. Asterisk itself is checked from B, so one fault sends one alert.
+#   all    one server doing everything (the old setup; the default).
+# Server A's .env needs TELEGRAM_BOT_TOKEN and TELEGRAM_SUPPORT_CHAT_ID.
 set -uo pipefail
 
 APP_DIR=/opt/call_platform
 STATE=/var/lib/avortyx-watchdog
 mkdir -p "$STATE"
+
+ROLE=$(grep -m1 '^WATCHDOG_ROLE=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2- | tr -d '"'\'' ')
+ROLE="${ROLE:-all}"
+# Server A, as Server B reaches it, and Server B as Server A reaches it.
+CALLS_HOST="${WATCHDOG_CALLS_HOST:-10.20.0.1}"
+WEB_ROUTE_URL="${WATCHDOG_WEB_ROUTE_URL:-http://10.20.0.2:8001/api/twilio/asterisk/route/}"
+case "$ROLE" in
+    calls) SERVER_NAME="call server" ;;
+    web)   SERVER_NAME="portal server" ;;
+    *)     SERVER_NAME="server" ;;
+esac
 
 # Calls are not expected around the clock. Outside these hours a quiet line is
 # normal and must not page anyone.
@@ -159,9 +179,45 @@ The ${svc} service stopped responding and was restarted automatically. It is now
     echo "$c"
 }
 
+# ── calls role: only what lives on Server A, then stop ──────────────────────
+if [ "$ROLE" = "calls" ]; then
+    # Server B answering the routing endpoint over the private link. When it
+    # does not, calls still connect: Server A routes them itself (CH-464).
+    b=$(curl -s -o /dev/null -w '%{http_code}' --max-time 8 -X POST "$WEB_ROUTE_URL" 2>/dev/null)
+    if [ "$b" = "403" ]; then
+        clear_alert portal_link "Portal Link Restored" "The AVORTYX call server reaches the portal server again. Calls routed during the interruption are being recorded on the portal. The link was down for {dur}."
+    else
+        alert portal_link "🟠" "Backup Routing Active" "The AVORTYX call server cannot reach the portal server. Calls are still being connected by the call server's backup routing, with buyer limits applied, and will appear on the portal once the link is back. Our team has been notified and is investigating."
+    fi
+    down=""
+    for svc in kamailio avx-fallback-sync sipcap; do
+        systemctl is-active --quiet "$svc" || down="${down:+$down, }$svc"
+    done
+    if [ -z "$down" ]; then
+        clear_alert call_services "Call Services Restored" "All AVORTYX call services are fully operational. Service was interrupted for {dur}."
+    else
+        alert call_services "🔴" "Call Service Disruption" "Some AVORTYX call services are currently down (${down}), and calls may be affected. Our team has been notified and is investigating."
+    fi
+    if systemctl is-active --quiet nginx; then
+        clear_alert nginx "Recordings Restored" "AVORTYX call recordings are available again. They were unavailable for {dur}."
+    else
+        alert nginx "🔴" "Recordings Unavailable" "The AVORTYX recordings service is currently down, and call recordings cannot be played. Calls are not affected. Our team has been notified and is investigating."
+    fi
+    used=$(df / --output=pcent | tail -1 | tr -cd '0-9')
+    if [ "${used:-0}" -ge 85 ]; then
+        alert disk "🟠" "Storage Warning" "AVORTYX ${SERVER_NAME} storage is ${used}% full. Action is required: once storage is full, calls and recordings can no longer be saved. Our team has been notified."
+    else
+        clear_alert disk "Storage Normal" "AVORTYX ${SERVER_NAME} storage is back to ${used}% and operating normally. The warning lasted {dur}."
+    fi
+    echo "$(date -u +%FT%TZ) ok role=calls portal_link=$b down=${down:-none} disk=${used}%"
+    exit 0
+fi
+
 # The service Asterisk sends calls to (CH-393): web_calls on 8001 once the AGI
 # points there (WATCHDOG_ROUTE_SERVICE=web_calls in .env), web on 8000 until.
+# Server B always takes calls on web_calls (CH-464).
 route_svc=$(grep -m1 '^WATCHDOG_ROUTE_SERVICE=' "$APP_DIR/.env" 2>/dev/null | cut -d= -f2-)
+[ "$ROLE" = "web" ] && route_svc="${route_svc:-web_calls}"
 route_svc="${route_svc:-web}"
 [ "$route_svc" = "web_calls" ] && route_port=8001 || route_port=8000
 
@@ -198,7 +254,19 @@ fi
 
 # ── 4. asterisk ──────────────────────────────────────────────────────────────
 
-if systemctl is-active --quiet asterisk; then
+if [ "$ROLE" = "web" ]; then
+    # Asterisk runs on Server A: its management port answering over the private
+    # link means it is up. Tried twice, so one lost packet is not an outage.
+    if timeout 5 bash -c "</dev/tcp/${CALLS_HOST}/5038" 2>/dev/null \
+       || { sleep 5; timeout 5 bash -c "</dev/tcp/${CALLS_HOST}/5038" 2>/dev/null; }; then
+        asterisk_up=1
+    else
+        asterisk_up=0
+    fi
+else
+    systemctl is-active --quiet asterisk && asterisk_up=1 || asterisk_up=0
+fi
+if [ "$asterisk_up" = "1" ]; then
     clear_alert asterisk "Call Service Restored" "The AVORTYX phone system is fully operational. Calls could not be received for {dur}."
 else
     alert asterisk "🔴" "Call Service Disruption" "The AVORTYX phone system is currently down, and no calls can be received. Our team has been notified and is investigating."
@@ -257,9 +325,9 @@ fi
 
 used=$(df / --output=pcent | tail -1 | tr -cd '0-9')
 if [ "${used:-0}" -ge 85 ]; then
-    alert disk "🟠" "Storage Warning" "AVORTYX server storage is ${used}% full. Action is required: once storage is full, calls and recordings can no longer be saved. Our team has been notified."
+    alert disk "🟠" "Storage Warning" "AVORTYX ${SERVER_NAME} storage is ${used}% full. Action is required: once storage is full, calls and recordings can no longer be saved. Our team has been notified."
 else
-    clear_alert disk "Storage Normal" "AVORTYX server storage is back to ${used}% and operating normally. The warning lasted {dur}."
+    clear_alert disk "Storage Normal" "AVORTYX ${SERVER_NAME} storage is back to ${used}% and operating normally. The warning lasted {dur}."
 fi
 
 # ── 8. a daily heartbeat ─────────────────────────────────────────────────────
@@ -280,4 +348,4 @@ All systems are fully operational. Calls received today: ${calls:-0}. Server sto
     fi
 fi
 
-echo "$(date -u +%FT%TZ) ok routing=$code${web_code:+ web=$web_code} portal=$portal disk=${used}%"
+echo "$(date -u +%FT%TZ) ok role=$ROLE routing=$code${web_code:+ web=$web_code} portal=$portal asterisk=$asterisk_up disk=${used}%"

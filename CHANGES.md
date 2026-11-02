@@ -8550,3 +8550,36 @@ did. The journal was empty, and the tests passed because they run as root.
 - `/opt/call_platform` and `.env` stay root-only.
 
 Nothing on the live server changes.
+
+## CH-467 - Exact buyer limits at high volume; watchdog for two servers (BACKEND)
+
+**Buyer, line and campaign concurrency limits are exact.**
+- The problem: routing reads how many calls a buyer has, then saves the new
+  call as sent, in two steps. With 12 call workers deciding at the same
+  moment, several calls each saw "249 of 250" and all went through. The load
+  test put 267 calls on a buyer limited to 250.
+- On Server B, routing now decides one call at a time per workspace, from
+  the decision to the save. A lock in Redis, held for tens of milliseconds,
+  covers a buyer across all its campaigns. A call never waits for it longer
+  than 3 s, and a broken cache never stops a call.
+  (`routing/asterisk_handler.py`, `_take_route_lock`.)
+- Server A's fallback decides one call at a time too, with a file lock.
+  (`scripts/fallback/fallback_agi.py`.)
+- Tests: `routing/test_route_lock.py`, and lock tests in
+  `routing/test_fallback.py`.
+
+**The watchdog knows which server it is on** (`deploy/watchdog.sh`).
+`WATCHDOG_ROLE` in `.env` sets the role:
+- `web` (Server B) checks:
+  - routing on web_calls, the portal, nginx and the containers;
+  - traffic, disk and the daily heartbeat;
+  - Server A's phone system, by its AMI port answering over the private
+    link.
+- `calls` (Server A) checks:
+  - Kamailio, the fallback sync and the SIP capture;
+  - the recordings site and disk;
+  - whether Server B answers for routing. If not, an orange "Backup Routing
+    Active" alert: calls still connect through A's fallback.
+- Asterisk is checked from B only, so one fault sends one alert.
+- `all` is one server doing everything, as before. It is the default, so
+  the current server's behaviour is unchanged.

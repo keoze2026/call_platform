@@ -596,3 +596,37 @@ class InstallPathTests(TestCase):
                 self.assertIn(lib, f.read(), path)
         with open(os.path.join(base, 'deploy/avx-fallback-sync.service')) as f:
             self.assertNotIn('/opt/call_platform/scripts/fallback/fallback_sync.py', f.read())
+
+
+class FallbackDecideLockTests(FallbackBase):
+    """CH-467: Server A's own decisions one at a time."""
+
+    def setUp(self):
+        super().setUp()
+        self.line(A)
+        self.sync_plan()
+        p = mock.patch.object(fb, 'live_channels', return_value=(set(), set()))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def test_a_second_decision_waits(self):
+        import fcntl
+        holder = open(os.path.join(fb.STATE_DIR, '.decide.lock'), 'a')
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        import threading
+        import time as _t
+        threading.Timer(0.3, holder.close).start()
+        started = _t.monotonic()
+        self.assertEqual(agi.own_decision(TFN, '+15551230000', 'w1')['buyer_number'], A)
+        self.assertGreaterEqual(_t.monotonic() - started, 0.25)
+
+    def test_never_held_for_long_and_released(self):
+        import fcntl
+        holder = open(os.path.join(fb.STATE_DIR, '.decide.lock'), 'a')
+        fcntl.flock(holder, fcntl.LOCK_EX)
+        with mock.patch.object(agi, 'DECIDE_LOCK_WAIT', 0.1):
+            self.assertEqual(agi.own_decision(TFN, '+15551230001', 'w2')['action'], 'dial')
+        holder.close()
+        f = open(os.path.join(fb.STATE_DIR, '.decide.lock'), 'a')
+        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)          # free again
+        f.close()
