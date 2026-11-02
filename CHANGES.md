@@ -8502,3 +8502,29 @@ the old one with the fallback added and the shared secret read from
 
 `docs/api-paths.txt` has the two new paths. Install steps for A and B are in
 `docs/FALLBACK-ROUTING.md`.
+
+## CH-465 - 600-call load test on Server A, with Server B switched off part way (BACKEND)
+
+Sir's conditions for the server move: 600 calls at once for at least 30
+minutes, with Server B switched off part way, and buyer concurrency still
+applied while B is off.
+
+- `scripts/loadtest/`, the test kit, explained in `docs/LOADTEST.md`.
+  - SIPp on Server A plays both the callers and the buyers, so no call leaves
+    Server A and no carrier or real buyer is involved.
+  - `setup_b.py` creates the test campaign in B's copy of the database: test
+    number `+19995550100`, buyer LT-A limited to 400 calls at once and LT-B
+    to 250. It refuses to run anywhere but Server B.
+  - `report_b.py` checks the result on B: every call is there, calls A routed
+    alone, billing, and the most calls each buyer had at once against its
+    limit.
+- Server A's fallback decides faster.
+  - It reads the journal only when a campaign, buyer or line has a cap to
+    check.
+  - It finds live calls by index instead of reading every call from the last
+    four hours.
+  - With 16,000 calls in the journal, a decision takes about 18 ms instead
+    of 176 ms. The decisions are the same.
+
+Nothing on the live server changes. The test settings are added to Server A
+for the test only and removed afterwards.

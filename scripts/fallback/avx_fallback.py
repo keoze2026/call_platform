@@ -223,6 +223,8 @@ CREATE INDEX IF NOT EXISTS calls_caller ON calls (caller, created_at);
 CREATE INDEX IF NOT EXISTS calls_campaign ON calls (campaign_id, created_at);
 CREATE INDEX IF NOT EXISTS calls_dest ON calls (dest_d10, created_at);
 CREATE INDEX IF NOT EXISTS calls_unsynced ON calls (synced, source);
+CREATE INDEX IF NOT EXISTS calls_uniqueid ON calls (uniqueid);
+CREATE INDEX IF NOT EXISTS calls_caller_key ON calls (caller_key);
 CREATE TABLE IF NOT EXISTS rr (key TEXT PRIMARY KEY, idx INTEGER);
 """
 
@@ -247,6 +249,19 @@ class Journal:
     def dials(self, since, where='', args=()):
         sql = 'SELECT * FROM calls WHERE outcome = ? AND created_at >= ?' + (f' AND {where}' if where else '')
         return self._rows(sql, ('dial', since) + tuple(args))
+
+    def live(self, since, ids, callers):
+        """Calls sent since `since` whose channel Asterisk still has (by
+        unique id, or by caller after a transfer), looked up by index."""
+        found = {}
+        for column, values in (('uniqueid', sorted(ids)), ('caller_key', sorted(c for c in callers if c))):
+            for i in range(0, len(values), 500):
+                chunk = values[i:i + 500]
+                sql = (f'SELECT * FROM calls WHERE outcome = ? AND created_at >= ? AND {column} IN '
+                       f'({",".join("?" * len(chunk))})')
+                for row in self._rows(sql, ('dial', since) + tuple(chunk)):
+                    found[row['id']] = row
+        return list(found.values())
 
     def cap_rows(self, since, generated_at, where='', args=()):
         """Calls that may not be in B's counts yet: sent since `since`, and
@@ -302,14 +317,13 @@ class Router:
             if not self._live_loaded:
                 self._live = live_channels()
                 self._live_loaded = True
-            rows = self.journal.dials(self.now - LIVE_WINDOW)
             if self._live is None:
                 # Asterisk could not be asked: every call of the last four
                 # hours counts as live, as B counts a row it has no hang-up for.
-                pass
+                rows = self.journal.dials(self.now - LIVE_WINDOW)
             else:
                 ids, callers = self._live
-                rows = [r for r in rows if r['uniqueid'] in ids or (r['caller_key'] and r['caller_key'] in callers)]
+                rows = self.journal.live(self.now - LIVE_WINDOW, ids, callers)
             self._live_rows = rows
         return self._live_rows
 
@@ -343,10 +357,14 @@ class Router:
                                  if self._new_to_b(r) and (start is None or r['created_at'] >= start))
 
     def cap_hit(self, caps, rows, order):
+        """`rows` may be a function: the journal is only read when there is
+        a cap to check."""
         for period in order:
             cap = (caps or {}).get(period)
             if not cap or cap.get('limit', 0) <= 0:
                 continue
+            if callable(rows):
+                rows = rows()
             n = self._used(cap, rows)
             if n >= cap['limit']:
                 return period, n, cap['limit']
@@ -359,8 +377,8 @@ class Router:
         return self.journal.cap_rows(self.since_plan(), self.plan.generated_at, where, args)
 
     def campaign_cap_reason(self, cid, camp):
-        rows = self.cap_rows('campaign_id = ?', (cid,))
-        hit = self.cap_hit(camp.get('caps'), rows, ('daily', 'monthly', 'global'))
+        hit = self.cap_hit(camp.get('caps'), lambda: self.cap_rows('campaign_id = ?', (cid,)),
+                           ('daily', 'monthly', 'global'))
         if hit:
             return {'daily': 'Campaign daily limit reached', 'monthly': 'Campaign monthly limit reached',
                     'global': 'Campaign total limit reached'}[hit[0]]
@@ -387,7 +405,7 @@ class Router:
                 if r['buyer_id'] in (None, '', buyer_id)]
 
     def line_cap_hit(self, buyer_id, line):
-        return self.cap_hit(line.get('caps'), self.line_rows(buyer_id, line),
+        return self.cap_hit(line.get('caps'), lambda: self.line_rows(buyer_id, line),
                             ('hourly', 'daily', 'monthly', 'global'))
 
     def line_live(self, buyer_id, buyer, line):
