@@ -8406,3 +8406,24 @@ Nothing in call handling reads or writes this cache.
 
 Tests: analytics.test_report_cache_today (7); full suite 903 OK. No
 migration. Live after a restart of web.
+
+## CH-463 - Server move guide for Server A and Server B (docs only)
+
+Sir approved two Contabo servers in US East (2 Nov): Server A, VDS XL
+(13.140.236.148), for Asterisk, Kamailio, the routing scripts and
+recordings; Server B, VDS XXL (13.140.236.153), for the portal API,
+Postgres, Redis and Celery, joined by a private WireGuard link
+(10.20.0.1 / 10.20.0.2). docs/SERVER-MOVE-IMPLEMENTATION.md is the step by
+step build for the developer setting them up: who does what, the four rules
+(never touch the current server, no Celery on B and no carrier
+registrations on A before the switch night, no secrets in chat), Server B
+and Server A setup, and the tests before any live call moves.
+
+Sir's conditions (2 Nov) are in it: Server A keeps routing when Server B is
+down, with buyer caps and concurrency still applied and every call synced
+to B for billing (the code comes in its own change); a 600-call load test of
+at least 30 minutes with B switched off part way; one test restore of a
+backup; recordings removed from A only after 7 days and only once Backblaze
+holds an identical copy.
+
+No code change. Nothing on the live server changes.
