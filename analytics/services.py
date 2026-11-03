@@ -1,6 +1,6 @@
 from django.db.models import (
     Count, Sum, Avg, Q, F, Case, When, Value,
-    FloatField, DecimalField, BooleanField, Exists, ExpressionWrapper, OuterRef,
+    FloatField, DecimalField, BooleanField, Exists, ExpressionWrapper, OuterRef, Max,
 )
 from django.db.models.functions import (
     TruncDay, TruncHour, TruncWeek, TruncMonth, Coalesce, Ceil, Cast
@@ -130,6 +130,18 @@ def publisher_converted():
         organization_id=OuterRef('organization_id'), number=OuterRef('called_number'),
         payout_on='converted'))
     return Q(is_converted=True) & (follows_buyer | ANSWERED)
+
+
+def _current_names(kind: str, ids) -> dict:
+    """CH-498: {id: name as it is now}, one query for all the rows - the name
+    kept on old calls may be an earlier one. Missing ids fall back to it."""
+    ids = [i for i in ids if i]
+    if not ids:
+        return {}
+    from django.apps import apps
+    model = {'campaign': ('campaigns', 'Campaign'), 'buyer': ('buyers', 'Buyer'),
+             'publisher': ('publishers', 'Publisher')}[kind]
+    return dict(apps.get_model(*model).objects.filter(id__in=ids).values_list('id', 'name'))
 
 
 def converted_shown(r) -> bool:
@@ -698,8 +710,14 @@ class AnalyticsService:
         rows = (
             qs
             .exclude(campaign_id=None)
-            .values('campaign_id', 'campaign_name')
+            # CH-498: one row per campaign, under its current name. Grouped by
+            # id AND the name stored on each call, a campaign renamed during the
+            # range came back as two rows with one id (OLDC11 92 calls and its
+            # old name "Test" 1); the page laid both on the same line and the
+            # second, 1, replaced the 92.
+            .values('campaign_id')
             .annotate(
+                campaign_name=Max('campaign_name'),
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
                 converted_calls=Count('id', filter=CONVERTED_VIEW),
@@ -779,6 +797,8 @@ class AnalyticsService:
         # One lookup per request, not per row.
         rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
+        rows = list(rows)
+        names = _current_names('campaign', [r['campaign_id'] for r in rows])   # CH-498
         for r in rows:
             cid = r['campaign_id']
             lc = live_counts.pop(cid, 0)
@@ -787,7 +807,7 @@ class AnalyticsService:
             result.append({
                 'campaign_id':     str(cid),
                 'avg_ttc': int(round(r['avg_ttc'] or 0)),
-                'campaign_name':   r['campaign_name'],
+                'campaign_name':   names.get(cid) or r['campaign_name'],
                 'total_calls':     total,
                 'qualified_calls': r['qualified_calls'],
                 'converted_calls': r['converted_calls'],
@@ -1141,8 +1161,14 @@ class AnalyticsService:
         rows = (
             qs
             .exclude(buyer_id=None)
-            .values('buyer_id', 'buyer_name')
+            # CH-498: one row per buyer, under its current name. Grouped by
+            # id AND the name stored on each call, a buyer renamed during the
+            # range came back as two rows with one id (OLDC11 92 calls and its
+            # old name "Test" 1); the page laid both on the same line and the
+            # second, 1, replaced the 92.
+            .values('buyer_id')
             .annotate(
+                buyer_name=Max('buyer_name'),
                 total_calls=Count('id'),
                 converted=Count('id', filter=CONVERTED_VIEW),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
@@ -1196,6 +1222,8 @@ class AnalyticsService:
         # One lookup per request, not per row.
         rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
+        rows = list(rows)
+        names = _current_names('buyer', [r['buyer_id'] for r in rows])   # CH-498
         for r in rows:
             bid = r['buyer_id']
             lc = live_counts.pop(bid, 0)
@@ -1204,7 +1232,7 @@ class AnalyticsService:
             result.append({
                 'buyer_id':       str(bid),
                 'avg_ttc': int(round(r['avg_ttc'] or 0)),
-                'buyer_name':     r['buyer_name'],
+                'buyer_name':     names.get(bid) or r['buyer_name'],
                 'total_calls':    total,
                 'won_calls':      r['converted'],
                 'avg_bid':        r['avg_bid'],
@@ -1266,8 +1294,14 @@ class AnalyticsService:
         rows = (
             qs
             .exclude(publisher_id=None)
-            .values('publisher_id', 'publisher_name')
+            # CH-498: one row per publisher, under its current name. Grouped by
+            # id AND the name stored on each call, a publisher renamed during the
+            # range came back as two rows with one id (OLDC11 92 calls and its
+            # old name "Test" 1); the page laid both on the same line and the
+            # second, 1, replaced the 92.
+            .values('publisher_id')
             .annotate(
+                publisher_name=Max('publisher_name'),
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
                 converted=Count('id', filter=CONVERTED_VIEW),
@@ -1322,6 +1356,8 @@ class AnalyticsService:
         # One lookup per request, not per row.
         rate, markup = AnalyticsService._billing_rate(user.organization)
         result = []
+        rows = list(rows)
+        names = _current_names('publisher', [r['publisher_id'] for r in rows])   # CH-498
         for r in rows:
             pid = r['publisher_id']
             lc = live_counts.pop(pid, 0)
@@ -1330,7 +1366,7 @@ class AnalyticsService:
             result.append({
                 'publisher_id':    str(pid),
                 'avg_ttc': int(round(r['avg_ttc'] or 0)),
-                'publisher_name':  r['publisher_name'],
+                'publisher_name':  names.get(pid) or r['publisher_name'],
                 'total_calls':     total,
                 'qualified_calls': r['qualified_calls'],
                 'converted_calls': r['converted'],

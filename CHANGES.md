@@ -9078,3 +9078,23 @@ workspace", while no ZZY was in the list. Deleting a buyer only archives it
 
 Tests: `buyers/test_reuse_deleted_name.py`. Frontend: CH-494 FRONTEND adds a
 Priority field to Add Destination.
+
+## CH-498 - Reports: a renamed publisher, campaign or buyer is one row with all its calls (BACKEND)
+
+Seen 3 Nov: "Nov 3 data is missing under reporting". Publisher OLDC11 had 92
+calls today, but Reports showed OLDC11 with 1. One of its calls was saved
+when the publisher was still called "Test", so the summary came back as two
+rows with the same id (OLDC11 and Test with 1) and the Reports page kept the
+last one.
+No call was lost.
+
+- The same split made a filtered report wrong in Live, Connected and Not
+  Connected too (Sir's screenshot: OLDC11 Live 0, Incoming 1 while five of
+  its calls were live): the live calls went to the first of the two rows and
+  the page showed the other.
+- The campaign, buyer and publisher summaries are now grouped by id only:
+  one row each, under its **current** name, counting every call, live ones
+  included.
+- The names are looked up in one query per summary (no slower).
+
+Tests: `analytics/test_renamed_entity_one_row.py`. Frontend: CH-498 FRONTEND.
