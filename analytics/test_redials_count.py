@@ -52,6 +52,17 @@ class RedialCountTests(TestCase):
         self.assertEqual((c['daily'], c['global']), (4, 4))   # 2 answered + 2 redials, no refusal
         self.assertEqual(CallLog.objects.filter(counted_q()).count(), 4)
 
+    def test_caps_count_one_per_caller_call(self):
+        # CH-511: shown 4 rings, but the cap counts the 2 caller calls.
+        from buyers.caps import buyer_cap_hit, destination_cap_hit
+        from buyers.models import BuyerCap
+        line = Destination.objects.get(tfn=TFN)
+        line.daily_cap = 3
+        line.save()
+        self.assertIsNone(destination_cap_hit(line))
+        cap = BuyerCap.objects.create(buyer=self.p30, max_calls_daily=3)
+        self.assertIsNone(buyer_cap_hit(self.p30, cap))
+
     def get(self, path, user=None, key=None):
         if key:
             c = Client(HTTP_X_API_KEY=key, HTTP_AUTHORIZATION=f'Bearer {key}')

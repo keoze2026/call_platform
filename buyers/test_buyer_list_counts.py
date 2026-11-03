@@ -56,14 +56,15 @@ class BuyerListCountsTests(TestCase):
         self.call(revenue=Decimal('1.50'))
         self.call(revenue=Decimal('2.00'))
         self.call(block_reason='No Destination')          # refused: never sent
-        self.call(retry_hidden=True)                        # a redial: it rang the TFN (CH-504)
+        self.call(retry_hidden=True)                        # a redial: one per caller call (CH-511)
         before = self.call(revenue=Decimal('9.00'))         # yesterday evening, Eastern
         midnight = timezone.localtime(timezone.now(), ET).replace(hour=0, minute=0, second=0, microsecond=0)
         CallLog.objects.filter(pk=before.pk).update(created_at=midnight - timedelta(hours=1))
 
         row = self.row()
-        self.assertEqual(row['calls_today'], 3)
+        self.assertEqual(row['calls_today'], 2)
         self.assertEqual(Decimal(row['spend_today']), Decimal('3.50'))
-        self.assertEqual(row['calls_global'], 4)
-        self.assertEqual((row['daily_cap'], row['cap_used_today']), (150, 3))
+        self.assertEqual(row['calls_global'], 3)
+        # CH-511: the cap meter counts one per caller call, not the redial.
+        self.assertEqual((row['daily_cap'], row['cap_used_today']), (150, 2))
         self.assertEqual((row['tfn_count'], row['tfn_cap_total'], row['tfn_uncapped']), (3, 50, 1))

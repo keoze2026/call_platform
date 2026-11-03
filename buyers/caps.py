@@ -40,6 +40,15 @@ def counted_q():
     return ~Q(block_reason=NO_DESTINATION)
 
 
+def cap_q():
+    """What a cap counts (CH-511, Sir 4 Nov): one per caller call - not a
+    sender's redial of a call already counted, not a "No Destination"
+    refusal. CH-504 made caps count every ring too, and MXX was full at 46/40
+    after 16 real calls (30 redials) and stopped taking calls. Every ring is
+    still SHOWN (counted_q): the Destinations page, the bot API."""
+    return Q(retry_hidden=False) & ~Q(block_reason=NO_DESTINATION)
+
+
 def own_calls_q(d):
     """Calls on destination `d`: its number, and its buyer (or none recorded).
     One TFN can be on several buyers (CH-392); each counts its own."""
@@ -75,7 +84,7 @@ def destination_cap_hit(d, now=None):
         return None
     hour_ago, day_start, month_start = windows(d.timezone, now)
     since = {'hourly': hour_ago, 'daily': day_start, 'monthly': month_start, 'global': None}
-    base = CallLog.objects.filter(organization_id=d.organization_id).filter(own_calls_q(d)).filter(counted_q())
+    base = CallLog.objects.filter(organization_id=d.organization_id).filter(own_calls_q(d)).filter(cap_q())
     for period, cap in caps:
         if not cap or cap <= 0:
             continue
@@ -100,7 +109,7 @@ def buyer_cap_hit(buyer, cap, now=None):
         return None
     _, day_start, month_start = windows(getattr(buyer, 'timezone', '') or DEFAULT_TZ, now)
     since = {'daily': day_start, 'monthly': month_start}
-    base = CallLog.objects.filter(buyer=buyer).exclude(destination_number='').filter(counted_q())
+    base = CallLog.objects.filter(buyer=buyer).exclude(destination_number='').filter(cap_q())
     for period, limit in limits:
         if not limit or limit <= 0:
             continue
@@ -136,8 +145,12 @@ def buyer_usage(organization, buyer_ids, now=None) -> dict:
                'daily_cap': 0, 'monthly_cap': 0, 'cap_used_today': 0, 'cap_used_month': 0,
                'tfn_count': 0, 'tfn_cap_total': 0, 'tfn_uncapped': 0} for b in buyer_ids}
 
+    # CH-511 (Sir, 4 Nov: "How is it showing 158 on Q06?"): the Buyers page
+    # counts one per caller call, as its cap and as Reports' Buyer tab do.
+    # With every ring it read Q06 158 against 15 calls in Reports.
     sent = CallLog.objects.filter(organization=organization, buyer_id__in=buyer_ids) \
-        .exclude(destination_number='').filter(counted_q())
+        .exclude(destination_number='').filter(cap_q())
+    capped = sent
     for r in sent.values('buyer_id').annotate(
             calls_hourly=Count('id', filter=Q(created_at__gte=hour_ago)),
             calls_today=Count('id', filter=Q(created_at__gte=day_start)),
@@ -158,16 +171,16 @@ def buyer_usage(organization, buyer_ids, now=None) -> dict:
         cap, row = caps[b.id], out[b.id]
         row['daily_cap'] = cap.max_calls_daily or 0
         row['monthly_cap'] = cap.max_calls_monthly or 0
-        if (b.timezone or DEFAULT_TZ) == DEFAULT_TZ:
-            row['cap_used_today'], row['cap_used_month'] = row['calls_today'], row['calls_month']
-        else:
-            _, d0, m0 = windows(b.timezone, now)
-            mine = sent.filter(buyer_id=b.id)
-            row['cap_used_today'] = mine.filter(created_at__gte=d0).count()
-            row['cap_used_month'] = mine.filter(created_at__gte=m0).count()
+        # CH-511: how far into its cap, counted as the cap counts (cap_q).
+        _, d0, m0 = windows(b.timezone or DEFAULT_TZ, now)
+        mine = capped.filter(buyer_id=b.id)
+        row['cap_used_today'] = mine.filter(created_at__gte=d0).count()
+        row['cap_used_month'] = mine.filter(created_at__gte=m0).count()
     for b, row in out.items():
         if b not in caps:
-            row['cap_used_today'], row['cap_used_month'] = row['calls_today'], row['calls_month']
+            mine = capped.filter(buyer_id=b)
+            row['cap_used_today'] = mine.filter(created_at__gte=day_start).count()
+            row['cap_used_month'] = mine.filter(created_at__gte=month_start).count()
 
     # Its live TFNs and their daily caps, for the cap breakdown.
     for r in Destination.objects.filter(organization=organization, buyer_id__in=buyer_ids, enabled=True) \

@@ -9177,3 +9177,26 @@ counted them; the Destinations page and Reports did not.
 Needs `docker compose restart web web_calls` (caps are read when routing).
 Tests: `analytics/test_redials_count.py`; `buyers/test_destination_caps.py`
 and `buyers/test_buyer_list_counts.py` updated. BUSINESS-RULES.md 3.3.
+
+## CH-511 - Caps count one per caller call again (BACKEND)
+
+Sir, 4 Nov: "Buyer Cap data wrong". Since CH-504 the caps counted every ring,
+a sender's redials included: MXX showed 46/40 "Cap Hit" with 16 real calls
+(30 redials) and stopped taking calls; JJR 11/9 with 2; Q06 158/108 with 15.
+CH-504 was about SHOWING every ring on a TFN; applying it to the caps was a
+mistake.
+
+- New `buyers.caps.cap_q`: one per caller call (not a redial, not a "No
+  Destination" refusal). Buyer and destination caps, the Buyers page cap
+  meter (cap used today / month) and Server A's backup copy of the caps use
+  it - as before CH-504.
+- The Buyers page's calls (hour / today / month / all time) count the same
+  way, so they match Reports' Buyer tab: Q06 read 158 there against 15 calls
+  in Reports (15 calls + 143 redials of the same callers, all on Q06|4220| and
+  Q06|7220|, none answered).
+- Unchanged: the Destinations page counters and the bot API still show every
+  ring on a TFN (`counted_q`).
+- Needs `docker compose restart web web_calls` (caps are read when routing).
+
+Tests: `buyers/test_destination_caps.py`, `buyers/test_buyer_list_counts.py`,
+`analytics/test_redials_count.py`. BUSINESS-RULES.md 3.3.

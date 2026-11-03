@@ -93,11 +93,13 @@ class DestinationCapTests(TestCase):
         self.line_a.refresh_from_db()
         self.assertEqual(format_destination(self.line_a)['daily_calls'], 2)
 
-    def test_refusals_do_not_count_redials_do(self):
-        # CH-504: a "No Destination" refusal never rang the line; a sender's
-        # redial did, and counts as any other ring.
+    def test_refusals_and_redials_do_not_fill_a_cap(self):
+        # CH-511 (Sir, 4 Nov): a cap counts one per caller call. A refusal
+        # never rang the line; a sender's redial is the same caller's call
+        # again (MXX was "full" at 46/40 with 16 real calls).
         self.past(A, self.r48, block_reason='No Destination')
         self.past(A, self.r48, retry_hidden=True)
+        self.past(A, self.r48)
         self.assertIsNone(destination_cap_hit(self.line_a))
         self.past(A, self.r48)
         self.assertEqual(destination_cap_hit(self.line_a), 'daily cap 2/2')

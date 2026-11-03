@@ -100,7 +100,7 @@ def _campaign_caps(campaign, now):
 
 def _buyer_caps(buyer, now):
     """buyers.caps.buyer_cap_hit, as numbers."""
-    from buyers.caps import DEFAULT_TZ, counted_q, windows
+    from buyers.caps import DEFAULT_TZ, cap_q, windows
     try:
         cap = buyer.cap
     except Exception:
@@ -109,7 +109,7 @@ def _buyer_caps(buyer, now):
     if not any((c or 0) > 0 for _, c in limits):
         return {}
     _, day_start, month_start = windows(getattr(buyer, 'timezone', '') or DEFAULT_TZ, now)
-    base = CallLog.objects.filter(buyer=buyer).exclude(destination_number='').filter(counted_q())
+    base = CallLog.objects.filter(buyer=buyer).exclude(destination_number='').filter(cap_q())
     out = {}
     if (cap.max_calls_daily or 0) > 0:
         out['daily'] = _cap(cap.max_calls_daily, base.filter(created_at__gte=day_start).count(),
@@ -122,13 +122,13 @@ def _buyer_caps(buyer, now):
 
 def _destination_caps(d, now):
     """buyers.caps.destination_cap_hit, as numbers."""
-    from buyers.caps import counted_q, own_calls_q, windows
+    from buyers.caps import cap_q, own_calls_q, windows
     caps = (('hourly', d.hourly_cap), ('daily', d.daily_cap),
             ('monthly', d.monthly_cap), ('global', d.global_cap))
     if not any((c or 0) > 0 for _, c in caps) or not d.tfn:
         return {}
     hour_ago, day_start, month_start = windows(d.timezone, now)
-    base = CallLog.objects.filter(organization_id=d.organization_id).filter(own_calls_q(d)).filter(counted_q())
+    base = CallLog.objects.filter(organization_id=d.organization_id).filter(own_calls_q(d)).filter(cap_q())
     out = {}
     if (d.hourly_cap or 0) > 0:
         out['hourly'] = _cap(d.hourly_cap, base.filter(created_at__gte=hour_ago).count(),
