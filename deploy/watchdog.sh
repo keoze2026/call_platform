@@ -123,6 +123,22 @@ ${body}
     fi
 }
 
+# CH-470: the daily settings backup (scripts/config_backup_b2.py). Checked
+# only once it has run here at least once, so a server without it stays quiet.
+CONFIG_BACKUP_STATE="${CONFIG_BACKUP_STATE:-/var/lib/avortyx/config_backup_last.json}"
+check_config_backup() {
+    [ -f "$CONFIG_BACKUP_STATE" ] || return 0
+    local at age
+    at=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1])).get('last_ok', {}).get('at', 0))" \
+         "$CONFIG_BACKUP_STATE" 2>/dev/null)
+    age=$(( $(date -u +%s) - ${at:-0} ))
+    if [ "$age" -gt 129600 ]; then
+        alert config_backup "🟠" "Settings Backup Overdue" "The AVORTYX ${SERVER_NAME} settings backup has not completed for over 36 hours. Calls are not affected. Our team has been notified."
+    else
+        clear_alert config_backup "Settings Backup Restored" "The AVORTYX ${SERVER_NAME} settings backup is completing again. It was overdue for {dur}."
+    fi
+}
+
 # "1 minute", "27 minutes", "3 hours 10 minutes".
 duration() {
     local m="$1"
@@ -209,6 +225,7 @@ if [ "$ROLE" = "calls" ]; then
     else
         clear_alert disk "Storage Normal" "AVORTYX ${SERVER_NAME} storage is back to ${used}% and operating normally. The warning lasted {dur}."
     fi
+    check_config_backup
     echo "$(date -u +%FT%TZ) ok role=calls portal_link=$b down=${down:-none} disk=${used}%"
     exit 0
 fi
@@ -329,6 +346,7 @@ if [ "${used:-0}" -ge 85 ]; then
 else
     clear_alert disk "Storage Normal" "AVORTYX ${SERVER_NAME} storage is back to ${used}% and operating normally. The warning lasted {dur}."
 fi
+check_config_backup
 
 # ── 8. a daily heartbeat ─────────────────────────────────────────────────────
 # So silence means "nothing is wrong", not "the watchdog died".

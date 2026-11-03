@@ -8650,3 +8650,46 @@ test number's calls use it; live calls are unchanged.
 - A's test routing and hang-up report reaching the test copy and never the
   live one;
 - the test dial plan.
+
+## CH-470 - Daily settings backup of both servers to Backblaze (BACKEND)
+
+Since the move, Server A is the only server the carriers send calls to, and
+the carriers accept one IP only. Its settings were nowhere else: if A were
+lost, its phone system would have had to be set up again from memory. The
+database and recordings were already backed up; the servers' settings were
+not.
+
+`scripts/config_backup_b2.py` runs daily on each server (04:40 server
+time). It packs that server's settings into one file:
+- Asterisk, Kamailio, nginx and SSL certificates;
+- WireGuard, firewall, Fail2Ban and SSH;
+- systemd units and overrides;
+- the routing scripts and the fallback code;
+- `.env`, `docker-compose.override.yml`, crontabs, root's small scripts;
+- Asterisk's own database (cancel-hold and other keys), copied safely while
+  Asterisk runs;
+- `rebuild-info.txt`: versions, every installed package, firewall rules, IPs,
+  enabled services and crontabs.
+
+It then:
+- reads the file back to check it is complete;
+- uploads it to B2 as `backups/config/<server>-<UTC time>.tar.gz`, with B2
+  checking the SHA-1;
+- keeps the last 14 on the server.
+
+It stays in the private bucket with the database backups. The recordings
+link can only reach `recordings/`. A path that does not exist on a server is
+skipped, so the same script serves A and B. It only reads and restarts
+nothing. `--status`, `--list` and `--fetch` show and download backups.
+
+- The watchdog (`deploy/watchdog.sh`, both roles) sends "Settings Backup
+  Overdue" when no good backup is newer than 36 hours. This starts once the
+  backup has run on that server.
+- `docs/SERVER-REBUILD.md`: rebuilding Server A or B from a backup. Server A
+  is reinstalled on the same server so it keeps `13.140.236.148`.
+- Tests: `routing/test_config_backup.py` covers:
+  - what goes in and what is skipped (missing paths, special files, dumps
+    and large files in /root);
+  - the Asterisk database copy;
+  - the upload check, the failure record and the 14 kept;
+  - the watchdog check.
