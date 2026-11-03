@@ -5,6 +5,7 @@ Server-to-server calls (no JWT auth). Secured by a shared secret header.
 import hmac
 import json
 import re
+import time
 import logging
 import uuid
 from datetime import datetime, timezone as dt_timezone
@@ -35,10 +36,26 @@ NOT_CONNECTED_LABEL = 'Not Connected'
 NO_ANSWER_LABEL = 'No Answer'
 
 
+# CH-473: when the previous secret was last accepted. The last step of a
+# secret change refuses while anything still uses the old one.
+PREVIOUS_SECRET_USED_KEY = 'asterisk_secret_previous_used'
+
+
 def _check_secret(request):
     secret = request.headers.get('X-Asterisk-Secret', '')
+    if not secret:
+        return False
     expected = getattr(settings, 'ASTERISK_SHARED_SECRET', '')
-    return bool(secret and expected and hmac.compare_digest(secret, expected))
+    if expected and hmac.compare_digest(secret, expected):
+        return True
+    previous = getattr(settings, 'ASTERISK_SHARED_SECRET_PREVIOUS', '')
+    if previous and hmac.compare_digest(secret, previous):
+        try:
+            cache.set(PREVIOUS_SECRET_USED_KEY, time.time(), 7 * 86400)
+        except Exception:  # noqa: BLE001 - a cache fault never refuses a call
+            pass
+        return True
+    return False
 
 
 _LIVE_STATUSES = (CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS)

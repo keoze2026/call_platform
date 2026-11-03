@@ -573,6 +573,10 @@ CAPITALIST_SECRET = config('CAPITALIST_SECRET', default='')
 
 
 ASTERISK_SHARED_SECRET = config('ASTERISK_SHARED_SECRET', default='')
+# CH-473: while the secret is being changed, Server B also accepts the one
+# before it, so no call fails between switching B and switching Server A.
+# Empty outside a change (scripts/rotate_asterisk_secret.py).
+ASTERISK_SHARED_SECRET_PREVIOUS = config('ASTERISK_SHARED_SECRET_PREVIOUS', default='')
 
 # TFN test call (CH-175). The manager link lets the platform place one outbound
 # call from our own Asterisk to a tracking number. Empty host = switched off,

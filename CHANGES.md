@@ -8778,3 +8778,45 @@ server.
   - A posting its report, B not answering, and each server finding its own
     IP.
   The 49 existing status and watch tests pass unchanged.
+
+## CH-473 - Change the shared secret between the servers without a refused call (BACKEND)
+
+The shared secret is still the one from the old server. Every call Server A
+routes, every hang-up report, the backup sync, the channel sync, the host
+report and the cancel-hold relay's held-answer report carry it. Changing it
+on one server before the other would refuse calls until both match.
+
+- `routing/asterisk_handler.py`, `_check_secret`: while a change is under
+  way, Server B also accepts `ASTERISK_SHARED_SECRET_PREVIOUS`, and records
+  when it was last used. Outside a change that setting is empty and nothing
+  is different.
+- `scripts/rotate_asterisk_secret.py`, step by step:
+  - **Server B, `stage`:** generates the new secret (secure random, never
+    printed). B accepts the old and the new one, and the new one goes to
+    `/root/asterisk_secret.new`, root only.
+  - **PC:** copies that file from B to A.
+  - **Server A, `apply`:** first checks that B takes the new secret, then
+    switches the routing script, hang-up reports and syncs at once.
+  - **Server A, `kamailio`:** switches the cancel-hold relay's config, and
+    restarts Kamailio only while no call is up.
+  - **Server B, `finish`:** B stops accepting the old secret. Refused while
+    anything used it in the last 15 minutes.
+  - `status` on either server shows where the change stands, without the
+    secret.
+  - Each file is backed up under /root first, and each step refuses on the
+    wrong server.
+  - Server B's containers are recreated, not restarted, because compose
+    reads `.env` only when a container is created.
+- The relay's held-answer address: Server A's Kamailio config came from the
+  old server, where the endpoint was on the same machine
+  (`127.0.0.1:8000`). On Server A nothing answers there. The `kamailio` step
+  points it at Server B (`10.20.0.2:8001`), where the endpoint is, and says
+  so. Answers caught during the cancel hold are then recorded again.
+- Tests: `routing/test_secret_rotation.py` covers:
+  - B accepting old and new, and recording use of the old one;
+  - refusals;
+  - `.env` and relay-config edits that keep everything else;
+  - the whole change, step by step, with the secret never printed;
+  - the relay left alone while calls are up;
+  - "finish" waiting for the old secret to fall silent;
+  - each step on the right server only.
