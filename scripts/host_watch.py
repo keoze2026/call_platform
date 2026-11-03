@@ -303,8 +303,12 @@ def check_services(r):
     for svc, info in _container_info().items():
         label = dict(CONTAINERS).get(svc, svc)
         now[f'docker:{svc}'] = {'label': label, 'ok': info['state'] == 'running', 'started': info['started']}
-    cap = bool(sh("pgrep -f '[t]cpdump.*sipcap'").strip())
-    now['capture'] = {'label': 'Packet capture', 'ok': cap, 'started': ''}
+    # CH-474: the SIP capture runs where the phone system is (Server A). The
+    # portal server has no Asterisk and no capture; checking it there
+    # reported "Packet capture down" every 15 minutes.
+    if 'asterisk' in now:
+        cap = bool(sh("pgrep -f '[t]cpdump.*sipcap'").strip())
+        now['capture'] = {'label': 'Packet capture', 'ok': cap, 'started': ''}
     for key, cur in now.items():
         before = seen.get(key)
         if before:

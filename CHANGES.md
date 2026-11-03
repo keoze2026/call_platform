@@ -8820,3 +8820,16 @@ on one server before the other would refuse calls until both match.
   - the relay left alone while calls are up;
   - "finish" waiting for the old secret to fall silent;
   - each step on the right server only.
+
+## CH-474 - No false "Packet capture down" alert on the portal server (BACKEND)
+
+Since CH-472 the security watch runs on both servers. It checked for the SIP
+packet capture on each, but the capture only exists where the phone system
+is: Server A. On Server B (`avx-web`) it found none, and sent "Service down:
+Packet capture" every 15 minutes, a false alarm.
+
+- `scripts/host_watch.py`, `check_services`: the capture is checked only on
+  a server where Asterisk is installed. On Server B the alert stops by
+  itself at the next minute's run. Server A still alerts if its capture
+  stops.
+- Test: `support/test_host_watch.py`, `CaptureCheckTests`.

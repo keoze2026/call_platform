@@ -254,3 +254,43 @@ class FirewallAlertTests(SimpleTestCase):
         self.assertIn('• Blocked by Fail2Ban: <code>195.178.110.232</code>', sent[0])
         self.assertIn('• Ban removed: <code>201.139.186.238</code>', sent[0])
         self.assertIn('Both actions followed 3 failed attempts.', sent[0])
+
+
+class CaptureCheckTests(SimpleTestCase):
+    """CH-474: the SIP capture is checked only on the server with Asterisk."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.sent = []
+
+    def watch(self):
+        hw = load()
+        hw.STATE = os.path.join(self.tmp, f'state-{len(os.listdir(self.tmp))}.json')
+        hw.LOCK = hw.STATE + '.lock'
+        hw.telegram = lambda text: self.sent.append(text) or True
+        return hw
+
+    def services_on(self, installed, capture_running):
+        """check_services on a server with these systemd units and no containers."""
+        hw = self.watch()
+        def sh(cmd, timeout=10):
+            for unit in installed:
+                if cmd in (f'systemctl is-active {unit}', f'systemctl cat {unit} 2>/dev/null'):
+                    return 'active\n'
+            if cmd.startswith('systemctl show'):
+                return 'Tue 2026-11-03 10:00:00 CET\n'
+            if 'pgrep' in cmd:
+                return '123\n' if capture_running else ''
+            return ''
+        hw.sh = sh
+        hw._container_info = lambda: {}
+        self.hw = hw
+        return [s['label'] for s in hw.run(checks=[hw.check_services])['services']]
+
+    def test_capture_checked_only_where_asterisk_runs(self):
+        """CH-474: the portal server has no SIP capture; it is not a service down there."""
+        labels = self.services_on(['nginx', 'docker', 'fail2ban', 'cron'], capture_running=False)
+        self.assertNotIn('Packet capture', labels)
+        self.hw.run(checks=[self.hw.check_services])          # a second look: still nothing to report
+        self.assertEqual(self.sent, [])
+        self.assertIn('Packet capture', self.services_on(['asterisk', 'kamailio', 'nginx'], capture_running=True))
