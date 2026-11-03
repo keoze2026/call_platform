@@ -39,6 +39,17 @@ def to_e164(number) -> str:
     return '+' + d if d else ''
 
 
+def same_line(row, key, buyer_id) -> bool:
+    """CH-483: a group line is a number AND its buyer. One TFN can be live
+    under several buyers (CH-392), and the group keyed lines by the number
+    alone: a second buyer's line on a number already in the campaigns never
+    showed, and could not be added ("already in every campaign"). With no
+    buyer given, every row on the number matches, as before."""
+    if digits_key(row.destination) != key:
+        return False
+    return buyer_id is None or str(row.buyer_id or '') == str(buyer_id)
+
+
 def campaign_rule(campaign, create=False, user=None):
     """The rule the campaign page shows: first active by priority, else first."""
     from routing.models import RoutingRule
@@ -68,7 +79,7 @@ def group_destinations(group):
         if not rule:
             continue
         for d in rule.destinations.select_related('buyer').all():
-            k = digits_key(d.destination)
+            k = (digits_key(d.destination), str(d.buyer_id or ''))   # CH-483: per buyer
             line = lines.setdefault(k, {'number': to_e164(d.destination) or d.destination,
                                         'buyer_id': str(d.buyer_id) if d.buyer_id else None,
                                         'buyer_name': d.buyer.name if d.buyer_id else '', 'campaigns': []})
@@ -159,6 +170,11 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
         raise ValueError('Nothing to change: give a priority, weight, rate or Convert ON')
 
     buyer = None
+    if action != ADD and buyer_id:
+        from buyers.models import Buyer
+        buyer = Buyer.objects.filter(id=buyer_id, organization=user.organization).first()
+        if buyer is None:
+            raise ValueError('Buyer not found')
     if action == ADD:
         from buyers.destination import Destination
         from buyers.models import Buyer
@@ -182,7 +198,8 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
     with transaction.atomic():
         for c in campaigns:
             rule = campaign_rule(c, create=action == ADD, user=user)
-            rows = [d for d in (rule.destinations.all() if rule else []) if digits_key(d.destination) == key]
+            rows = [d for d in (rule.destinations.all() if rule else [])
+                    if same_line(d, key, buyer.id if buyer else None)]
             others = _in_other_rules(c, rule, key)
             note = ' · also in an advanced routing plan (left as is)' if others else ''
             row = {'campaign_id': str(c.id), 'campaign_name': c.name, 'group': c.group.name}
@@ -234,7 +251,7 @@ def apply_many(user, group_ids, action, items, priority=None, weight=None, **bil
     items = [i for i in (items or []) if digits_key((i or {}).get('number'))]
     if not items:
         raise ValueError('Pick at least one destination')
-    keys = [digits_key(i['number']) for i in items]
+    keys = [(digits_key(i['number']), str(i.get('buyer_id') or '')) for i in items]
     if len(set(keys)) != len(keys):
         raise ValueError('The same destination is picked twice')
     out = {'action': action, 'numbers': [], 'groups': [], 'results': [], 'changed': 0, 'campaigns': 0}
@@ -295,7 +312,8 @@ def set_line(user, group, number, campaigns, buyer_id=None, **billing):
     for c in members.values():
         rule = campaign_rule(c)
         if rule:
-            existing += [d for d in rule.destinations.select_related('buyer').all() if digits_key(d.destination) == key]
+            existing += [d for d in rule.destinations.select_related('buyer').all()
+                         if same_line(d, key, buyer_id or None)]
     given = _billing(billing, required=False)
     buyer = None
     if buyer_id:
@@ -327,7 +345,8 @@ def set_line(user, group, number, campaigns, buyer_id=None, **billing):
     with transaction.atomic():
         for c, included, fields in wanted:
             rule = campaign_rule(c, create=included, user=user)
-            rows = [d for d in (rule.destinations.all() if rule else []) if digits_key(d.destination) == key]
+            rows = [d for d in (rule.destinations.all() if rule else [])
+                    if same_line(d, key, buyer.id if buyer else None)]
             note = ' · also in an advanced routing plan (left as is)' if _in_other_rules(c, rule, key) else ''
             row = {'campaign_id': str(c.id), 'campaign_name': c.name, 'group': group.name}
             if included and not rows:

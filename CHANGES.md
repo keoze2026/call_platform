@@ -9003,3 +9003,24 @@ the header off the database.
   Staff of one role share it; each buyer and publisher has its own.
 
 Tests: `analytics/test_header_cache.py`.
+
+## CH-483 - Campaign group: the same TFN under two buyers is two lines (BACKEND)
+
+Campaign team (3 Nov): "All TFNs are not showing and coming in camp group" -
+CRM's +18444974105 and +18444832599 (1 CC, 10 caps each) could not be added to
+the group's campaigns.
+
+One TFN can be live under several buyers (CH-392), but the campaign group
+treated a line as its number alone (CH-415): with Q08 already on
++18444974105 in every campaign, CRM's line on the same number was "already
+in every campaign", could not be picked, and never showed.
+
+- `campaigns/groups.py`: a group line is the number **and** its buyer
+  (`same_line`). The group's list shows one line per buyer; add, change,
+  remove and the per-campaign editor touch only the buyer's own rows when the
+  buyer is given (the portal always sends it). Without a buyer, every row on
+  the number is matched, as before.
+- Bulk add: the same number for two different buyers is no longer refused as
+  "picked twice".
+
+Tests: `campaigns/test_group_same_tfn.py`. Frontend: CH-483 FRONTEND.
