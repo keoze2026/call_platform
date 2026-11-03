@@ -265,13 +265,21 @@ def _removal_needs_delete(user, number_id, *, detach=False, campaign_id=None, st
 def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'tracking-numbers', 'edit')
-    require(request.auth, Capability.EDIT)
+    import json as _json
     try:
-        import json as _json
-        try:
-            body = _json.loads(request.body)
-        except Exception:
-            body = {}
+        body = _json.loads(request.body)
+    except Exception:
+        body = {}
+    # CH-492: a publisher login with Play/Pause TFNs on may switch its own
+    # numbers off and on - that change and nothing else. get_number below only
+    # finds the publisher's own numbers, so another publisher's is "not found".
+    from accounts.partner_permissions import PAUSE_NUMBERS, partner_allows
+    on_off_only = (isinstance(body, dict) and set(body) == {'status'}
+                   and body.get('status') in ('active', 'paused'))
+    if not (getattr(request.auth, 'role', '') == 'publisher' and on_off_only
+            and partner_allows(request.auth, PAUSE_NUMBERS)):
+        require(request.auth, Capability.EDIT)
+    try:
         # If campaign_id explicitly sent as null, detach
         if 'campaign_id' in body and body['campaign_id'] is None:
             data._detach_campaign = True

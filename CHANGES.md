@@ -9046,3 +9046,20 @@ see it again.
 
 Tests: `accounts/test_active_bots.py` (`CopyKeyTests`). Frontend: CH-490
 FRONTEND adds the Copy key button.
+
+## CH-492 - Publisher access: Play/Pause TFNs (BACKEND)
+
+Asked 3 Nov: "Under Publisher Permission give an option to play pause
+publishers' TFNs so they can do that if permission granted."
+
+- New switch on each publisher's access page, **Play/Pause TFNs**
+  (`pause_numbers`), off by default. With it on, the publisher's own login
+  may switch its own tracking numbers off and on (`PATCH /api/numbers/{id}`
+  with only `status` = `paused` / `active`).
+- Nothing else: any other change to a number still needs Manage Traffic, a
+  number can never be released this way, and another publisher's number is
+  "not found".
+- A paused TFN takes no calls (Server A's backup routing follows within
+  seconds, CH-471).
+
+Tests: `phone_numbers/test_publisher_pause.py`. Frontend: CH-492 FRONTEND.

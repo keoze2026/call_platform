@@ -53,6 +53,9 @@ PAUSE_DESTINATIONS = 'pause_destinations'
 SET_CONCURRENCY = 'set_concurrency'
 SET_CAPS = 'set_caps'
 HANG_UP_CALLS = 'hang_up_calls'
+# CH-492 (3 Nov): a publisher's own login may switch its own TFNs off and on,
+# when the main account switches this on. Off by default.
+PAUSE_NUMBERS = 'pause_numbers'
 
 PERMISSIONS = [
     {
@@ -122,6 +125,12 @@ PERMISSIONS = [
         'description': 'Users can download reports about their call activity.',
         # CH-449 (Sir, 31 Oct): "Publisher or buyer cannot download report
         # unless it's on by main account". Off until the admin switches it on.
+        'default': False,
+    },
+    {
+        'key': PAUSE_NUMBERS,
+        'label': 'Play/Pause TFNs',
+        'description': 'Switch their own tracking numbers off and on.',
         'default': False,
     },
     {
