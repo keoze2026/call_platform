@@ -201,16 +201,6 @@ def call_log(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     return 200, data
 
 
-@router.get("/redials", response={200: dict})
-def redials(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
-    """CH-504: the sender's redials that rang a TFN, for the Reports page's
-    Destination and Buyer tabs (one row per redial; never billed)."""
-    from accounts.workspace_permissions import require_perm
-    require_perm(request.auth, 'reporting', 'view')
-    require_reports_unlock(request, filters)
-    return 200, {'items': AnalyticsService.get_redials(request.auth, filters)}
-
-
 @router.get("/report-stamp", response={200: dict})
 def report_stamp(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...)):
     """CH-219: a fingerprint of the report's calls and the server time. The

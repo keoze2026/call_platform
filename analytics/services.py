@@ -385,37 +385,6 @@ class AnalyticsService:
         return qs
 
     @staticmethod
-    def get_redials(user: User, filters) -> list:
-        """CH-504 (Sir, 3 Nov): the sender's redials that rang a TFN.
-
-        A redial is kept as a hidden try (CH-215) so the Call Log and the
-        campaign / publisher totals show one row per caller call. But it rang
-        the buyer's TFN, and Sir: "It doesn't matter if the call is missed or
-        answered - if it's missed on the destination it counts everywhere ...
-        because the incoming is there on that TFN". The Reports page adds
-        these to its Destination and Buyer tabs (and their Excel), as the
-        Destinations page and the bot API count them. Never billed: no revenue,
-        no payout. A "No Destination" refusal never rang the line: left out.
-        """
-        qs = (AnalyticsService._calllog_range_qs(user, filters)
-              .filter(retry_hidden=True).exclude(destination_number='')
-              .exclude(block_reason='No Destination')
-              .select_related('campaign', 'buyer', 'publisher').order_by('-created_at'))
-        rows = []
-        for r in qs[:5000]:
-            row = AnalyticsService._format_live_log(r)
-            row.update({
-                'status': r.status,
-                'block_reason': r.block_reason or '',
-                'is_redial': True,
-                'is_converted': False,
-                'revenue': 0, 'payout': 0, 'profit': 0,
-                'duration_seconds': r.duration or 0,
-            })
-            rows.append(row)
-        return mask_partner_columns(user, mask_partner_money(user, rows))
-
-    @staticmethod
     def _calllog_range_qs(user: User, filters):
         qs = CallLog.objects.filter(organization=user.organization)
         # The same clock as _base_qs. These dates were made aware without a

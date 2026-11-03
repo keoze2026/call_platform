@@ -9200,3 +9200,17 @@ mistake.
 
 Tests: `buyers/test_destination_caps.py`, `buyers/test_buyer_list_counts.py`,
 `analytics/test_redials_count.py`. BUSINESS-RULES.md 3.3.
+
+## CH-513 - Redials are never shown or counted (BACKEND)
+
+Sir, 4 Nov: "Never show or count backend redials like Q06 today."
+
+- `buyers.caps.counted_q` is now one per caller call, the same as `cap_q`: the
+  Destinations page counters and the bot API's `incoming_calls` no longer
+  count a sender's redials (CH-504 had made them count every ring). Every
+  screen - Destinations, bot, Reports, Buyers page, caps - now counts the
+  same calls. A "No Destination" refusal is still not counted on a TFN.
+- `GET /api/analytics/redials` (CH-504, never used by the portal) is removed.
+- Needs `docker compose restart web web_calls`.
+
+Tests: `analytics/test_redials_count.py`. BUSINESS-RULES.md 3.3.

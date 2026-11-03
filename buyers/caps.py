@@ -35,9 +35,12 @@ DEFAULT_TZ = 'America/New_York'
 
 
 def counted_q():
-    """Rows that are a call sent to a line - every ring, a sender's redial
-    included (CH-504) - not a refusal stamped on it."""
-    return ~Q(block_reason=NO_DESTINATION)
+    """Rows that are a call sent to a line: one per caller call - not a
+    sender's redial (CH-513, Sir 4 Nov: "Never show or count backend redials
+    like Q06 today"), not a refusal stamped on it. CH-504 had counted every
+    ring here; the Destinations page and the bot now count as the caps,
+    the Buyers page and Reports do."""
+    return cap_q()
 
 
 def cap_q():
