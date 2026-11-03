@@ -1,6 +1,8 @@
 """CH-465 load test, Server B: what the test calls look like on B.
 
-    cd /opt/call_platform && docker compose exec -T web python manage.py shell < scripts/loadtest/report_b.py
+    cd /opt/call_platform && bash scripts/loadtest/b_loadtest.sh report
+
+CH-469: runs inside the TEST routing, on the test copy avortyx_loadtest only.
 
 Counts every LOADTEST call: by status, by buyer, how many Server A routed
 alone (B switched off), how many were billed, and the most calls each buyer
@@ -8,9 +10,13 @@ had at once - which must never pass its limit (LT-A 400, LT-B 250).
 """
 from collections import Counter
 
+from django.conf import settings
 from django.db.models import Sum
 
 from routing.models import CallLog
+
+if settings.DATABASES['default']['NAME'] != 'avortyx_loadtest':
+    raise SystemExit('Refused: this is not the test database (avortyx_loadtest).')
 
 calls = CallLog.objects.filter(campaign__name='LOADTEST', called_number='+19995550100')
 print(f'LOADTEST calls on B: {calls.count()}')

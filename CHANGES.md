@@ -8605,3 +8605,48 @@ SIPp 3.7.2, Ubuntu's version of the test program, not in our system.
 - Ubuntu's `/usr/bin/sipp` stays as it is.
 
 `docs/LOADTEST.md` explains it. Test: `routing/test_loadtest_kit.py`.
+
+## CH-469 - Load test on a test copy, apart from live data (BACKEND)
+
+Since the move, Server B holds the live database, so the load test can no
+longer run on it. The old steps would have put the test campaign and about
+16,000 test calls into live reports and billing, and their clean-up (reload
+B's copy) would have replaced live data.
+
+The test now has its own copy of everything a test call touches. Only the
+test number's calls use it; live calls are unchanged.
+- **Server B** (`scripts/loadtest/b_loadtest.sh`):
+  - the routing, in its own container `avx-loadtest-routing` on
+    10.20.0.2:8011 (live is 8001);
+  - the database `avortyx_loadtest`, copied from live at setup;
+  - Redis database 9, with no worker, so no background job runs;
+  - Telegram, email, Revo, Twilio, Telnyx, number lookups, payments, Sentry
+    and Asterisk control switched off (`make_env_b.py`).
+- **Server A** (`scripts/loadtest/a_loadtest.sh`):
+  - the routing script `route_call_loadtest.py` and the hang-up report
+    `call_ended_loadtest.sh`, which run the live ones pointed at the test
+    copy;
+  - its own fallback state, hang-up spool, recordings folder and sync
+    services. The live dial plan gets one include line, removed at cleanup.
+- `setup_b.py`, `report_b.py` and the new `during_b.py` refuse to run on any
+  database but `avortyx_loadtest`.
+- Sir's extras run while the calls are up (`during_b.py`), through the
+  portal's own code:
+  - 1,000 TFNs imported;
+  - the test campaign paused for 30 s, then played;
+  - the 30-day report: summary, by day, campaigns, buyers, publishers and the
+    call list, without the report cache.
+  Each prints how long it took.
+- `a_loadtest.sh snapshot` saves calls, CPU, memory and per-call jitter and
+  loss.
+- Each server's cleanup removes everything the test added. B's cleanup ends
+  by printing the live call count.
+
+`docs/LOADTEST.md` lists the steps and which server runs each. Tests:
+`routing/test_loadtest_kit.py`. They cover:
+- the settings;
+- the refusals;
+- setup, the extras and the report through the real code;
+- A's test routing and hang-up report reaching the test copy and never the
+  live one;
+- the test dial plan.
