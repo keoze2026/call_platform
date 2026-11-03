@@ -14,7 +14,10 @@ Each round:
      once, so B bills those calls;
   3. once a minute, fetches the routing plan from B into
      /var/lib/avortyx/fallback/plan.sqlite3 (kept as it is when B does not
-     answer - that plan is what A routes with);
+     answer - that plan is what A routes with). CH-471: every 5 seconds it
+     also asks B for the fingerprint of the plan's on/off settings, and
+     fetches the plan at once when it differs from the one A holds, so a
+     pause or play in the portal reaches A within seconds;
   4. once an hour, forgets old journal rows: refusals after 35 days, calls
      sent to a line after 400 (the duplicate rules look a year back).
 
@@ -42,6 +45,12 @@ KEEP_REFUSED_DAYS = 35
 KEEP_DIALS_DAYS = 400
 LOOP_SECONDS = 5
 PLAN_EVERY = 60
+STAMP_EVERY = float(os.environ.get('FALLBACK_STAMP_EVERY', '5'))
+STAMP_PATH = '/api/twilio/asterisk/fallback-plan-stamp/'
+
+# The fingerprint (CH-471) of the plan A holds. None until a plan carrying one
+# is fetched: a B without the fingerprint keeps the one-minute refresh only.
+held_stamp = None
 
 
 def log(msg):
@@ -83,6 +92,7 @@ def ensure_dirs():
 
 
 def fetch_plan():
+    global held_stamp
     try:
         plan = call_b('/api/twilio/asterisk/fallback-plan/', timeout=60)
     except Exception as e:
@@ -92,7 +102,21 @@ def fetch_plan():
         log('plan not understood, keeping the last one')
         return False
     fb.write_plan(plan)
+    held_stamp = plan.get('stamp')
     return True
+
+
+def plan_changed():
+    """True when B's on/off settings differ from the plan A holds (CH-471).
+    Not answering, or a B without the fingerprint: False, and the plan stays
+    on the one-minute refresh."""
+    if held_stamp is None:
+        return False
+    try:
+        stamp = call_b(STAMP_PATH, timeout=5).get('stamp')
+    except Exception:
+        return False
+    return bool(stamp) and stamp != held_stamp
 
 
 def push_calls(journal):
@@ -206,13 +230,20 @@ def main():
         fetched = fetch_plan()
         prune(journal)
         return 0 if fetched else 1
-    last_plan = last_prune = 0.0
+    last_plan = last_prune = last_stamp = 0.0
     failing_since = None
     while True:
         try:
             push_round(journal)
             now = time.time()
-            if now - last_plan >= PLAN_EVERY:
+            due = now - last_plan >= PLAN_EVERY
+            # A plan that would not build is retried on the minute, not every 5 s.
+            if not due and failing_since is None and now - last_stamp >= STAMP_EVERY:
+                last_stamp = now
+                if plan_changed():
+                    due = True
+                    log('settings changed on B: fetching the plan now')
+            if due:
                 last_plan = now
                 if fetch_plan():
                     if failing_since:

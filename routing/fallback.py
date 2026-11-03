@@ -14,6 +14,13 @@ the live routing path changes:
        the campaign's rules and destinations, buyers and their lines, every
        cap with how much of it is used, the blocked and allowed callers.
 
+  GET  /api/twilio/asterisk/fallback-plan-stamp/
+       CH-471: a fingerprint of the plan's on/off settings only (numbers,
+       campaigns, buyers, lines, rules, caps' limits). A asks for it every
+       5 seconds and fetches the plan at once when it differs from the plan
+       it holds, so a pause or play in the portal reaches A within seconds,
+       not at the next minute.
+
   POST /api/twilio/asterisk/fallback-calls/
        The calls A routed (or refused) on its own, sent once B answers again.
        Each becomes the call row B would have written, with A's call id, so
@@ -23,6 +30,7 @@ the live routing path changes:
 The decisions themselves are made on A by scripts/fallback/avx_fallback.py,
 which follows routing/engine.py and the route endpoint step by step.
 """
+import hashlib
 import json
 import logging
 import uuid
@@ -150,6 +158,46 @@ def _balance_ok(campaign, phone, memo):
     return memo[key]
 
 
+# CH-471: the settings a pause, play or edit in the portal changes, model by
+# model. Only switches and limits: nothing that moves with every call (cap
+# usage, balances), so the fingerprint stays still while calls run and A
+# fetches the plan only when someone changed something. Blocked and allowed
+# callers stay on the one-minute refresh.
+STAMP_FIELDS = (
+    ('phone_numbers.models', 'PhoneNumber', ('number', 'status', 'campaign_id', 'publisher_id')),
+    ('campaigns.models', 'Campaign', ('id', 'organization_id', 'status', 'routing_type', 'duplicate_call_block',
+                                      'duplicate_call_block_hours', 'duplicate_handling', 'duplicate_direction',
+                                      'recording_enabled')),
+    ('campaigns.models', 'CampaignCap', ('campaign_id', 'max_calls_daily', 'max_calls_monthly',
+                                         'max_calls_global', 'max_concurrency')),
+    ('buyers.models', 'Buyer', ('id', 'status', 'max_concurrency')),
+    ('buyers.models', 'BuyerCap', ('buyer_id', 'max_calls_daily', 'max_calls_monthly',
+                                   'max_calls_global', 'max_concurrency')),
+    ('buyers.destination', 'Destination', ('id', 'buyer_id', 'tfn', 'enabled', 'concurrency_cap', 'hourly_cap',
+                                           'daily_cap', 'monthly_cap', 'global_cap')),
+    ('routing.models', 'RoutingRule', ('id', 'campaign_id', 'name', 'status', 'rule_type', 'priority')),
+    ('routing.models', 'RuleCondition', ('id', 'rule_id', 'conditions')),
+    ('routing.models', 'RuleDestination', ('id', 'rule_id', 'destination_type', 'destination', 'buyer_id',
+                                           'priority', 'weight')),
+    ('spam_protection.models', 'AnonymousCallBlock', ('id', 'campaign_id', 'is_active')),
+)
+
+
+def plan_stamp():
+    """A short fingerprint of every on/off setting the plan carries."""
+    import importlib
+    h = hashlib.sha1()
+    for module, name, fields in STAMP_FIELDS:
+        model = getattr(importlib.import_module(module), name)
+        have = {f.attname for f in model._meta.concrete_fields}
+        cols = [f for f in fields if f in have]
+        h.update(f'{name}:{",".join(cols)}\n'.encode())
+        for row in model.objects.order_by('pk').values_list(*cols):
+            h.update(json.dumps(row, sort_keys=True, default=str).encode())
+            h.update(b'\n')
+    return h.hexdigest()
+
+
 def build_plan(now=None):
     """Everything Server A needs to route a call while B is away."""
     from buyers.destination import Destination
@@ -159,6 +207,7 @@ def build_plan(now=None):
     from spam_protection.models import AnonymousCallBlock, Blacklist, Whitelist
 
     now = now or timezone.now()
+    stamp = plan_stamp()   # first: a change made while the plan is built shows as a new stamp
     phones = list(PhoneNumber.objects.filter(status='active', campaign__isnull=False)
                   .select_related('campaign'))
     campaign_ids = {p.campaign_id for p in phones}
@@ -271,6 +320,7 @@ def build_plan(now=None):
     return {
         'version': PLAN_VERSION,
         'generated_at': now.timestamp(),
+        'stamp': stamp,
         'area_states': area_states,
         'numbers': numbers,
         'campaigns': out_campaigns,
@@ -291,6 +341,20 @@ def fallback_plan(request):
     except Exception:
         logger.exception('fallback plan could not be built')
         return JsonResponse({"error": "plan failed"}, status=500)
+
+
+@csrf_exempt
+@require_http_methods(["GET"])
+def fallback_plan_stamp(request):
+    """CH-471: A asks every 5 seconds; a new stamp means fetch the plan now."""
+    from routing.asterisk_handler import _check_secret
+    if not _check_secret(request):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+    try:
+        return JsonResponse({'stamp': plan_stamp()})
+    except Exception:
+        logger.exception('fallback plan stamp could not be worked out')
+        return JsonResponse({"error": "stamp failed"}, status=500)
 
 
 # ── calls A routed on its own ────────────────────────────────────────────────

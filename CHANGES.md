@@ -8693,3 +8693,41 @@ nothing. `--status`, `--list` and `--fetch` show and download backups.
   - the Asterisk database copy;
   - the upload check, the failure record and the 14 kept;
   - the watchdog check.
+
+## CH-471 - Pause and play reach Server A within seconds (BACKEND)
+
+Sir: pausing or playing a campaign must take effect at once everywhere.
+Server B already decides every normal call from the database, so the portal's
+pause or play applied to the next call. Server A's own copy of the plan,
+which it routes with while B is away, was refreshed only once a minute: a
+change could take up to 60 seconds to reach it.
+
+- Server B: a new endpoint, `GET /api/twilio/asterisk/fallback-plan-stamp/`,
+  behind the shared secret, gives a fingerprint of the plan's on/off
+  settings (`routing/fallback.py`, `plan_stamp`). It covers:
+  - TFNs and their campaign;
+  - campaigns and their caps' limits;
+  - buyers and their caps' limits;
+  - buyer lines (on/off, caps);
+  - routing rules, their conditions and destinations;
+  - anonymous-caller blocking.
+  It reads the values themselves, so a change made by a bulk update counts
+  too. It leaves out anything that moves with every call (cap usage,
+  balances), so it stays still while calls run. Each plan now carries its
+  fingerprint.
+- Server A (`scripts/fallback/fallback_sync.py`): every 5 seconds it asks for
+  the fingerprint, and fetches the plan at once when it differs from the plan
+  it holds. A pause or play in the portal now reaches A within about
+  10 seconds. The one-minute refresh stays as it was: for blocked and allowed
+  callers, and as a backstop.
+  - If B does not answer, or has no fingerprint yet, nothing changes.
+  - A plan that fails to build is retried on the minute, not every
+    5 seconds.
+- Nothing on the live call path changes: normal calls are still decided by B,
+  from the database.
+- `docs/api-paths.txt` regenerated (one new path). Tests:
+  `routing/test_plan_stamp.py` covers:
+  - the fingerprint stays still while calls run;
+  - it moves on every pause, play and edit, including bulk updates;
+  - the endpoint, and the sync loop fetching within one round;
+  - a B without the fingerprint, and a B not answering.

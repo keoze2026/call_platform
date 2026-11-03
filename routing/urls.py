@@ -17,5 +17,6 @@ urlpatterns = [
     path('asterisk/held-answer/', asterisk_handler.held_answer_report, name='asterisk_held_answer'),
     # CH-464: Server A routes on its own while Server B is down.
     path('asterisk/fallback-plan/', fallback.fallback_plan, name='asterisk_fallback_plan'),
+    path('asterisk/fallback-plan-stamp/', fallback.fallback_plan_stamp, name='asterisk_fallback_plan_stamp'),
     path('asterisk/fallback-calls/', fallback.fallback_calls, name='asterisk_fallback_calls'),
 ] 
