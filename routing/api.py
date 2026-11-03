@@ -254,7 +254,12 @@ def hangup_call(request: HttpRequest, call_id: str):
     parties hang up. Its purpose is clearing rows stuck as live because no
     end-of-call webhook arrived.
     """
-    require(request.auth, Capability.CREATE)
+    # CH-476 (Sir, 3 Nov): a buyer login may end its own live calls when the
+    # Hang Up Calls toggle is on for its buyer (scope_queryset below keeps it
+    # to its own calls); staff still need Create.
+    from accounts import partner_permissions as P
+    if not (getattr(request.auth, 'role', '') == 'buyer' and P.partner_allows(request.auth, P.HANG_UP_CALLS)):
+        require(request.auth, Capability.CREATE)
     from django.conf import settings
     from django.utils import timezone
 

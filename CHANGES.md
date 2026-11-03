@@ -8859,3 +8859,37 @@ Traffic toggle, and that also allows every other change.
 
 Test: `buyers/test_buyer_play_pause.py`. No frontend change: the switch
 already sends only `enabled`.
+
+## CH-476 - Buyer access: each permission switched on per buyer by the main account (BACKEND)
+
+Sir (3 Nov): "Under Buyers access these permission add too, so admin from
+main account can do what he wants to give, other than viewing right."
+
+New switches on each buyer (`accounts/partner_permissions.py`), for the
+buyer's own login. Viewing is always allowed.
+
+| Switch | Lets the buyer's login | Default |
+|---|---|---|
+| Create/Edit Destinations | add lines (always under its own buyer) and edit their other settings | off |
+| Edit Number/SIP | change the number a line forwards to | off |
+| Pause Destinations | switch its lines off and on, one or many | **on** (CH-475) |
+| Set Max Concurrency | change a line's calls-at-once limit | off |
+| Set Caps | change a line's hourly, daily, monthly and global caps | off |
+| Block Numbers | as before | on |
+| Hang Up Calls | end its own calls showing as live | off |
+| Download Reports | as before | off |
+
+- `buyers/destinations_api.py`: each change to a line needs the switch for
+  every field it touches. A refusal names the missing switches. Creating a
+  line with caps or a concurrency limit needs those switches too.
+- A buyer login only ever reaches its own lines: viewing, changing,
+  creating, deleting, one or many. It can never move a line to another
+  buyer.
+- Manage Traffic (Edit) still allows every change, on its own lines only.
+- `routing/api.py`: hang up, with the switch, on its own calls only.
+- Staff are unchanged.
+- **Dispute Calls** is not added: the portal has no dispute feature, so the
+  switch would do nothing.
+
+Tests: `buyers/test_buyer_play_pause.py` (`BuyerToggleTests`). Frontend:
+CH-476 FRONTEND lists the switches on the buyer's access page.

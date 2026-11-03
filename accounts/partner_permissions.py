@@ -42,6 +42,18 @@ DOWNLOAD_REPORTS = 'download_reports'
 # Block Numbers is on for all of them too (scripts: uniform_partner_permissions).
 TFN_TEST = 'tfn_test'
 
+# CH-476 (Sir, 3 Nov): what a buyer's own login may do on its own lines,
+# each switched on per buyer by the main account. Viewing is always allowed;
+# everything else is off until the admin switches it on, except Pause, which
+# Sir asked every buyer to have (CH-475). A buyer can only ever reach its own
+# lines and calls: these say which changes, not whose.
+EDIT_DESTINATIONS = 'edit_destinations'
+EDIT_NUMBER = 'edit_number'
+PAUSE_DESTINATIONS = 'pause_destinations'
+SET_CONCURRENCY = 'set_concurrency'
+SET_CAPS = 'set_caps'
+HANG_UP_CALLS = 'hang_up_calls'
+
 PERMISSIONS = [
     {
         'key': MANAGE_TRAFFIC,
@@ -62,11 +74,47 @@ PERMISSIONS = [
         'default': False,
     },
     {
+        'key': EDIT_DESTINATIONS,
+        'label': 'Create/Edit Destinations',
+        'description': 'Allow buyers to create and edit their destinations.',
+        'default': False,
+    },
+    {
+        'key': EDIT_NUMBER,
+        'label': 'Edit Number/SIP',
+        'description': 'Users can edit the number their calls are forwarded to.',
+        'default': False,
+    },
+    {
+        'key': PAUSE_DESTINATIONS,
+        'label': 'Pause Destinations',
+        'description': 'Temporarily stop forwarding to their own destinations, and start it again.',
+        'default': True,
+    },
+    {
+        'key': SET_CONCURRENCY,
+        'label': 'Set Max Concurrency',
+        'description': 'Edit the maximum number of calls at once on their destinations.',
+        'default': False,
+    },
+    {
+        'key': SET_CAPS,
+        'label': 'Set Caps',
+        'description': 'Edit the hourly, daily, monthly and global caps on their destinations.',
+        'default': False,
+    },
+    {
         'key': BLOCK_NUMBERS,
         'label': 'Block Numbers',
         'description': 'Reject calls from specific phone numbers.',
         # CH-323 (Sir, 27 Oct): every publisher and buyer has the same options.
         'default': True,
+    },
+    {
+        'key': HANG_UP_CALLS,
+        'label': 'Hang Up Calls',
+        'description': 'End their own calls showing as live from the interface.',
+        'default': False,
     },
     {
         'key': DOWNLOAD_REPORTS,
@@ -187,6 +235,15 @@ def partner_record(user):
     if role == 'buyer':
         return getattr(user, 'buyer', None)
     return None
+
+
+def partner_allows(user, key) -> bool:
+    """CH-476: whether this buyer or publisher login's own record has this
+    toggle on. False for staff and for a login with no record."""
+    record = partner_record(user)
+    if record is None:
+        return False
+    return bool(clean_permissions(getattr(record, 'permissions', None)).get(key))
 
 
 def capabilities_for_partner(user) -> set:

@@ -508,9 +508,27 @@ def _buyer_already_live(organization, buyer, enabled, exclude_id=None):
 def create_destination(request, payload: DestinationSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'destinations', 'edit')
-    require(request.auth, Capability.CREATE)
     from buyers.destination import Destination
     from buyers.models import Buyer
+    if _is_buyer_login(request.auth):
+        # CH-476: a buyer login adds lines to its own buyer only, with the
+        # Create/Edit Destinations toggle (or Create); a cap or concurrency set
+        # at once needs those toggles too.
+        from accounts import partner_permissions as P
+        from accounts.permissions import has
+        from ninja.errors import HttpError
+        payload.buyer_id = str(request.auth.buyer_id or '')
+        if not (has(request.auth, Capability.CREATE) or P.partner_allows(request.auth, P.EDIT_DESTINATIONS)):
+            raise HttpError(403, "Your access does not include: Create/Edit Destinations. "
+                                 "Ask an admin of this workspace.")
+        defaults = DestinationSchema(name='x')
+        set_now = {f: getattr(payload, f) for f in ('concurrency_cap', 'hourly_cap', 'daily_cap',
+                                                   'monthly_cap', 'global_cap')
+                   if getattr(payload, f) != getattr(defaults, f)}
+        if set_now:
+            _buyer_may_change(request.auth, set_now)
+    else:
+        require(request.auth, Capability.CREATE)
 
     # A destination without a buyer is unreachable: routing resolves the live
     # destination with Destination.objects.filter(buyer=..., enabled=True), so
@@ -563,6 +581,8 @@ def get_destination(request, destination_id: str):
     from buyers.destination import Destination
     try:
         d = Destination.objects.get(id=destination_id, organization=request.auth.organization)
+        if _is_buyer_login(request.auth) and not _own_line(request.auth, d):
+            return 404, {"detail": "Destination not found"}     # CH-476: own lines only
         return 200, format_destination(d)
     except Destination.DoesNotExist:
         return 404, {"detail": "Destination not found"}
@@ -577,16 +597,49 @@ def _own_line(user, d):
     return bool(getattr(user, 'buyer_id', None)) and d.buyer_id == user.buyer_id
 
 
+# CH-476 (Sir, 3 Nov): which toggle on the buyer's access page each field of
+# a line needs, for the buyer's own login. Edit (the Manage Traffic toggle)
+# still allows every field. Any field not listed needs Create/Edit Destinations.
+def _field_permissions():
+    from accounts import partner_permissions as P
+    return {
+        'enabled': P.PAUSE_DESTINATIONS,
+        'tfn': P.EDIT_NUMBER, 'phone_number': P.EDIT_NUMBER, 'forward_type': P.EDIT_NUMBER,
+        'concurrency_cap': P.SET_CONCURRENCY,
+        'hourly_cap': P.SET_CAPS, 'daily_cap': P.SET_CAPS, 'monthly_cap': P.SET_CAPS, 'global_cap': P.SET_CAPS,
+    }
+
+
+def _buyer_may_change(user, fields):
+    """For a buyer login: refuses (403, naming what is missing) unless its
+    toggles cover every field it is changing. Its own buyer can never be
+    swapped for another."""
+    from accounts import partner_permissions as P
+    from accounts.permissions import has
+    from ninja.errors import HttpError
+    if 'buyer_id' in fields and str(fields['buyer_id']) != str(getattr(user, 'buyer_id', '')):
+        raise HttpError(403, "A buyer login cannot move a destination to another buyer.")
+    if has(user, Capability.EDIT):
+        return
+    needed = {_field_permissions().get(f, P.EDIT_DESTINATIONS) for f in fields if f != 'buyer_id'}
+    labels = {p['key']: p['label'] for p in P.PERMISSIONS}
+    missing = sorted(labels[k] for k in needed if not P.partner_allows(user, k))
+    if missing:
+        raise HttpError(403, f"Your access does not include: {', '.join(missing)}. "
+                             f"Ask an admin of this workspace.")
+
+
 @router.patch("/{destination_id}/", response={200: dict, 400: dict, 404: dict})
 def update_destination(request, destination_id: str, payload: DestinationUpdateSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'destinations', 'edit')
     fields = payload.dict(exclude_none=True)
-    # CH-475 (Sir, 3 Nov): "Buyers can play pause their TFNs - only buyer
-    # access". A buyer login may switch its own lines on or off with no other
-    # right; any other change still needs Edit (the Manage Traffic toggle).
+    # CH-475/476 (Sir, 3 Nov): a buyer login changes its own lines as far as
+    # the toggles on its access page allow; staff still need Edit.
     buyer_login = _is_buyer_login(request.auth)
-    if not (buyer_login and set(fields) == {'enabled'}):
+    if buyer_login:
+        _buyer_may_change(request.auth, fields)
+    else:
         require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
     from buyers.models import Buyer
@@ -652,7 +705,10 @@ def delete_destination(request, destination_id: str):
     require(request.auth, Capability.DELETE)
     from buyers.destination import Destination
     try:
-        Destination.objects.get(id=destination_id, organization=request.auth.organization).delete()
+        d = Destination.objects.get(id=destination_id, organization=request.auth.organization)
+        if _is_buyer_login(request.auth) and not _own_line(request.auth, d):
+            return 404, {"detail": "Destination not found"}
+        d.delete()
         return 200, {"detail": "Destination deleted"}
     except Destination.DoesNotExist:
         return 404, {"detail": "Destination not found"}
@@ -674,10 +730,12 @@ def bulk_enable(request, payload: BulkEnableSchema):
     """
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'destinations', 'edit')
-    # CH-475: play and pause is all this does, so a buyer login may use it on
-    # its own lines without Edit; staff still need Edit.
+    # CH-475/476: play and pause is all this does: a buyer login needs the
+    # Pause Destinations toggle (or Edit), on its own lines only.
     buyer_login = _is_buyer_login(request.auth)
-    if not buyer_login:
+    if buyer_login:
+        _buyer_may_change(request.auth, {'enabled': payload.enabled})
+    else:
         require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
 

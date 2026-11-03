@@ -89,3 +89,57 @@ class BuyerPlayPauseTests(TestCase):
         vapi = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(viewer)}')
         self.assertEqual(self.patch(self.own, {'enabled': False}, vapi).status_code, 403)
         self.assertEqual(self.bulk([self.own.id], False, vapi).status_code, 403)
+
+
+@override_settings(ALLOWED_HOSTS=['*'],
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class BuyerToggleTests(BuyerPlayPauseTests):
+    """CH-476 (Sir, 3 Nov): each toggle on the buyer's access page unlocks one
+    kind of change, on its own lines only. Pause is on unless switched off."""
+
+    def toggles(self, **on):
+        self.a49.permissions = dict(self.a49.permissions or {}, **on)
+        self.a49.save()
+
+    def test_pause_can_be_switched_off(self):
+        self.toggles(pause_destinations=False)
+        r = self.patch(self.own, {'enabled': False})
+        self.assertEqual(r.status_code, 403)
+        self.assertIn('Pause Destinations', r.json()['detail'])
+        self.assertEqual(self.bulk([self.own.id], False).status_code, 403)
+
+    def test_each_toggle_its_own_fields(self):
+        cases = [('edit_number', {'tfn': '+18005557777'}), ('set_concurrency', {'concurrency_cap': 7}),
+                 ('set_caps', {'daily_cap': 50}), ('edit_destinations', {'name': 'renamed'})]
+        for key, body in cases:
+            self.assertEqual(self.patch(self.own, body).status_code, 403, key)
+            self.toggles(**{key: True})
+            self.assertEqual(self.patch(self.own, body).status_code, 200, key)
+        self.own.refresh_from_db()
+        self.assertEqual((self.own.tfn, self.own.concurrency_cap, self.own.daily_cap, self.own.name),
+                         ('+18005557777', 7, 50, 'renamed'))
+        self.assertEqual(self.patch(self.theirs, {'name': 'x'}).status_code, 404)
+
+    def test_create_on_own_buyer_only(self):
+        body = {'buyer_id': str(self.other.id), 'name': 'new', 'tfn': '+18005553333'}
+        post = lambda b: self.api.post('/api/destinations/', json.dumps(b), content_type='application/json')  # noqa: E731
+        self.assertEqual(post(body).status_code, 403)
+        self.toggles(edit_destinations=True)
+        r = post(body)
+        self.assertEqual(r.status_code, 201)
+        self.assertEqual(Destination.objects.get(tfn='+18005553333').buyer, self.a49)   # never OTHER
+        self.assertEqual(post({'name': 'capped', 'tfn': '+18005554444', 'daily_cap': 9}).status_code, 403)
+        self.assertEqual(self.patch(self.own, {'buyer_id': str(self.other.id)}).status_code, 403)
+
+    def test_hang_up_own_calls(self):
+        from routing.models import CallLog
+        mine = CallLog.objects.create(organization=self.org, buyer=self.a49, status='in_progress',
+                                      caller_number='+15551230000', called_number='+18888910343')
+        hang = lambda c: self.api.post(f'/api/routing/calls/{c.id}/hangup')  # noqa: E731
+        self.assertEqual(hang(mine).status_code, 403)
+        self.toggles(hang_up_calls=True)
+        self.assertEqual(hang(mine).status_code, 200)
+
+    def test_view_own_line_only(self):
+        self.assertEqual(self.api.get(f'/api/destinations/{self.own.id}/').status_code, 200)
+        self.assertEqual(self.api.get(f'/api/destinations/{self.theirs.id}/').status_code, 404)
