@@ -8833,3 +8833,29 @@ Packet capture" every 15 minutes, a false alarm.
   itself at the next minute's run. Server A still alerts if its capture
   stops.
 - Test: `support/test_host_watch.py`, `CaptureCheckTests`.
+
+## CH-475 - Buyers can play and pause their own TFNs (BACKEND)
+
+Sir (3 Nov): "Buyer A49 cannot play pause his TFN. Buyers can play pause
+their TFNs - only buyer access." A buyer login switching a line on the
+Destinations page got "Your role (buyer) cannot edit". Switching a line on or
+off needed the full Edit right, which a buyer only gets through the Manage
+Traffic toggle, and that also allows every other change.
+
+`buyers/destinations_api.py`:
+- **One line:** `PATCH /api/destinations/<id>/` with only `enabled` is
+  allowed for a buyer login on its own lines, without Edit. Any other change
+  (name, number, caps, buyer) still needs Edit, exactly as before.
+- **Many lines:** `POST /api/destinations/bulk-enable` (Play/Pause on many
+  lines) is allowed for a buyer login on its own lines.
+- **Another buyer's line:** a buyer login can no longer change one, with or
+  without Manage Traffic. It is answered "not found". Before, a buyer login
+  holding Edit could change any line in the workspace by its id; its
+  Destinations list was limited to its own lines, but these two endpoints
+  were not.
+- **Staff:** unchanged. A Viewer still cannot switch a line.
+- The number-clash rule still applies to a buyer switching a line on.
+- Server A's backup routing picks the change up within seconds (CH-471).
+
+Test: `buyers/test_buyer_play_pause.py`. No frontend change: the switch
+already sends only `enabled`.

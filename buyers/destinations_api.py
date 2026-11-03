@@ -568,18 +568,33 @@ def get_destination(request, destination_id: str):
         return 404, {"detail": "Destination not found"}
 
 
+def _is_buyer_login(user):
+    return getattr(user, 'role', '') == 'buyer'
+
+
+def _own_line(user, d):
+    """CH-475: a buyer login only ever touches its own buyer's lines."""
+    return bool(getattr(user, 'buyer_id', None)) and d.buyer_id == user.buyer_id
+
+
 @router.patch("/{destination_id}/", response={200: dict, 400: dict, 404: dict})
 def update_destination(request, destination_id: str, payload: DestinationUpdateSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'destinations', 'edit')
-    require(request.auth, Capability.EDIT)
+    fields = payload.dict(exclude_none=True)
+    # CH-475 (Sir, 3 Nov): "Buyers can play pause their TFNs - only buyer
+    # access". A buyer login may switch its own lines on or off with no other
+    # right; any other change still needs Edit (the Manage Traffic toggle).
+    buyer_login = _is_buyer_login(request.auth)
+    if not (buyer_login and set(fields) == {'enabled'}):
+        require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
     from buyers.models import Buyer
     try:
         d = Destination.objects.get(id=destination_id, organization=request.auth.organization)
+        if buyer_login and not _own_line(request.auth, d):
+            return 404, {"detail": "Destination not found"}
         old_tfn = d.tfn
-
-        fields = payload.dict(exclude_none=True)
 
         # Resolve the buyer rather than assigning the raw id: setattr would
         # happily store an id belonging to another organization.
@@ -659,7 +674,11 @@ def bulk_enable(request, payload: BulkEnableSchema):
     """
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'destinations', 'edit')
-    require(request.auth, Capability.EDIT)
+    # CH-475: play and pause is all this does, so a buyer login may use it on
+    # its own lines without Edit; staff still need Edit.
+    buyer_login = _is_buyer_login(request.auth)
+    if not buyer_login:
+        require(request.auth, Capability.EDIT)
     from buyers.destination import Destination
 
     updated, failed = [], []
@@ -669,6 +688,9 @@ def bulk_enable(request, payload: BulkEnableSchema):
                 id=raw_id, organization=request.auth.organization,
             )
         except (Destination.DoesNotExist, ValidationError, ValueError):
+            failed.append({"id": raw_id, "reason": "not found"})
+            continue
+        if buyer_login and not _own_line(request.auth, d):
             failed.append({"id": raw_id, "reason": "not found"})
             continue
 
