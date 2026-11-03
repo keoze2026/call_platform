@@ -9147,3 +9147,33 @@ or missed ... the portal should show everything."
 - No restart needed: the command runs in its own process.
 
 Tests: `routing/test_list_campaign_lines.py`. BUSINESS-RULES.md 3.4.
+
+## CH-504 - Every ring on a TFN counts everywhere (BACKEND)
+
+Sir, 3 Nov, on P30 (bot 9 calls on P30|2085|, Destinations page and Reports
+7): "It doesn't matter if the call is missed or answered - if it's missed on
+the destination it counts everywhere in the report and the destination box,
+because the incoming is there on that TFN."
+
+The difference was the sender's redials: an unanswered call redialled within
+seconds is kept as a hidden try (CH-215) so the Call Log shows one row per
+caller call. P30 had three (1:31 PM on 5153, 1:52 and 1:55 PM on 2085). The bot
+counted them; the Destinations page and Reports did not.
+
+- `buyers.caps.counted_q`: a redial now counts. The Destinations page's
+  Hourly / Daily / Monthly / Global, every destination and buyer cap, and the
+  buyer list's calls today all count every ring. A "No Destination" refusal
+  (stamped on the line, never dialled) still does not.
+- Bot API `/api/stats/destinations`: `incoming_calls` uses the same rule, so
+  it no longer counts "No Destination" refusals.
+- New `GET /api/analytics/redials` (Reporting view): the redials in the
+  report's range and filters, one row each, revenue and payout 0. The Reports
+  page adds them to its Destination and Buyer tabs (CH-504 FRONTEND).
+- Unchanged: the Call Log, Campaign / Publisher totals, money. A redial is
+  never billed.
+- Caps now fill with redials too, so a buyer can reach a cap a little sooner -
+  the cap counts what really rang its TFN.
+
+Needs `docker compose restart web web_calls` (caps are read when routing).
+Tests: `analytics/test_redials_count.py`; `buyers/test_destination_caps.py`
+and `buyers/test_buyer_list_counts.py` updated. BUSINESS-RULES.md 3.3.

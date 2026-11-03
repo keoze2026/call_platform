@@ -93,10 +93,11 @@ class DestinationCapTests(TestCase):
         self.line_a.refresh_from_db()
         self.assertEqual(format_destination(self.line_a)['daily_calls'], 2)
 
-    def test_refusals_and_hidden_retries_do_not_count(self):
+    def test_refusals_do_not_count_redials_do(self):
+        # CH-504: a "No Destination" refusal never rang the line; a sender's
+        # redial did, and counts as any other ring.
         self.past(A, self.r48, block_reason='No Destination')
         self.past(A, self.r48, retry_hidden=True)
-        self.past(A, self.r48)
         self.assertIsNone(destination_cap_hit(self.line_a))
         self.past(A, self.r48)
         self.assertEqual(destination_cap_hit(self.line_a), 'daily cap 2/2')

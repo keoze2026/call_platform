@@ -195,11 +195,14 @@ def destinations(request: HttpRequest, date_from: str = None, date_to: str = Non
     if date_to:
         window &= Q(created_at__lte=datetime.fromisoformat(date_to + 'T23:59:59').replace(tzinfo=tz))
     # By buyer and number (CH-392): one TFN can be live under several buyers.
+    # CH-504: the same calls the Destinations page and Reports count - every
+    # ring, a redial included, not a "No Destination" refusal stamped on it.
+    from buyers.caps import counted_q
     incoming = {}
     for b, t, c in (
         CallLog.objects.filter(organization=request.auth.organization,
                                destination_number__in=tfns)
-        .filter(window)
+        .filter(window).filter(counted_q())
         .values_list('buyer_id', 'destination_number')
         .annotate(c=Count('id'))
     ):

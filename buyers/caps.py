@@ -13,9 +13,12 @@ line's number and were never a call to it:
     full, paused) is recorded on that line so it shows as missed there, but
     it was never dialled. Counted, a full line would keep "filling" with the
     calls it refused and the Daily figure would run past its cap.
-  - hidden Revo retries (retry_hidden): Revo resends an unanswered call every
-    few seconds and each retry arrives as a new row; the Reports show one row
-    per caller call, and so does this count.
+
+A sender's redial (a hidden retry, retry_hidden) DID ring the line and counts
+(CH-504, Sir 3 Nov: "It doesn't matter if the call is missed or answered - if
+it's missed on the destination it counts everywhere, because the incoming is
+there on that TFN"). Until then a redial was left out here, so P30's TFN read
+7 on the Destinations page while the bot, counting every ring, read 9.
 
 The day and the month are cut at midnight in the destination's own time zone
 (Eastern by default), as on the Destinations page; the hour is the last 60
@@ -32,9 +35,9 @@ DEFAULT_TZ = 'America/New_York'
 
 
 def counted_q():
-    """Rows that are a call sent to a line: not a refusal stamped on it, not a
-    hidden retry of a call already counted."""
-    return Q(retry_hidden=False) & ~Q(block_reason=NO_DESTINATION)
+    """Rows that are a call sent to a line - every ring, a sender's redial
+    included (CH-504) - not a refusal stamped on it."""
+    return ~Q(block_reason=NO_DESTINATION)
 
 
 def own_calls_q(d):

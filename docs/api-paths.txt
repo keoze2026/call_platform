@@ -66,6 +66,7 @@ GET /api/analytics/dashboard
 GET /api/analytics/live
 GET /api/analytics/live/summary
 GET /api/analytics/publishers
+GET /api/analytics/redials
 GET /api/analytics/report-stamp
 GET /api/analytics/reports/
 POST /api/analytics/reports/

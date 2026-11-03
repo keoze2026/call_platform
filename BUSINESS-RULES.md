@@ -135,6 +135,12 @@ Last updated: 31 Oct 2026.
 
 ### 3.3 Caps
 - **0** on concurrency, daily or monthly cap means **no limit** (CH-235).
+- **Every ring on a TFN counts** (CH-504, Sir 3 Nov): answered or missed,
+  a sender's redial included, on the Destinations page (Daily / Monthly /
+  Global and the caps), the buyer's caps, the bot API and the Reports
+  Destination and Buyer tabs. A "No Destination" refusal never rang the TFN
+  and is not counted. Campaign / Publisher totals and the Call Log keep one
+  row per caller call; a redial earns no revenue and no payout.
 
 ### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
 - A campaign line takes calls only when its number is on its buyer's
