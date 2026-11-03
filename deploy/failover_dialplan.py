@@ -52,7 +52,9 @@ MARK = "failover-next-buyer"
 
 RE_SECTION = re.compile(r"^\s*\[([^\]]+)\]")
 RE_SET_DIALNUM = re.compile(r"^(\s*same\s*=>\s*)n(\s*,\s*Set\(DIAL_NUM=)", re.I)
-RE_DIAL = re.compile(r"^\s*same\s*=>\s*n\s*,\s*Dial\(PJSIP/\$\{DIAL_NUM\}@carrier", re.I)
+# Any endpoint after the @: "carrier", or ${OUT_EP} on Server A (carrier /
+# carrier-out, chosen by the cancel-hold switch just before the Dial).
+RE_DIAL = re.compile(r"^\s*same\s*=>\s*n\s*,\s*Dial\(PJSIP/\$\{DIAL_NUM\}@", re.I)
 RE_ANSWERED = re.compile(r'^\s*same\s*=>\s*n\s*,\s*GotoIf\(\$\["\$\{DIALSTATUS\}"\s*=\s*"ANSWER"\]\?finished\)', re.I)
 RE_FAIL_HANGUP = re.compile(r"^(\s*same\s*=>\s*)n(\s*,\s*Hangup\(\$\{IF\()", re.I)
 RING = '${IF($["${RING_TIMEOUT}" != ""]?${RING_TIMEOUT}:${MAX_DURATION})}'
@@ -114,7 +116,7 @@ def transform(text):
         return hits[0]
 
     i_set = one(RE_SET_DIALNUM, "Set(DIAL_NUM=...)")
-    i_dial = one(RE_DIAL, "Dial(PJSIP/${DIAL_NUM}@carrier,...)")
+    i_dial = one(RE_DIAL, "Dial(PJSIP/${DIAL_NUM}@...)")
     i_ans = one(RE_ANSWERED, 'GotoIf(DIALSTATUS = "ANSWER"?finished)')
     i_hang = one(RE_FAIL_HANGUP, "Hangup(${IF(...HANGUPCAUSE...)})")
     if not (i_set < i_dial < i_ans < i_hang) or i_ans != i_dial + 1 or i_hang != i_ans + 1:

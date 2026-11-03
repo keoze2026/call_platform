@@ -193,3 +193,17 @@ class ServerAPartsTests(TestCase):
         self.assertIn('n(nofailover),Hangup(', out)
         with self.assertRaises(fd.Stop):
             fd.transform(out)                         # never applied twice
+
+    def test_dialplan_change_on_server_a_as_it_is(self):
+        # Server A's real [from-carrier] (4 Nov): the endpoint is ${OUT_EP}
+        # (cancel-hold) and Dial() runs a pre-dial handler.
+        fd = self.load('deploy/failover_dialplan.py', 'failover_dialplan_ch516')
+        src = open('docs/asterisk/server-a-from-carrier-2026-11-04.conf').read()
+        out = fd.transform(src)
+        self.assertIn('n(redial),Set(DIAL_NUM=', out)
+        self.assertIn('Dial(PJSIP/${DIAL_NUM}@${OUT_EP},${IF($["${RING_TIMEOUT}" != ""]?${RING_TIMEOUT}:${MAX_DURATION})},'
+                      'grb(avx-out-hdr^s^1(${CALL_LOG_ID})))', out)
+        self.assertIn('AGI(route_call.py,next)', out)
+        self.assertIn('n(nofailover),Hangup(', out)
+        self.assertIn('n(nobuyer),Hangup(21)', out)
+

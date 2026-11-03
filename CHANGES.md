@@ -9269,3 +9269,18 @@ switched on, `RoutingEngine.is_duplicate` also counts the call's own new row
 be refused as a duplicate.
 
 Tests: `routing/test_failover.py` (11). BUSINESS-RULES.md 3.5.
+
+## CH-516 - Failover dialplan script fits Server A's real dialplan (BACKEND, Server A)
+
+The CH-514 dry run on Server A stopped, changing nothing: its Dial() is
+`Dial(PJSIP/${DIAL_NUM}@${OUT_EP},...,grb(avx-out-hdr^s^1(${CALL_LOG_ID})))` -
+the endpoint is chosen by the cancel-hold switch (carrier / carrier-out) and a
+pre-dial handler adds headers - and the script only knew `@carrier`.
+
+- `deploy/failover_dialplan.py` accepts any endpoint after the `@`. The next
+  buyer is dialled from Set(DIAL_NUM), so the endpoint and the pre-dial
+  handler are chosen again for every buyer, as for the first.
+- Server A's section as it was on 4 Nov is kept in
+  docs/asterisk/server-a-from-carrier-2026-11-04.conf and tested.
+
+Tests: `routing/test_failover.py` (12).
