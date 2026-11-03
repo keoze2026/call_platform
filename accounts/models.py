@@ -132,6 +132,7 @@ class ActivityLog(models.Model):
         MFA_DISABLED = 'mfa_disabled', 'MFA Disabled'
         API_KEY_CREATED = 'api_key_created', 'API Key Created'
         API_KEY_REVOKED = 'api_key_revoked', 'API Key Revoked'
+        API_KEY_COPIED = 'api_key_copied', 'API Key Copied'   # CH-490, Active Bots
         PROFILE_UPDATED = 'profile_updated', 'Profile Updated'
         ORGANIZATION_CREATED = 'organization_created', 'Organization Created'
         # Until these existed the log could only describe account events, so the
@@ -181,6 +182,10 @@ class APIKey(models.Model):
     name = models.CharField(max_length=100)
     key_prefix = models.CharField(max_length=12)  # Shown in UI (e.g., "sk_live_ab12...")
     key_hash = models.CharField(max_length=128)   # Stored hash, never the raw key
+    # CH-490: a buyer key issued on Active Bots is also kept encrypted, so the
+    # main account can copy it again later (accounts/key_vault.py). Empty for
+    # every other key, and for buyer keys issued before - those cannot be read.
+    key_sealed = models.TextField(blank=True, default='')
     is_active = models.BooleanField(default=True)
     last_used_at = models.DateTimeField(null=True, blank=True)
     expires_at = models.DateTimeField(null=True, blank=True)

@@ -3,6 +3,7 @@
     GET  /api/active-bots/                       every buyer, its key state
     POST /api/active-bots/{buyer_id}/issue       new key, shown once in full
     POST /api/active-bots/{buyer_id}/switch-off  the buyer's key stops working
+    POST /api/active-bots/{buyer_id}/copy        the live key again (CH-490)
 
 Main account only, as every API key (CH-243). See accounts/buyer_bots.py.
 """
@@ -12,7 +13,7 @@ from ninja import Router
 from ninja.errors import HttpError
 
 from accounts.api import JWTAuth
-from accounts.buyer_bots import bot_rows, issue_key, switch_off
+from accounts.buyer_bots import bot_rows, copy_key, issue_key, switch_off
 from accounts.main_user import require_main_user
 
 router = Router(tags=["Active Bots"], auth=JWTAuth())
@@ -44,3 +45,14 @@ def issue_buyer_bot_key(request: HttpRequest, buyer_id: str):
 def switch_off_buyer_bot(request: HttpRequest, buyer_id: str):
     require_main_user(request.auth)
     return 200, switch_off(_buyer(request, buyer_id), request.auth)
+
+
+@router.post("/{buyer_id}/copy", response={200: dict, 400: dict})
+def copy_buyer_bot_key(request: HttpRequest, buyer_id: str):
+    """CH-490: the buyer's live key in full, to copy again. POST, not GET, so
+    it is never cached or kept in a browser history; logged every time."""
+    require_main_user(request.auth)
+    try:
+        return 200, copy_key(_buyer(request, buyer_id), request.auth)
+    except ValueError as e:
+        return 400, {'detail': str(e)}

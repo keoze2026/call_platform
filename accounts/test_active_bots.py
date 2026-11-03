@@ -135,3 +135,39 @@ class ActiveBotsTests(TestCase):
     def test_archived_buyer_without_key_is_hidden(self):
         Buyer.objects.create(organization=self.org, name='Gone', status='archived')
         self.assertNotIn('Gone', self.rows())
+
+
+@override_settings(CACHES=CACHE)
+class CopyKeyTests(ActiveBotsTests):
+    """CH-490: a key issued on Active Bots can be copied again by the main
+    account; older keys cannot."""
+
+    def test_issued_key_can_be_copied_again(self):
+        issued = self.call(self.main, 'post', f'{BASE}/{self.q08.id}/issue').json()
+        self.assertTrue(self.rows()['Q08']['copyable'])
+        r = self.call(self.main, 'post', f'{BASE}/{self.q08.id}/copy')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(r.json()['key'], issued['key'])
+        self.assertTrue(ActivityLog.objects.filter(user=self.main, action='api_key_copied',
+                                                   metadata__buyer='Q08').exists())
+        # Stored encrypted, never as the key itself.
+        k = APIKey.objects.get(key_prefix=issued['key_prefix'], is_active=True)
+        self.assertNotIn(issued['key'], k.key_sealed)
+        # The list never carries it.
+        self.assertNotIn(issued['key'], self.call(self.main, 'get', BASE + '/').content.decode())
+
+    def test_old_key_cannot_be_copied(self):
+        self.assertFalse(self.rows()['Q08']['copyable'])
+        r = self.call(self.main, 'post', f'{BASE}/{self.q08.id}/copy')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('Issue a new key', r.json()['detail'])
+
+    def test_only_the_main_account_copies(self):
+        self.call(self.main, 'post', f'{BASE}/{self.q08.id}/issue')
+        for who in (self.admin, self.manager, self.buyer_login, self.bot):
+            self.assertEqual(self.call(who, 'post', f'{BASE}/{self.q08.id}/copy').status_code, 403, who.role)
+
+    def test_switched_off_key_cannot_be_copied(self):
+        self.call(self.main, 'post', f'{BASE}/{self.q08.id}/issue')
+        self.call(self.main, 'post', f'{BASE}/{self.q08.id}/switch-off')
+        self.assertEqual(self.call(self.main, 'post', f'{BASE}/{self.q08.id}/copy').status_code, 400)

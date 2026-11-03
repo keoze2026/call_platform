@@ -9024,3 +9024,25 @@ in every campaign", could not be picked, and never showed.
   "picked twice".
 
 Tests: `campaigns/test_group_same_tfn.py`. Frontend: CH-483 FRONTEND.
+
+## CH-490 - Active Bots: copy a buyer's key again (BACKEND)
+
+Asked 3 Nov: "How can Sir copy the existing key? Please add that." A key was
+kept only as its fingerprint, so after the "shown once" dialog nobody could
+see it again.
+
+- A buyer key issued on Active Bots is now also kept **encrypted**
+  (`APIKey.key_sealed`, Fernet; `accounts/key_vault.py`). The encryption key
+  is `API_KEY_VAULT_KEY` in .env when set, else derived from `SECRET_KEY`;
+  changing it makes the kept copies unreadable (the keys keep working; issue
+  a new one to copy again).
+- `POST /api/active-bots/{buyer}/copy`: the buyer's live key in full. The
+  main account only (CH-243). Every copy is in the activity log
+  (`api_key_copied`) with the buyer and the key's first characters.
+- The list says which keys can be copied (`copyable`). **Keys issued before
+  this change were never kept and cannot be copied**: issue a new key once
+  (the old one stops working) and from then on it can be copied any time.
+- Migration `accounts/0015_api_key_sealed` (adds a column; instant).
+
+Tests: `accounts/test_active_bots.py` (`CopyKeyTests`). Frontend: CH-490
+FRONTEND adds the Copy key button.

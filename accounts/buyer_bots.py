@@ -86,6 +86,9 @@ def bot_rows(organization):
             'issued_at': _iso(current.created_at) if current else None,
             'last_used_at': _iso(max(used)) if used else None,
             'switched_off_keys': sum(1 for k in bk if not _live(k, now)),
+            # CH-490: the live key can be copied again (issued on this page
+            # after CH-490); older keys were never kept and cannot be.
+            'copyable': bool(current and current.key_sealed),
         })
     # Buyers with a key first, then the rest, each by name.
     order = {ACTIVE: 0, OFF: 1, NONE: 2}
@@ -135,9 +138,14 @@ def issue_key(buyer, actor) -> dict:
     from accounts.models import ActivityLog
     from accounts.services import APIKeyService
 
+    from accounts.key_vault import seal
+    from accounts.models import APIKey
+
     login, made = _bot_login(buyer)
     old = _switch_off(buyer, actor)
     created = APIKeyService.create(login, f'{buyer.name} Stats API')
+    # CH-490: kept encrypted so the main account can copy it again.
+    APIKey.objects.filter(id=created['id']).update(key_sealed=seal(created['key']))
     ActivityLog.objects.create(
         user=actor, action=ActivityLog.Action.API_KEY_CREATED,
         metadata={'api_key_name': created['name'], 'key_prefix': created['key_prefix'],
@@ -152,6 +160,28 @@ def issue_key(buyer, actor) -> dict:
         'key_prefix': created['key_prefix'],
         'issued_at': created['created_at'],
     }
+
+
+def copy_key(buyer, actor) -> dict:
+    """CH-490: the buyer's live key again, in full, when it was kept."""
+    from accounts.key_vault import unseal
+    from accounts.models import ActivityLog, APIKey
+
+    now = timezone.now()
+    live = [k for k in APIKey.objects.filter(user__buyer=buyer, is_active=True)
+            .select_related('user').order_by('-created_at') if _live(k, now)]
+    if not live:
+        raise ValueError('This buyer has no active key. Issue a new key.')
+    key = unseal(live[0].key_sealed)
+    if key is None:
+        raise ValueError('This key was issued before keys could be copied again. '
+                         'Issue a new key to get one you can copy.')
+    ActivityLog.objects.create(
+        user=actor, action=ActivityLog.Action.API_KEY_COPIED,
+        metadata={'api_key_name': live[0].name, 'key_prefix': live[0].key_prefix,
+                  'buyer': buyer.name, 'login': live[0].user.email, 'page': 'Active Bots'})
+    return {'buyer_id': str(buyer.id), 'buyer_name': buyer.name,
+            'login_email': live[0].user.email, 'key': key, 'key_prefix': live[0].key_prefix}
 
 
 @transaction.atomic
