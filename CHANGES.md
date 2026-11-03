@@ -9063,3 +9063,18 @@ publishers' TFNs so they can do that if permission granted."
   seconds, CH-471).
 
 Tests: `phone_numbers/test_publisher_pause.py`. Frontend: CH-492 FRONTEND.
+
+## CH-494 - A deleted buyer's name can be used again (BACKEND)
+
+3 Nov: creating buyer ZZY said "A buyer called 'ZZY' already exists in this
+workspace", while no ZZY was in the list. Deleting a buyer only archives it
+(its calls stay in the reports), and the archived one kept the name.
+
+- Creating a buyer with the name of a deleted one renames the deleted one to
+  "ZZY (deleted 2026-11-03)" first. It keeps its id, history and lines and
+  stays archived, so nothing of it routes again. The new ZZY starts fresh.
+- A buyer that is not deleted (active or paused) still blocks the name, as
+  before.
+
+Tests: `buyers/test_reuse_deleted_name.py`. Frontend: CH-494 FRONTEND adds a
+Priority field to Add Destination.

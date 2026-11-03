@@ -18,8 +18,15 @@ class BuyerService:
         # Checking first turns an IntegrityError 500 into a message the person
         # can act on - two buyers called `RNY` existed, and any report naming
         # one of them was ambiguous.
+        name = (data.name or '').strip()
+        # CH-494 (3 Nov): a deleted buyer is only archived, so its name stayed
+        # taken while the buyer was nowhere to be seen ("A buyer called 'ZZY'
+        # already exists" with no ZZY in the list). The deleted one gives its
+        # name up: it is renamed "ZZY (deleted 2026-11-03)" and keeps its
+        # history, lines and id, still archived - nothing it had routes again.
+        BuyerService._free_archived_name(user.organization, name)
         if Buyer.objects.filter(
-            organization=user.organization, name__iexact=(data.name or '').strip()
+            organization=user.organization, name__iexact=name
         ).exists():
             raise ValueError(
                 f"A buyer called '{data.name}' already exists in this workspace. "
@@ -62,6 +69,21 @@ class BuyerService:
         buyer.invite_result = invite_on_create(buyer, 'buyer', invited_by=user)
 
         return buyer
+
+    @staticmethod
+    def _free_archived_name(organization, name: str) -> None:
+        """CH-494: rename a deleted (archived) buyer holding this name."""
+        old = Buyer.objects.filter(organization=organization, name__iexact=name,
+                                   status=Buyer.Status.ARCHIVED).first()
+        if old is None:
+            return
+        stamp = timezone.localtime(old.updated_at or timezone.now()).date().isoformat()
+        base = f'{old.name} (deleted {stamp})'
+        new, n = base, 2
+        while Buyer.objects.filter(organization=organization, name__iexact=new).exists():
+            new, n = f'{base} {n}', n + 1
+        old.name = new[:255]
+        old.save(update_fields=['name'])
 
     @staticmethod
     def get_buyer(buyer_id: str, user: User) -> Buyer:
