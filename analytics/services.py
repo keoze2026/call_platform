@@ -1,6 +1,6 @@
 from django.db.models import (
     Count, Sum, Avg, Q, F, Case, When, Value,
-    FloatField, DecimalField
+    FloatField, DecimalField, BooleanField, Exists, ExpressionWrapper, OuterRef,
 )
 from django.db.models.functions import (
     TruncDay, TruncHour, TruncWeek, TruncMonth, Coalesce, Ceil, Cast
@@ -108,6 +108,33 @@ PAID = Q(is_converted=True) & (Q(payout__gt=0) | Q(campaign__payout_amount__gt=0
 
 # Answered: the buyer picked up (or is still talking).
 ANSWERED = Q(status__in=['completed', 'in_progress'])
+
+# CH-481 (Sir, 3 Nov): "No matter if we see missed with converted according to
+# our buyer setting and payout, but publisher should see missed if converted is
+# billed on connected rule." A buyer on "Incoming Call" (CH-247) converts a
+# missed call: we see it as Missed With Conversion. Its publisher is paid by
+# the tracking number's own rule, Payout On (Converted Call / Call Connected /
+# Call Length, Call Connected by default). On Call Connected or Call Length a
+# call nobody answered earns the publisher nothing, so a publisher login sees
+# it as Missed: not converted, no payout. Only Payout On = Converted Call
+# follows the buyer's conversion. Our own view is unchanged.
+# Every report surface reads `converted_view`, which _base_qs sets: the call's
+# conversion for us and buyers, this one for a publisher login.
+CONVERTED_VIEW = Q(converted_view=True)
+PAID_VIEW = CONVERTED_VIEW & (Q(payout__gt=0) | Q(campaign__payout_amount__gt=0))
+
+
+def publisher_converted():
+    from phone_numbers.models import PhoneNumber
+    follows_buyer = Exists(PhoneNumber.objects.filter(
+        organization_id=OuterRef('organization_id'), number=OuterRef('called_number'),
+        payout_on='converted'))
+    return Q(is_converted=True) & (follows_buyer | ANSWERED)
+
+
+def converted_shown(r) -> bool:
+    """One report row's Converted, as its viewer sees it (CH-481)."""
+    return bool(getattr(r, 'converted_view', r.is_converted))
 # CH-352: an answered call with no charge recorded on it; its Cost is the
 # minutes estimate. TFN test calls are never charged and never estimated.
 UNCHARGED = Q(platform_cost=0, duration_seconds__gt=0) & ~Q(twilio_call_sid__startswith='tfntest-')
@@ -276,7 +303,7 @@ class AnalyticsService:
         if _f(filters, 'destination'):
             qs = qs.filter(destination_number=filters.destination)
 
-        for flag in ('is_qualified', 'is_converted', 'is_duplicate', 'is_spam'):
+        for flag in ('is_qualified', 'is_duplicate', 'is_spam'):
             value = getattr(filters, flag, None)
             if value is not None:
                 qs = qs.filter(**{flag: value})
@@ -302,7 +329,13 @@ class AnalyticsService:
         # charged. is_converted is safe to use now that the signal populates it
         # and backfill_converted has fixed the historical rows.
         zero = Value(Decimal('0'), output_field=DecimalField(max_digits=10, decimal_places=4))
-        earned = Q(is_converted=True)
+        # What converted for this viewer (CH-481): a publisher login by its
+        # tracking number's Payout On, everyone else by the call's conversion.
+        conv = publisher_converted() if getattr(user, 'role', '') == 'publisher' else Q(is_converted=True)
+        qs = qs.annotate(converted_view=ExpressionWrapper(conv, output_field=BooleanField()))
+        if getattr(filters, 'is_converted', None) is not None:
+            qs = qs.filter(converted_view=bool(filters.is_converted))
+        earned = CONVERTED_VIEW
 
         qs = qs.annotate(
             dynamic_revenue=Case(
@@ -382,7 +415,7 @@ class AnalyticsService:
         agg = all_qs.aggregate(
             total_calls=Count('id'),
             completed=Count('id', filter=Q(status='completed')),
-            converted=Count('id', filter=Q(is_converted=True)),
+            converted=Count('id', filter=CONVERTED_VIEW),
             spam=Count('id', filter=Q(is_spam=True)),
             connected=Count('id', filter=Q(status__in=['completed', 'in_progress'])),
             # Every duplicate that arrived, answered or dropped. Counting only
@@ -491,7 +524,7 @@ class AnalyticsService:
             .values('period')
             .annotate(
                 calls=Count('id'),
-                converted=Count('id', filter=Q(is_converted=True)),
+                converted=Count('id', filter=CONVERTED_VIEW),
                 # The "Calls by" chart plots connected against no answer. Without
                 # these it had only a total and had to guess the split.
                 connected=Count('id', filter=Q(status__in=[
@@ -504,8 +537,8 @@ class AnalyticsService:
                 # (blue), answered but not converted (yellow), and missed AND
                 # not converted (red). A missed call that converted - its
                 # destination pays on Incoming - is blue, not red.
-                not_converted=Count('id', filter=Q(is_converted=False) & ANSWERED),
-                lost=Count('id', filter=Q(is_converted=False) & ~ANSWERED),
+                not_converted=Count('id', filter=~CONVERTED_VIEW & ANSWERED),
+                lost=Count('id', filter=~CONVERTED_VIEW & ~ANSWERED),
                 revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -585,7 +618,7 @@ class AnalyticsService:
     def _export_reason(r) -> str:
         """The fail reason in the export, as on screen: only a call that did
         not convert has one (CH-250)."""
-        if r.is_converted:
+        if converted_shown(r):
             return ''
         from routing.comments import comment
         return comment(getattr(r, 'block_reason', '') or '')   # CH-349
@@ -595,7 +628,7 @@ class AnalyticsService:
         """The status in the export. A missed call that still converted (its
         destination pays on Incoming Call, CH-247) reads "Missed With
         Conversion", as on screen (CH-250)."""
-        if r.is_converted and r.status not in ('completed', 'in_progress'):
+        if converted_shown(r) and r.status not in ('completed', 'in_progress'):
             return 'Missed With Conversion'
         return r.status
 
@@ -669,7 +702,7 @@ class AnalyticsService:
             .annotate(
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
-                converted_calls=Count('id', filter=Q(is_converted=True)),
+                converted_calls=Count('id', filter=CONVERTED_VIEW),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -697,7 +730,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=PAID),
+                paid_calls=Count('id', filter=PAID_VIEW),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -1016,7 +1049,7 @@ class AnalyticsService:
             .annotate(
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
-                converted_calls=Count('id', filter=Q(is_converted=True)),
+                converted_calls=Count('id', filter=CONVERTED_VIEW),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 total_profit=Coalesce(Sum('dynamic_profit'), Decimal('0')),
@@ -1039,7 +1072,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=PAID),
+                paid_calls=Count('id', filter=PAID_VIEW),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -1111,7 +1144,7 @@ class AnalyticsService:
             .values('buyer_id', 'buyer_name')
             .annotate(
                 total_calls=Count('id'),
-                converted=Count('id', filter=Q(is_converted=True)),
+                converted=Count('id', filter=CONVERTED_VIEW),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
                 avg_bid=Coalesce(Avg('winning_bid'), Decimal('0')),
                 
@@ -1122,7 +1155,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=PAID),
+                paid_calls=Count('id', filter=PAID_VIEW),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -1237,7 +1270,7 @@ class AnalyticsService:
             .annotate(
                 total_calls=Count('id'),
                 qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
-                converted=Count('id', filter=Q(is_converted=True)),
+                converted=Count('id', filter=CONVERTED_VIEW),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),
                 
@@ -1248,7 +1281,7 @@ class AnalyticsService:
                 not_connected_calls=Count('id', filter=~Q(status__in=[
                     CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS,
                 ])),
-                paid_calls=Count('id', filter=PAID),
+                paid_calls=Count('id', filter=PAID_VIEW),
                 # TCL is divided by Connected to make ACL, so it has to be the
                 # time of the calls that connected. Summing every row put the
                 # seconds of calls that are not in the denominator into the
@@ -1552,7 +1585,7 @@ class AnalyticsService:
             'publisher_name':   r.publisher_name,
             'status':           r.status,
             'duration_seconds': r.duration_seconds,
-            'is_converted':     r.is_converted,
+            'is_converted':     converted_shown(r),
             # Was absent entirely, so any client counting qualified calls from
             # the call log had no field to read.
             'is_qualified':     r.is_qualified,
@@ -1695,7 +1728,7 @@ class AnalyticsService:
                 AnalyticsService._export_status(r), AnalyticsService._export_reason(r),
                 r.duration_seconds, ttc,
                 'Yes' if r.is_qualified else 'No',
-                'Yes' if r.is_converted else 'No',
+                'Yes' if converted_shown(r) else 'No',
                 'Yes' if r.is_duplicate else 'No',
                 r.dynamic_revenue, r.dynamic_payout, r.dynamic_profit,
                 billed_minutes,

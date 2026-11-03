@@ -120,7 +120,9 @@ def closed_range_response(request, filters, name, compute):
     # v2 (CH-284): the call log gained `cost` and publishers `total_cost`;
     # entries cached before that would show "-" for up to six hours.
     # v3 (CH-352): Cost now adds charged and uncharged calls.
-    key = (f'reports:v3:{name}:{user.organization_id}:{audience}:'
+    # v4 (CH-481): a publisher sees a missed call on a Call Connected TFN as
+    # Missed; its cached past days showed it converted.
+    key = (f'reports:v4:{name}:{user.organization_id}:{audience}:'
            f'{_hash(filters, _KEY_FIELDS)}')
     if state != 'closed':
         key += f':{state}'

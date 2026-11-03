@@ -92,7 +92,7 @@ class TodayReportCacheTests(TestCase):
         self.record()
         with mock.patch.object(report_cache.cache, 'set', wraps=report_cache.cache.set) as put:
             self.get()
-        report_ttls = [c.args[2] for c in put.call_args_list if c.args[0].startswith('reports:v3')]
+        report_ttls = [c.args[2] for c in put.call_args_list if c.args[0].startswith('reports:v4')]
         self.assertEqual(report_ttls, [report_cache.TODAY_TTL_SECONDS])
 
     def test_a_cache_that_cannot_be_read_still_gives_the_report(self):

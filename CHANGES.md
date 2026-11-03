@@ -8956,3 +8956,29 @@ role) got "Your role cannot members" switching on Set Caps for a buyer.
   Numbers (Delete).
 
 Tests: `accounts/test_campaign_team_access.py`. No frontend change.
+
+## CH-481 - Publisher sees a missed call as Missed when its TFN pays on Call Connected (BACKEND)
+
+Sir (3 Nov): "No matter if we see missed with converted according to our
+buyer setting and payout, but publisher should see missed if converted is
+billed on connected rule."
+
+A buyer destination on "Incoming Call" (CH-247) converts a call nobody
+answered: we see it as **Missed With Conversion**. The publisher's own rule is
+the tracking number's **Payout On** (Converted Call / Call Connected / Call
+Length; Call Connected by default), which was saved but never used. Now:
+
+- **A publisher login** sees a call as converted only when it was answered,
+  unless its TFN's Payout On is **Converted Call** (then it follows the
+  buyer's conversion, as before). A missed call on a Call Connected or Call
+  Length TFN shows as Missed, not converted, with no payout - in the call
+  log, the totals (Converted, Paid, Payout), the charts and the export.
+- **Our view and buyers' are unchanged**: still Missed With Conversion, with
+  the revenue and payout stored on the call.
+- `analytics/services.py`: every report reads `converted_view`, set in
+  `_base_qs` per viewer. The Converted filter uses it too.
+- `analytics/report_cache.py`: cache key v3 -> v4 (and its test), so publishers do not get
+  a cached answer from before this change (reports recompute once).
+
+Tests: `analytics/test_publisher_missed.py`. No frontend change: the portal
+already shows a call by its `is_converted`.
