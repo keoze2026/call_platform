@@ -585,8 +585,10 @@ class RouteCallAgiTests(FallbackBase):
         self.line(A)
         self.sync_plan()
         got, _ = self.run_agi(f'http://127.0.0.1:{srv.server_address[1]}')
+        # CH-514: B sent no ring time, so none (and no next buyer) - as before.
         self.assertEqual(got, {'ROUTE_ACTION': 'dial', 'BUYER_NUMBER': C, 'CALL_LOG_ID': 'b-id',
-                               'MAX_DURATION': '1800', 'RECORD_CALL': '0'})
+                               'MAX_DURATION': '1800', 'RECORD_CALL': '0',
+                               'RING_TIMEOUT': '', 'NEXT_ON_FAIL': '0'})
         self.assertEqual(seen, {'caller_number': '+15551234567', 'called_number': '+18888910343',
                                 'asterisk_call_id': '1793.42', 'secret': SECRET})
         self.assertEqual(fb.Journal().db.execute('SELECT source, dest FROM calls').fetchall(), [('b', C)])

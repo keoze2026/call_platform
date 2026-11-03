@@ -551,6 +551,10 @@ class RoutingEngine:
         excl_d = call_data.get('dup_exclude_destinations', ())
         excl_b = call_data.get('dup_exclude_buyers', ())
         blocked_b = call_data.get('blocked_buyers', ())
+        # CH-514: a destination already tried on this call is not tried again.
+        tried = call_data.get('tried_destinations', ())
+        if tried:
+            destinations = [d for d in destinations if _d10(d.destination) not in tried]
         if not dup_only and not excl_d and not excl_b and not blocked_b:
             return destinations
         kept = []
@@ -630,6 +634,17 @@ class RoutingEngine:
         if row is None:
             return True
         return bool(row.enabled)
+
+    @staticmethod
+    def line_resting(buyer, number):
+        """CH-514: why this destination is resting after missing in a row, or
+        None. Never costs a call when the check itself fails."""
+        try:
+            from routing.failover import cooling
+            return cooling(buyer, number)
+        except Exception:
+            logger.exception('cooldown check failed for %s', number)
+            return None
 
     @staticmethod
     def line_not_listed(destination) -> bool:
@@ -724,7 +739,10 @@ class RoutingEngine:
         # Original: only the destination that took their first call.
         # Different: never one they have already reached.
         dup_only = call_data.get('dup_only_destination')
-        if dup_only and _d10(destination.destination) != dup_only:
+        if _d10(destination.destination) in call_data.get('tried_destinations', ()):
+            # CH-514: already rang on this call and did not answer.
+            reason = 'already tried on this call'
+        elif dup_only and _d10(destination.destination) != dup_only:
             reason = 'duplicate routes to its original destination'
         elif _d10(destination.destination) in call_data.get('dup_exclude_destinations', ()):
             reason = 'already took this caller (duplicates: different)'
@@ -747,6 +765,10 @@ class RoutingEngine:
             ):
                 reason = f'destination {destination.destination} is switched off'
                 dest_fault = 'Destination missed (TFN off)'
+            elif resting := RoutingEngine.line_resting(buyer, destination.destination):
+                # CH-514: missed in a row - rested, then one call goes through.
+                reason = f'destination {destination.destination} is {resting}'
+                dest_fault = 'Destination missed (resting)'
             elif not RoutingEngine.check_buyer_caps(buyer):
                 reason = f'buyer {buyer.name} has reached its cap'
                 dest_fault = 'Destination missed (cap full)'
@@ -935,7 +957,9 @@ class RoutingEngine:
             if trace: trace.step('publisher_block', False, 'caller blocked on this publisher')
             return {'destination': None, 'rule': None, 'error': RoutingEngine.BLOCKED_CALLER_LABEL}
 
-        if campaign.duplicate_call_block:
+        # CH-514: the next buyer for a call already in progress is not a new
+        # call from this caller - never refused as a duplicate of itself.
+        if campaign.duplicate_call_block and not call_data.get('failover'):
             if RoutingEngine.is_duplicate(caller_number, str(campaign.id), campaign.duplicate_call_block_hours):
                 if trace: trace.step('duplicate', False, f'called within {campaign.duplicate_call_block_hours}h')
                 return {'destination': None, 'rule': None, 'error': 'Duplicate call blocked'}

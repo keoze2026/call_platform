@@ -356,6 +356,7 @@ ANY /api/twilio/asterisk/fallback-plan-stamp/
 ANY /api/twilio/asterisk/fallback-plan/
 ANY /api/twilio/asterisk/held-answer/
 ANY /api/twilio/asterisk/host-status/
+ANY /api/twilio/asterisk/route-next/
 ANY /api/twilio/asterisk/route/
 ANY /api/twilio/call-status/
 ANY /api/twilio/click-to-call-connect/{}/

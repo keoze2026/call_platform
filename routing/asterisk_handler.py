@@ -21,6 +21,7 @@ from django.utils import timezone
 from phone_numbers.models import PhoneNumber
 from routing.models import CallLog
 from routing.engine import RoutingEngine
+from routing import failover
 
 logger = logging.getLogger(__name__)
 
@@ -459,6 +460,12 @@ def _route_incoming_call(request):
             logger.warning('rejected_fee_not_queued: call_log=%s', call_log.id)
         return JsonResponse({"action": "hangup", "reason": reason})
 
+    return _send_to_destination(call_log, decision, trace, campaign)
+
+
+def _send_to_destination(call_log, decision, trace, campaign):
+    """Stamp the routed destination on the call and tell the dialplan to dial
+    it. Shared by the first route and the next buyer (CH-514)."""
     # The engine picks a rule and the call never recorded which one, so the call
     # detail could not say why it went where it did.
     chosen_rule = decision.get('rule')
@@ -526,7 +533,88 @@ def _route_incoming_call(request):
         # ran MixMonitor on every call unconditionally. The AGI turns this into
         # a channel variable and the dialplan gates MixMonitor on it.
         "recording_enabled": bool(getattr(campaign, 'recording_enabled', True)),
+        # CH-514: how long the destination rings before the next buyer is
+        # tried, and whether to ask for one. Empty when failover is off.
+        **failover.route_extras(),
     })
+
+
+@csrf_exempt
+@require_http_methods(["POST"])
+def route_next(request):
+    """CH-514: the destination did not answer - send the call to the next buyer.
+
+    Server A's dialplan asks this after a Dial() that rang FAILOVER_RING_SECONDS
+    and was not answered (no answer, busy, refused, unavailable) while the
+    caller is still on the line. The destination just missed is kept as a
+    hidden row; the call's own row is routed again, skipping every destination
+    already tried on it, and keeps its id - so the recording, the hang-up report
+    and the Call Log all stay on one call. Nothing left: "hangup", and the call
+    stays the missed call it was.
+    """
+    if not _check_secret(request):
+        return JsonResponse({"error": "Forbidden"}, status=403)
+    try:
+        data = json.loads(request.body.decode('utf-8'))
+    except Exception:
+        return JsonResponse({"error": "Bad JSON"}, status=400)
+
+    if not failover.enabled():
+        return JsonResponse({"action": "hangup", "reason": "failover_off"})
+    dial_status = str(data.get('dial_status') or '').upper()
+    if dial_status not in failover.DIAL_MISS:
+        # Answered, or the caller hung up (CANCEL): nothing to try.
+        return JsonResponse({"action": "hangup", "reason": f"dial_{dial_status.lower() or 'none'}"})
+    try:
+        dialed = int(data.get('dialed_seconds') or 0)
+    except (TypeError, ValueError):
+        dialed = 0
+    try:
+        call_log = CallLog.objects.select_related('campaign').get(id=data.get('call_log_id'))
+    except (CallLog.DoesNotExist, ValueError, ValidationError):
+        return JsonResponse({"action": "hangup", "reason": "call_not_found"})
+    campaign = call_log.campaign
+    if call_log.status not in _LIVE_STATUSES or not call_log.destination_number or campaign is None:
+        return JsonResponse({"action": "hangup", "reason": "call_not_live"})
+
+    tried = failover.tried_numbers(call_log)
+    max_tries = max(1, int(getattr(settings, 'FAILOVER_MAX_TRIES', 10) or 10))
+    if len(tried) >= max_tries:
+        return JsonResponse({"action": "hangup", "reason": "max_tries"})
+
+    from routing.trace import RouteTrace
+    trace = RouteTrace()
+    phone = PhoneNumber.objects.filter(number=call_log.called_number).first()
+    _take_route_lock(request, campaign.organization_id)
+    try:
+        decision = RoutingEngine.route_call(str(campaign.id), {
+            'caller_number': call_log.caller_number,
+            'caller_area_code': call_log.caller_area_code,
+            'caller_state': call_log.caller_state,
+            'twilio_call_sid': call_log.twilio_call_sid,
+            'phone_number': phone,
+            'publisher_id': str(call_log.publisher_id) if call_log.publisher_id else None,
+            'failover': True,
+            'tried_destinations': tried,
+            'trace': trace,
+        })
+        if not decision or decision.get('error') or not decision.get('destination'):
+            reason = decision.get('error', 'no_destination') if decision else 'no_decision'
+            logger.info('call %s: no next buyer after %s (%s)', call_log.id, call_log.destination_number, reason)
+            return JsonResponse({"action": "hangup", "reason": reason})
+        # The destination just missed, kept as a hidden row (never shown or
+        # counted); the cooldown reads it.
+        failover.record_miss(call_log, dial_status, dialed)
+        logger.info('call %s: %s missed (%s), trying the next buyer',
+                    call_log.id, call_log.destination_number, dial_status)
+        return _send_to_destination(call_log, decision, trace, campaign)
+    finally:
+        key = getattr(request, '_route_lock_key', None)
+        if key:
+            try:
+                cache.delete(key)
+            except Exception:
+                logger.exception('could not release %s', key)
 
 
 @csrf_exempt

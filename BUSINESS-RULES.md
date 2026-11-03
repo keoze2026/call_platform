@@ -143,6 +143,18 @@ Last updated: 31 Oct 2026.
   and is not counted. Campaign / Publisher totals and the Call Log keep one
   row per caller call; a redial earns no revenue and no payout.
 
+### 3.5 Next buyer and rest - CH-514 (Sir, 4 Nov)
+- A destination that does not answer within **15 seconds** (no answer, busy,
+  refused, unavailable) passes the call to the **next buyer** at once, in
+  priority / weight order, never one already tried on that call. The caller is
+  never lost while a buyer is left.
+- After **5 missed in a row** a destination **rests 15 minutes** (skipped);
+  then it gets **one** call: answered - back to normal; missed - another 15
+  minutes. A caller hanging up is not a miss.
+- The call stays one row; the destinations it missed are kept hidden (never
+  shown or counted) and only feed the rest rule.
+- Switch: FAILOVER_RING_SECONDS in Server B's .env (15 = on, 0 = off).
+
 ### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
 - A campaign line takes calls only when its number is on its buyer's
   **Destinations page**. A line marked "Not on Destinations page" takes **no

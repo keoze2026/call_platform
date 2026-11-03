@@ -9214,3 +9214,58 @@ Sir, 4 Nov: "Never show or count backend redials like Q06 today."
 - Needs `docker compose restart web web_calls`.
 
 Tests: `analytics/test_redials_count.py`. BUSINESS-RULES.md 3.3.
+
+## CH-514 - Next buyer after 15 seconds, and a rest after 5 misses (BACKEND + Server A)
+
+Sir, 4 Nov: "Every call: try the next buyer. If a destination doesn't answer
+within about 15 seconds, the call moves to the next buyer straight away. The
+caller is never lost. After 5 misses in a row: cooldown ... 15 minutes ...
+After the cooldown: auto-retry. It sends one call. If that's answered, the
+destination goes back to normal. If not, another 15-minute cooldown starts."
+
+Why it did not happen: Server A's Dial() used ${MAX_DURATION} (3600) as its
+ring time, so a line that did not answer rang until the sending platform gave
+up and dialled us again - the redials (Q06: 143 on 3 Nov, all unanswered).
+
+Server B
+- `FAILOVER_RING_SECONDS` (.env, default 0 = off). On, the route reply adds
+  `ring_timeout` and `next_on_fail`.
+- `POST /api/twilio/asterisk/route-next/` (Asterisk secret): after a Dial()
+  that was not answered (NOANSWER / BUSY / CONGESTION / CHANUNAVAIL), routes
+  the SAME call again, skipping every destination already tried on it. The
+  call keeps its row and id (recording, hang-up report, Call Log); the
+  destination it missed is kept as a hidden row (`retry_hidden`, `retry_root`
+  = the call, sid `<sid>#tryN`), never shown or counted. Nothing left:
+  "hangup" and the call ends as it does today. Answered or caller gone
+  (CANCEL): nothing tried. At most FAILOVER_MAX_TRIES (10) destinations a call.
+  The next buyer is never refused as a duplicate of the same call.
+- Rest (`routing.failover.cooling`, in routing's checks): the last
+  LINE_COOLDOWN_MISSES (5) finished calls on a buyer's TFN all missed ("No
+  Answer" / "Destination busy"; a caller hanging up does not count) - the line
+  is skipped LINE_COOLDOWN_MINUTES (15) from the newest miss, then one call
+  goes through (others skip it while that call is on); answered - normal,
+  missed - rests again. Shown in the call's trace as "resting".
+  Only while FAILOVER_RING_SECONDS is on.
+
+Server A
+- `scripts/fallback/route_call.py`: sets RING_TIMEOUT / NEXT_ON_FAIL from B's
+  reply (empty / 0 when B sends none, and when Server A routes on its own),
+  and `route_call.py next` asks route-next. Installed by install_a.sh.
+- `deploy/failover_dialplan.py` (dry run / --apply / --rollback): in
+  [from-carrier], Dial() rings ${RING_TIMEOUT} when set (else ${MAX_DURATION}
+  as before) and, not answered with NEXT_ON_FAIL=1, runs
+  AGI(route_call.py,next) and dials again. Refuses while calls are active,
+  backs up first, restores by itself if the reload fails. Reference:
+  docs/asterisk/from-carrier-failover.conf.
+
+Order: B (patch + restart, switch still 0) -> A (install_a.sh, then the
+dialplan script, outside calling hours) -> set FAILOVER_RING_SECONDS=15 in B's
+.env and restart web web_calls. Undo: set it back to 0 and restart (A then
+dials exactly as before); `--rollback` restores A's dialplan.
+
+Seen while building, not changed: with a campaign's "duplicate call block"
+switched on, `RoutingEngine.is_duplicate` also counts the call's own new row
+(created as "ringing" before routing), so every call on such a campaign would
+be refused as a duplicate.
+
+Tests: `routing/test_failover.py` (11). BUSINESS-RULES.md 3.5.

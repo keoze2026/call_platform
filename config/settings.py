@@ -862,3 +862,13 @@ SUPPORT_WEBHOOK_SECRET = config('SUPPORT_WEBHOOK_SECRET', default='')
 SECURE_REDIRECT_EXEMPT = [r'^api/twilio/asterisk/.*']
 TELNYX_API_KEY = os.environ.get('TELNYX_API_KEY', '')
 TELNYX_API_KEY = config('TELNYX_API_KEY', default='')
+
+# CH-514 (Sir, 4 Nov): try the next buyer when a destination does not answer.
+# Seconds a destination rings before the call moves to the next buyer; 0 = off
+# (the buyer rings until the caller or the sender gives up, as before). The
+# same switch turns on the cooldown: after LINE_COOLDOWN_MISSES misses in a
+# row a destination is skipped for LINE_COOLDOWN_MINUTES, then gets one call.
+FAILOVER_RING_SECONDS = config('FAILOVER_RING_SECONDS', default=0, cast=int)
+FAILOVER_MAX_TRIES = config('FAILOVER_MAX_TRIES', default=10, cast=int)
+LINE_COOLDOWN_MISSES = config('LINE_COOLDOWN_MISSES', default=5, cast=int)
+LINE_COOLDOWN_MINUTES = config('LINE_COOLDOWN_MINUTES', default=15, cast=int)

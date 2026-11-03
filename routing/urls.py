@@ -12,6 +12,7 @@ urlpatterns = [
     path('click-to-call/', twilio_handler.click_to_call, name='click_to_call'),
     path('click-to-call-connect/<str:campaign_id>/', twilio_handler.click_to_call_connect, name='click_to_call_connect'),
         path('asterisk/route/', asterisk_handler.route_incoming_call, name='asterisk_route'),
+        path('asterisk/route-next/', asterisk_handler.route_next, name='asterisk_route_next'),
     path('asterisk/call-ended/', asterisk_handler.call_ended, name='asterisk_call_ended'),
     path('asterisk/active-channels/', asterisk_handler.active_channels, name='asterisk_active_channels'),
     path('asterisk/held-answer/', asterisk_handler.held_answer_report, name='asterisk_held_answer'),
