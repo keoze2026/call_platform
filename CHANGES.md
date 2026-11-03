@@ -9125,3 +9125,25 @@ taking calls.
 
 Tests: `routing/test_fallback.py` (two new), `phone_numbers/test_tfn_check.py`.
 BUSINESS-RULES.md 3.4.
+
+## CH-503 - Every campaign line on the Destinations page (BACKEND, command)
+
+Sir, 3 Nov: "Every buyer should show in destination ... All destinations
+should be visible in the destination column and report even if 1 call routed
+or missed ... the portal should show everything."
+
+- On 3 Nov 93 numbers sat in campaign lines with a buyer but no row on that
+  buyer's Destinations page (195 lines; Q06's 28 among them). They could not
+  be found by search, had no switch that worked, and their calls showed no
+  Destination name in Reports and the Call Log.
+- New command `python manage.py list_campaign_lines`: lists them; with
+  `--apply` adds one Destinations row per buyer and number ("Q06|4220|"),
+  **switched off**; numbers given with `--on` are added switched on. Existing
+  rows are never touched; running it again adds only what is missing.
+  Archived campaigns and archived buyers are left out.
+- Switched off means the line takes no calls (as any paused destination)
+  until the team switches it on - the same as CH-502 will do for lines with
+  no row, but now each one is visible and can be switched on in the portal.
+- No restart needed: the command runs in its own process.
+
+Tests: `routing/test_list_campaign_lines.py`. BUSINESS-RULES.md 3.4.

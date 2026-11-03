@@ -142,6 +142,9 @@ Last updated: 31 Oct 2026.
   calls**, and is never swapped to another TFN of the same buyer.
 - To make such a line work, add its number on the Destinations page under the
   right buyer.
+- Every campaign line is on the Destinations page (CH-503, Sir 3 Nov: "the
+  portal should show everything"): old lines without a row were added there,
+  switched off, for the team to switch on the real ones.
 
 ---
 
