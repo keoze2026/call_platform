@@ -34,7 +34,10 @@ def dashboard(request: HttpRequest, filters: AnalyticsFilterSchema = Query(...))
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'reporting', 'view')
     require_reports_unlock(request, filters)
-    data = AnalyticsService.get_dashboard(request.auth, filters)
+    # CH-482: shared for a few seconds - the header polls this from every tab.
+    from analytics.report_cache import short_response
+    data = short_response(request, filters, 'dashboard',
+                          lambda: AnalyticsService.get_dashboard(request.auth, filters))
     return 200, data
 
 

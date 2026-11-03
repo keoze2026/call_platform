@@ -99,12 +99,34 @@ def _range_is_closed(filters, user) -> bool:
     return date_to < settled
 
 
+def _audience(user) -> str:
+    if getattr(user, 'role', '') in ('buyer', 'publisher'):
+        return f'partner:{user.id}'
+    return f'role:{user.role}'
+
+
+# CH-482: the header's Live / Total / balance (GET /api/analytics/dashboard).
+# Every open portal tab polls it, and with no dates it adds up the workspace's
+# whole history each time. One answer per workspace and audience is shared
+# for a few seconds, so ten tabs cost one query, not ten.
+HEADER_TTL_SECONDS = 4
+
+
+def short_response(request, filters, name, compute, ttl=HEADER_TTL_SECONDS):
+    user = request.auth
+    key = (f'reports:short:{name}:{user.organization_id}:{_audience(user)}:'
+           f'{_hash(filters, _KEY_FIELDS)}')
+    hit = _cache_get(key)
+    if hit is not None:
+        return hit
+    result = compute()
+    _cache_set(key, result, ttl)
+    return result
+
+
 def closed_range_response(request, filters, name, compute):
     user = request.auth
-    if getattr(user, 'role', '') in ('buyer', 'publisher'):
-        audience = f'partner:{user.id}'
-    else:
-        audience = f'role:{user.role}'
+    audience = _audience(user)
 
     if _range_is_closed(filters, user):
         ttl = TTL_SECONDS

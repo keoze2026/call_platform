@@ -8982,3 +8982,24 @@ Length; Call Connected by default), which was saved but never used. Now:
 
 Tests: `analytics/test_publisher_missed.py`. No frontend change: the portal
 already shows a call by its `is_converted`.
+
+## CH-482 - Header figures shared for 4 seconds instead of recomputed by every tab (BACKEND)
+
+Sir (3 Nov): "Cache the header's Live / Total / balance in Redis (2-5 s), so
+polling doesn't hit the database."
+
+Found on Server B (3 Nov, 9:22 AM EST): the database, today's calls and every
+page's API were fine (header 0.07 s, Campaigns 0.06 s, Campaign Groups 0.03 s,
+a group's destinations 0.13 s, Reports call log 0.09 s; nothing locked, 1 of
+100 connections in use). The "$0 / Total: 0 / Loading..." moment was the
+portal restart for a deploy: for a few seconds every request in flight was
+cut (48 x 502 in nginx at 15:22:43 server time), and the portal did not try
+again. CH-482 FRONTEND makes the portal retry; this part takes the load of
+the header off the database.
+
+- `GET /api/analytics/dashboard` (the header, polled every 30 s by every open
+  tab; with no dates it adds up the whole history) is shared per workspace
+  and audience for 4 seconds in Redis (`analytics/report_cache.short_response`).
+  Staff of one role share it; each buyer and publisher has its own.
+
+Tests: `analytics/test_header_cache.py`.
