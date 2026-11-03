@@ -31,6 +31,7 @@ from support.api import router as support_router
 from support.telegram_webhook import router as telegram_webhook_router
 from analytics.team_report_api import router as team_report_router, bot_router as team_report_bot_router
 from accounts.api_keys_api import router as api_keys_router
+from accounts.buyer_bots_api import router as active_bots_router  # CH-477
 from analytics.scheduled_reports_api import router as scheduled_reports_router
 from spam_protection.shields_api import router as shields_router
 from buyers.destinations_api import router as destinations_router
@@ -113,6 +114,7 @@ api.add_router("/support/", telegram_webhook_router)
 api.add_router("/team-report/", team_report_router)          # CH-347
 api.add_router("/team-report-bot/", team_report_bot_router)  # CH-347: the reports bot webhook
 api.add_router("/accounts/api-keys", api_keys_router)
+api.add_router("/active-bots/", active_bots_router)            # CH-477
 api.add_router("/analytics/reports/", scheduled_reports_router)
 api.add_router("/spam/shields/", shields_router)
 api.add_router("/destinations/", destinations_router)

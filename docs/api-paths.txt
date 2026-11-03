@@ -45,6 +45,9 @@ GET /api/accounts/workspace/sessions
 DELETE /api/accounts/workspace/sessions/{}
 GET /api/accounts/{}/{}/settings
 PATCH /api/accounts/{}/{}/settings
+GET /api/active-bots/
+POST /api/active-bots/{}/issue
+POST /api/active-bots/{}/switch-off
 GET /api/ai/anomalies/
 POST /api/ai/autopilot/
 GET /api/ai/autopilot/config/

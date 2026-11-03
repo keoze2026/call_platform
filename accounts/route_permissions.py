@@ -52,6 +52,9 @@ def _rule(pattern, area, verbs=None, extra=None):
 RULES = [
     # ── administration: no tick, admin only ──────────────────────────────────
     _rule(r'^/accounts/workspace/(members|roles|sessions|activity)(/.*)?$', ADMIN),
+    # Active Bots (CH-477): buyers' API keys; the handler narrows it further to
+    # the workspace's main account (CH-243).
+    _rule(r'^/active-bots(/.*)?$', ADMIN),
     _rule(r'^/white-label(?!/config)(/.*)?$', ADMIN,
           verbs={'GET': None, 'HEAD': None, 'OPTIONS': None}),
 

@@ -8893,3 +8893,42 @@ buyer's own login. Viewing is always allowed.
 
 Tests: `buyers/test_buyer_play_pause.py` (`BuyerToggleTests`). Frontend:
 CH-476 FRONTEND lists the switches on the buyer's access page.
+
+## CH-477 - Active Bots: every buyer's API key on one page (BACKEND)
+
+Sir (3 Nov): "Active Bots - where team can see each buyer's unique API."
+Buyer API keys were made from the server shell only (CH-221), so nobody
+could see in the portal which buyers had one, whether it worked, or when it
+was last used.
+
+`GET /api/active-bots/` lists every buyer of the workspace (archived buyers
+only if they ever had a key):
+
+| Shows | |
+|---|---|
+| Buyer | name |
+| API login | the `<name>bot@avortyx.io` login that carries the key |
+| Key | its first 12 characters only, never the key |
+| Status | Active / Off (switched off) / No key |
+| Issued, Last used | when the live key was made; the last call with any of its keys |
+
+- `POST /api/active-bots/{buyer}/issue`: switches the buyer's old key off and
+  makes a new one. The full key is in that reply only; it is stored as a
+  hash and can never be shown again. A buyer without a bot login gets one
+  made the way the hand-made ones were (role buyer, its own buyer, no
+  password, so it cannot sign in). If that address is taken, a number is
+  added (`a49bot2@avortyx.io`). The buyer's own portal login is never used.
+- `POST /api/active-bots/{buyer}/switch-off`: the buyer's key stops working
+  at once.
+- Both are written to the activity log under the main account's name, with
+  the buyer, the login and the key's first characters.
+- **Who:** the workspace's main account only, as every API key (CH-243).
+  Other admins, managers, buyers and publishers get 403.
+- The Stats API itself is unchanged: a key still reads only its buyer's
+  numbers.
+
+Files: `accounts/buyer_bots.py`, `accounts/buyer_bots_api.py`,
+`config/api.py`, `accounts/route_permissions.py` (admin-only rule, so a
+Viewer or Manager is refused before the handler). Tests:
+`accounts/test_active_bots.py`. Frontend: CH-477
+FRONTEND adds the Active Bots page.
