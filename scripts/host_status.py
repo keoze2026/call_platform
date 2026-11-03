@@ -10,6 +10,13 @@ firewall, the disk or the SIP capture. Every minute this collects them into
     python3 scripts/host_status.py --print    # print it
     cron: * * * * * python3 /opt/call_platform/scripts/host_status.py >/dev/null 2>&1
 
+CH-472, two servers. It runs on both, each looking at itself.
+- Server B (portal) keeps its file in run/host_status.json, as before.
+- Server A (calls) also sends its file to Server B over the private link
+  when HOST_STATUS_POST_URL is set. B keeps it as run/host_status_a.json, and
+  the status bot shows the phone system and Server A's own health from it:
+    * * * * * HOST_STATUS_POST_URL=http://10.20.0.2:8001/api/twilio/asterisk/host-status/ python3 /opt/call_platform/scripts/host_status.py >> /var/log/host_status.log 2>&1
+
 SIP numbers come from the capture (/root/sipcap/xolo-*.pcap, one file an
 hour): outbound calls we sent to buyers, the carrier's final answer to each,
 and post-dial delay (INVITE to first ringing). A finished hour is read once
@@ -25,13 +32,17 @@ import statistics
 import subprocess
 import sys
 import time
+import urllib.request
 
 APP = os.environ.get('APP_DIR', '/opt/call_platform')
 OUT = os.environ.get('HOST_STATUS_FILE', os.path.join(APP, 'run', 'host_status.json'))
 CAPTURES = os.environ.get('SIP_CAPTURES', '/root/sipcap/xolo-*.pcap')
 STATS_DIR = os.environ.get('SIP_STATS_DIR', '/var/lib/avortyx/sipstats')
 RECORDINGS = '/var/spool/asterisk/recordings'
-OUR_IPS = tuple(os.environ.get('OUR_SIP_IPS', '156.67.25.167').split(','))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import host_watch  # noqa: E402
+
+OUR_IPS = host_watch.OUR_IPS     # CH-472: this server's own IP, found by host_watch
 # The carrier refused or could not complete the call: the buyer never rang.
 # Busy (486), no answer (480) and the caller hanging up (487) are not here:
 # those calls reached the buyer's line.
@@ -70,8 +81,6 @@ def watch():
     """Section 0 of the report and the instant alerts (CH-327): what changed on
     the server since a minute ago. scripts/host_watch.py; read-only too.
     --print looks without sending any alert."""
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import host_watch
     dry = '--print' in sys.argv
     return host_watch.run(send=not dry, save=not dry)
 
@@ -312,6 +321,19 @@ def logs():
             'watchdog': sh('tail -n 1 /var/log/avortyx-watchdog.log 2>/dev/null').strip()[-200:]}
 
 
+POST_URL = os.environ.get('HOST_STATUS_POST_URL', '')
+
+
+def post(data):
+    """CH-472: Server A's report to Server B, behind the Asterisk shared secret."""
+    req = urllib.request.Request(
+        POST_URL, data=json.dumps(data).encode(), method='POST',
+        headers={'Content-Type': 'application/json',
+                 'X-Asterisk-Secret': host_watch._env('ASTERISK_SHARED_SECRET')})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        return resp.status
+
+
 def main():
     data = {'at': int(time.time())}
     for fn in SECTIONS:
@@ -327,6 +349,11 @@ def main():
     json.dump(data, open(tmp, 'w'))
     os.chmod(tmp, 0o644)
     os.replace(tmp, OUT)
+    if POST_URL:
+        try:
+            post(data)
+        except Exception as e:  # noqa: BLE001 - logged by cron; the next minute tries again
+            print(f'{time.strftime("%Y-%m-%dT%H:%M:%S%z")} report not sent to Server B: {e}', flush=True)
 
 
 if __name__ == '__main__':

@@ -48,7 +48,6 @@ APP = os.environ.get('APP_DIR', '/opt/call_platform')
 STATE = os.environ.get('HOST_WATCH_STATE', '/var/lib/avortyx/host_watch_state.json')
 LOCK = STATE + '.lock'
 ENV_FILE = os.path.join(APP, '.env')
-OUR_IPS = tuple(os.environ.get('OUR_SIP_IPS', '156.67.25.167').split(','))
 SERVER_LABEL = os.environ.get('SERVER_LABEL', 'Contabo VPS')
 DAY = 86400
 # One IP fetching more recordings than this in an hour is a bulk download.
@@ -93,6 +92,28 @@ def sh(cmd, timeout=10):
         return subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout).stdout
     except Exception:  # noqa: BLE001
         return ''
+
+
+def our_ips():
+    """This server's public IPs (CH-472). OUR_SIP_IPS in the environment or in
+    .env when set; otherwise the address this server uses to reach the
+    internet. Each new server finds its own IP rather than the old server's
+    156.67.25.167."""
+    value = os.environ.get('OUR_SIP_IPS', '')
+    if not value:
+        try:
+            for line in open(os.path.join(APP, '.env')):
+                if line.startswith('OUR_SIP_IPS='):
+                    value = line.split('=', 1)[1].strip().strip('"\'')
+        except OSError:
+            pass
+    if not value:
+        m = re.search(r'\bsrc (\S+)', sh('ip -4 route get 1.1.1.1'))
+        value = m.group(1) if m else ''
+    return tuple(v.strip() for v in value.split(',') if v.strip()) or ('127.0.0.1',)
+
+
+OUR_IPS = our_ips()
 
 
 def digest(data) -> str:

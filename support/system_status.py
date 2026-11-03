@@ -20,6 +20,15 @@ What only the host can see (Asterisk, the relay, firewall, disk, the SIP
 capture, recordings, backups) comes from scripts/host_status.py, which cron
 writes every minute to run/host_status.json.
 
+CH-472, two servers. Server A (calls) posts its own report to Server B every
+minute, kept as run/host_status_a.json. When it is there:
+- the phone system, SIP, routing, TFN and recording checks read Server A's
+  report;
+- the database backup and the end-of-day report read Server B's;
+- the server, services, access, data-protection and firewall checks are
+  shown once per server, as "Call server · ..." and "Portal server · ...".
+Without that file, everything reads the one report, as before.
+
 Settings (.env, all optional):
   STATUS_CONCURRENT_LIMIT   calls at once we size for (default 400)
   STATUS_CHAT_ID            where warnings go (default the support/boss chat)
@@ -61,6 +70,10 @@ def _cfg(name, default=None, cast=str):
 
 
 HOST_FILE = _cfg('STATUS_HOST_FILE', os.path.join(str(APP), 'run', 'host_status.json'))
+HOST_A_FILE = _cfg('STATUS_HOST_A_FILE', os.path.join(str(APP), 'run', 'host_status_a.json'))
+# CH-472: the name each server's lines start with, and the tag its warnings'
+# keys end with (the watched keys are matched by their start).
+SERVER_NAMES = (('Call server', 'A'), ('Portal server', 'B'))
 SUBS_FILE = _cfg('STATUS_SUBSCRIPTIONS_FILE', os.path.join(str(APP), 'run', 'subscriptions.json'))
 CAPACITY = _cfg('STATUS_CONCURRENT_LIMIT', 400, cast=int)
 TARGET_DELIVERY = 99.9
@@ -99,6 +112,45 @@ def host() -> dict:
     except (OSError, ValueError):
         return {}
     return data
+
+
+def host_a() -> dict:
+    """Server A's report, sent to Server B every minute (CH-472)."""
+    try:
+        data = json.load(open(HOST_A_FILE))
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def view(b, a) -> dict:
+    """What the checks read (CH-472). One server: its report, unchanged. Two:
+    Server A's report, since the phone system, SIP and recordings live there,
+    with Server B's database backup and end-of-day report line, and both
+    reports under '_servers' for the checks shown once per server."""
+    if not a:
+        return b
+    out = dict(a)
+    out['backups'] = (b or {}).get('backups') or {}
+    out['logs'] = dict(a.get('logs') or {}, daily_status=((b or {}).get('logs') or {}).get('daily_status', ''))
+    out['_servers'] = [(SERVER_NAMES[0], a), (SERVER_NAMES[1], b or {})]
+    return out
+
+
+def each(fn):
+    """A check shown once per server when there are two (CH-472)."""
+    def run(h):
+        servers = (h or {}).get('_servers')
+        if not servers:
+            return fn(h)
+        out = []
+        for (label, tag), hx in servers:
+            for it in fn(hx):
+                out.append(Item(f'{label} · {it.name}', it.status, it.detail,
+                                key=f'{it.key}:{tag}' if it.key else ''))
+        return out
+    run.__name__ = getattr(fn, '__name__', 'each')
+    return run
 
 
 def host_fresh(h) -> bool:
@@ -1007,11 +1059,11 @@ def portal_changes(send) -> int:
 # ── putting it together ──────────────────────────────────────────────────────
 
 AREAS = [
-    ('0. Server · Contabo', check_server_host),
+    ('0. Server · Contabo', each(check_server_host)),
     ('0.1 Contabo account', check_contabo),
-    ('0.2 Core services', check_core_services),
-    ('0.3 Backend access and changes', check_access),
-    ('0.4 Data protection', check_data_protection),
+    ('0.2 Core services', each(check_core_services)),
+    ('0.3 Backend access and changes', each(check_access)),
+    ('0.4 Data protection', each(check_data_protection)),
     ('0.5 Portal admin activity', check_portal_admin),
     ('0.6 Resilience', check_resilience),
     # CPU, RAM and disk moved to "0. Server" (Sir's layout, 28 Oct).
@@ -1027,7 +1079,7 @@ AREAS = [
     ('7. Reporting and notifications', lambda h: check_bot() + check_autodelete() + check_reports(h)
                                                 + check_email()),
     ('8. Subscriptions and billing', lambda h: check_subscriptions() + check_carrier_balance()),
-    ('9. Security', lambda h: check_logins() + check_firewall(h) + check_spikes()),
+    ('9. Security', lambda h: check_logins() + each(check_firewall)(h) + check_spikes()),
 ]
 
 
@@ -1057,7 +1109,7 @@ def _run_area(fn, h, threaded=False):
 
 def collect():
     """[(area, [Item])] - every area, each on its own."""
-    h = host()
+    h = view(host(), host_a())
     if not PARALLEL:
         return [(name, _run_area(fn, h)) for name, fn in AREAS]
     with ThreadPoolExecutor(max_workers=len(AREAS)) as pool:

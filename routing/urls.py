@@ -2,7 +2,7 @@ from django.urls import path
 from . import twilio_handler
 from call_queue import views as queue_views
 from . import asterisk_handler
-from . import fallback
+from . import fallback, host_report
 
 urlpatterns = [
     path('incoming-call/', twilio_handler.incoming_call, name='incoming_call'),
@@ -19,4 +19,5 @@ urlpatterns = [
     path('asterisk/fallback-plan/', fallback.fallback_plan, name='asterisk_fallback_plan'),
     path('asterisk/fallback-plan-stamp/', fallback.fallback_plan_stamp, name='asterisk_fallback_plan_stamp'),
     path('asterisk/fallback-calls/', fallback.fallback_calls, name='asterisk_fallback_calls'),
+    path('asterisk/host-status/', host_report.host_status_report, name='asterisk_host_status'),
 ] 

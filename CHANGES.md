@@ -8731,3 +8731,50 @@ change could take up to 60 seconds to reach it.
   - it moves on every pause, play and edit, including bulk updates;
   - the endpoint, and the sync loop fetching within one round;
   - a B without the fingerprint, and a B not answering.
+
+## CH-472 - The status bot sees both servers; Server A's security watch (BACKEND)
+
+Since the move, the status bot (on Server B) read only Server B's host data.
+The phone system, the SIP capture, the recordings and Server A's own health
+were on Server A, which reported nothing. The old server's security watch
+(SSH logins, config and .env changes, firewall, new processes, ports,
+outbound connections, dumps and so on) was not running on either new
+server.
+
+- Server A runs `scripts/host_status.py` every minute, as the old server did.
+  It includes the security watch (`scripts/host_watch.py`), which sends its
+  instant alerts as before. It then sends its report to Server B over the
+  private link: `HOST_STATUS_POST_URL`, posting to the new endpoint
+  `POST /api/twilio/asterisk/host-status/`, behind the shared secret.
+  - B keeps it as `run/host_status_a.json` (`routing/host_report.py`).
+  - Reports over 2 MB, or that are not a host report, are refused.
+  - If B does not answer, A logs it and tries again the next minute.
+- Server B runs the same script for itself, into `run/host_status.json`.
+- The status bot (`support/system_status.py`), once A's report is there:
+  - phone system, carrier links, concurrent calls, audio, SIP delivery, PDD,
+    cancel-hold relay, TFN provider and recordings come from **Server A**;
+  - database backup and the end-of-day report come from **Server B**;
+  - server (CPU, RAM, disk, uptime, network, time, IP blacklist), core
+    services, access and changes, data protection and firewall are shown
+    once per server, as "Call server · ..." and "Portal server · ...". Their
+    15-minute warnings name the server.
+  - If A's report is more than 5 minutes old, "Call server · Server (host
+    data)" turns yellow and the phone checks say "no fresh host data".
+  - Without A's report everything reads the one report, as before.
+- Both scripts find their own server's public IP (`OUR_SIP_IPS` in the
+  environment or `.env`, otherwise the address the server uses to reach the
+  internet). They used to assume the old server's `156.67.25.167`, which made
+  Server A's outbound SIP count as inbound and checked the wrong IP against
+  the blacklists.
+- `delivery_report` reads the SIP capture from Server A's report.
+- The first run of the security watch on a server only takes a snapshot, so
+  switching it on sends no flood of alerts.
+- `docs/api-paths.txt` regenerated (one new path). Tests:
+  `support/test_two_servers.py` covers:
+  - which server each check reads;
+  - the per-server lines, and Server A falling silent;
+  - warnings naming the server;
+  - the endpoint and its refusals;
+  - A posting its report, B not answering, and each server finding its own
+    IP.
+  The 49 existing status and watch tests pass unchanged.

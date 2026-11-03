@@ -60,6 +60,7 @@ class StatusTests(TestCase):
         self.patches = [
             mock.patch.object(S, 'PARALLEL', False),
             mock.patch.object(S, 'HOST_FILE', self.host_file),
+            mock.patch.object(S, 'HOST_A_FILE', os.path.join(self.tmp, 'host_status_a.json')),
             mock.patch.object(S, 'SUBS_FILE', self.subs_file),
             mock.patch.object(S, 'ssl_expiry', return_value=date.today() + timedelta(days=60)),
             mock.patch.object(S, 'domain_expiry', return_value=date.today() + timedelta(days=200)),

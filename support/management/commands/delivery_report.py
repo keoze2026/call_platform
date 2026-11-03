@@ -16,7 +16,7 @@ class Command(BaseCommand):
     def handle(self, *args, **o):
         from buyers.destination import Destination
         from support import system_status as S
-        h = S.host()
+        h = S.view(S.host(), S.host_a())   # CH-472: the SIP capture is on Server A
         day = ((h or {}).get('sip') or {}).get('day') or {}
         if not day.get('outbound'):
             self.stdout.write('No outbound calls in the capture (or no host_status.json yet).')
