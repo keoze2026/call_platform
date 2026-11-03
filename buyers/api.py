@@ -367,10 +367,12 @@ def get_buyer_access(request, buyer_id: str):
     """The buyer's time zone and what its own logins may do. Admin-side."""
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'view')
-    # Workspace admins only (CH-259): partner logins skip the route table, so
+    # Never a partner login (CH-259): partner logins skip the route table, so
     # a buyer login with Manage Traffic could read every buyer's access here
-    # and grant itself Download Reports.
-    require(request.auth, Capability.MEMBERS)
+    # and grant itself Download Reports. Admins, or a team role with Buyers
+    # (View) (CH-478).
+    from accounts.permissions import require_partner_access_editor
+    require_partner_access_editor(request.auth, 'buyer', 'view')
     from buyers.models import Buyer
     try:
         b = Buyer.objects.get(id=buyer_id, organization=request.auth.organization)
@@ -418,7 +420,8 @@ def update_buyer_access(request, buyer_id: str, payload: _AccessPatchSchema):
     """
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
-    require(request.auth, Capability.MEMBERS)   # admins only - see get_buyer_access
+    from accounts.permissions import require_partner_access_editor
+    require_partner_access_editor(request.auth, 'buyer')   # see get_buyer_access (CH-478)
     payload = payload.dict(exclude_none=True)
     require(request.auth, Capability.EDIT)
     from buyers.models import Buyer

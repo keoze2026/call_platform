@@ -1,4 +1,5 @@
 from accounts.permissions import require, Capability
+from ninja.errors import HttpError
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -228,6 +229,38 @@ def get_number(request: HttpRequest, number_id: str):
         return 404, {"detail": str(e)}
 
 
+def _removal_needs_delete(user, number_id, *, detach=False, campaign_id=None, status=None):
+    """Taking a TFN off its campaign is removing it, like deleting it (CH-478).
+
+    Sir, 3 Nov: the campaign team may do everything except "delete TFNs or
+    remove TFNs from campaign". Detaching only needed Tracking Numbers (Edit),
+    the same tick as attaching one, so no role could attach without also
+    being able to remove. Now taking a number off its campaign - detaching it,
+    moving it to another campaign, or marking it released - needs Tracking
+    Numbers (Delete), as releasing it always has. Attaching a number that has
+    no campaign, and every other edit, still needs Edit only.
+    """
+    from accounts.workspace_permissions import has_perm
+    if has_perm(user, 'tracking-numbers', 'delete'):
+        return
+    from django.core.exceptions import ValidationError
+    from phone_numbers.models import PhoneNumber
+    try:
+        row = (PhoneNumber.objects.filter(id=number_id, organization=user.organization)
+               .values('campaign_id', 'status').first()) if user.organization_id else None
+    except (ValidationError, ValueError):
+        row = None
+    if row is None:
+        return  # not found: the handler answers 404 as before
+    removing = (
+        (row['campaign_id'] and (detach or (campaign_id and str(campaign_id) != str(row['campaign_id']))))
+        or (status == PhoneNumber.Status.RELEASED and row['status'] != PhoneNumber.Status.RELEASED)
+    )
+    if removing:
+        raise HttpError(403, "Your role cannot remove a TFN from its campaign "
+                             "(needs Tracking Numbers: Delete). Ask an admin of this workspace.")
+
+
 @router.patch("/{number_id}", response={200: PhoneNumberOutSchema, 400: dict, 404: dict})
 def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema):
     from accounts.workspace_permissions import require_perm
@@ -249,6 +282,9 @@ def update_number(request: HttpRequest, number_id: str, data: UpdateNumberSchema
         data._clear_publisher = (
             isinstance(body, dict) and 'publisher_id' in body and body['publisher_id'] in (None, '')
         )
+        _removal_needs_delete(request.auth, number_id, detach=data._detach_campaign,
+                              campaign_id=getattr(data, 'campaign_id', None),
+                              status=getattr(data, 'status', None))
         phone_number = PhoneNumberService.update_number(number_id, data, request.auth)
         return 200, PhoneNumberService.format_number(phone_number)
     except ValueError as e:
@@ -260,6 +296,7 @@ def assign_number(request: HttpRequest, number_id: str, data: AssignNumberSchema
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
+    _removal_needs_delete(request.auth, number_id, campaign_id=data.campaign_id)  # CH-478
     try:
         phone_number = PhoneNumberService.assign_number(number_id, data, request.auth)
         return 200, PhoneNumberService.format_number(phone_number)

@@ -8932,3 +8932,27 @@ Files: `accounts/buyer_bots.py`, `accounts/buyer_bots_api.py`,
 Viewer or Manager is refused before the handler). Tests:
 `accounts/test_active_bots.py`. Frontend: CH-477
 FRONTEND adds the Active Bots page.
+
+## CH-478 - Campaign team: buyer access switches with the Buyers tick; removing a TFN from its campaign needs Delete (BACKEND)
+
+Sir (3 Nov): "Give an access to campaign team for everything. What campaign
+team cannot do: delete TFNs or remove TFNs from campaign." Sergio (team
+role) got "Your role cannot members" switching on Set Caps for a buyer.
+
+- **Buyer and publisher access switches** (Set Caps and the rest, report
+  columns, time zone) needed MEMBERS, which no Roles tick gives, so only an
+  admin could ever save them. Now also a team role with **Buyers (Edit)**
+  for a buyer, **Traffic Sources (Edit)** for a publisher; View to read the
+  buyer's access card. A buyer or publisher login can still never change
+  them (CH-259). `accounts/permissions.require_partner_access_editor`, used by
+  `accounts/partner_settings_api.py` and `buyers/api.py`; the route table's
+  admin-only rule for `/buyers/{id}/access` is now the Buyers tick.
+- **Taking a TFN off its campaign** (detach, move to another campaign, or
+  mark released) needs **Tracking Numbers (Delete)**, like deleting it. It
+  needed only Edit, the same tick as attaching one. Attaching a TFN that has
+  no campaign and every other edit still need Edit only. Admins unchanged.
+  `phone_numbers/api.py`.
+- The campaign team's role is set on the server: every tick except Tracking
+  Numbers (Delete).
+
+Tests: `accounts/test_campaign_team_access.py`. No frontend change.

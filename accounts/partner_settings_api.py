@@ -22,7 +22,6 @@ from accounts.partner_permissions import (
     clean_report_columns,
 )
 from accounts.api import JWTAuth
-from accounts.permissions import Capability, require
 
 logger = logging.getLogger(__name__)
 
@@ -105,15 +104,16 @@ def read_settings(request: HttpRequest, kind: str, partner_id: str):
 def write_settings(request: HttpRequest, kind: str, partner_id: str):
     """Save the toggles, the report columns, or both.
 
-    Changing what another company's login may do is a member-management
-    decision, not an edit to a record, so it needs MEMBERS rather than EDIT.
+    Workspace admins, or a team role with Buyers (Edit) for a buyer and
+    Traffic Sources (Edit) for a publisher (CH-478). Never a partner login.
     """
     import json
 
-    require(request.auth, Capability.MEMBERS)
+    from accounts.permissions import require_partner_access_editor
 
     if kind not in ('buyer', 'publisher'):
         return 404, {'detail': f"Unknown partner type '{kind}'."}
+    require_partner_access_editor(request.auth, kind)
 
     partner = _resolve(request, kind, partner_id)
     if partner is None:

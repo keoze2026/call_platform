@@ -121,8 +121,8 @@ RULES = [
 
     # ── destinations, buyers, traffic sources, vendors ───────────────────────
     _rule(r'^/destinations(/.*)?$', 'destinations'),
-    # Who may log in as this buyer is administration, not a Buyers tick.
-    _rule(r'^/buyers/[^/]+/access$', ADMIN),
+    # A buyer's access (what its own login may do) is the Buyers tick since
+    # CH-478; the handler still refuses every partner login.
     # A buyer's Telegram report (CH-258) sends call data to an outside chat:
     # administration, like the buyer's access.
     # Its connect link and the test send to one's own Telegram too (CH-310).

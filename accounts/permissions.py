@@ -142,6 +142,27 @@ def require(user, capability: str):
     )
 
 
+def require_partner_access_editor(user, kind: str, action: str = 'edit'):
+    """Who may see and change what a buyer's or publisher's own login may do
+    (CH-478).
+
+    It needed MEMBERS, which no Roles tick grants, so a team role could never
+    switch on Set Caps for a buyer however many ticks it had (Sir, 3 Nov:
+    "Give an access to campaign team for everything", Sergio's 403). Now:
+      - workspace admins, as before;
+      - a team role with the tick for that partner: Buyers (Edit) for a buyer,
+        Traffic Sources (Edit) for a publisher; View to read;
+      - never a buyer or publisher login, whatever its own toggles say, so a
+        partner can never grant itself more (CH-259).
+    """
+    if getattr(user, 'role', '') in SCOPED_ROLES:
+        raise HttpError(403, "A partner login cannot change partner access.")
+    if has(user, Capability.MEMBERS):
+        return
+    from accounts.workspace_permissions import require_perm
+    require_perm(user, 'buyers' if kind == 'buyer' else 'traffic-sources', action)
+
+
 def is_scoped(user) -> bool:
     """True when this user should only see their own records."""
     return getattr(user, 'role', '') in SCOPED_ROLES
