@@ -449,6 +449,11 @@ class Router:
         line = self.buyer_line(buyer, dest['destination'])
         if buyer['status'] != 'active':
             reason, fault = f"buyer {buyer['name']} is {buyer['status']}", 'Destination missed (buyer paused)'
+        elif line is None and (dest.get('type') or 'phone') == 'phone' and len(d10(dest['destination']) or '') >= 10:
+            # CH-502: a line whose number is not on the buyer's Destinations
+            # page takes no calls (RoutingEngine.line_not_listed).
+            reason = f"destination {dest['destination']} is not on the Destinations page"
+            fault = 'Destination missed (not on Destinations page)'
         elif line is not None and not line['enabled']:
             reason, fault = f"destination {dest['destination']} is switched off", 'Destination missed (TFN off)'
         elif not self.buyer_caps_ok(bid, buyer):

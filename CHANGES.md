@@ -9098,3 +9098,30 @@ No call was lost.
 - The names are looked up in one query per summary (no slower).
 
 Tests: `analytics/test_renamed_entity_one_row.py`. Frontend: CH-498 FRONTEND.
+
+## CH-502 - Routing: a line not on the Destinations page takes no calls (BACKEND)
+
+Sir, 3 Nov, after CDM and Q06: lines not on the Destinations page should stop
+taking calls.
+
+- Until now a campaign line whose number had no row on its buyer's
+  Destinations page still routed ("absence is not a pause"), and the call was
+  often swapped to another of that buyer's live TFNs. On 3 Nov eight old Nov 3
+  lines tagged CDM kept sending CDM calls after CDM's own line was removed
+  (12:58-1:22 PM EST), and Q06 - no Destinations row at all, 28 lines, priority
+  1 in 12 campaigns - took 12 calls nobody answered.
+- Now such a line is skipped like a switched-off one: the next line takes the
+  call, and with none left the call is "No Destination". The campaign page
+  already showed these lines switched off ("Not on Destinations page",
+  CH-493); routing now does what it shows.
+- Only phone lines with a buyer. A line with no buyer, a SIP line, or one that
+  names the buyer without a number routes as before. A failed lookup never
+  costs a call.
+- Server A's backup routing (`scripts/fallback/avx_fallback.py`) makes the
+  same decision; copy it to Server A with the next A update.
+- TFN Check shows such a number as Not Taking Calls.
+- **Before deploying:** any line that should keep taking calls needs its number
+  on the Destinations page under its buyer.
+
+Tests: `routing/test_fallback.py` (two new), `phone_numbers/test_tfn_check.py`.
+BUSINESS-RULES.md 3.4.

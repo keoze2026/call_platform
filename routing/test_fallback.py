@@ -276,16 +276,26 @@ class SameDecisionTests(FallbackBase):
     def test_no_plan_yet(self):
         self.assertEqual(self.a_dest(), 'no_fallback_plan')
 
-    def test_buyer_live_tfns_rotate(self):
-        # The rule names the buyer with a number that is not one of its own
-        # lines: the buyer's live TFNs take turns, as pick_live_destination.
+    def test_line_not_on_destinations_page_takes_no_calls(self):
+        # CH-502: the rule names the buyer with a number that is not one of
+        # its Destinations rows. It used to be swapped to one of the buyer's
+        # live TFNs (how CDM kept getting Nov 3 calls on 3 Nov); now neither
+        # B nor A sends it anywhere, and the next line takes the call.
         b = Buyer.objects.create(organization=self.org, name='Q07')
         for n in (A, B):
             Destination.objects.create(organization=self.org, buyer=b, name=n, tfn=n, enabled=True)
         RuleDestination.objects.create(rule=self.rule, destination='+18005550000', buyer=b)
+        self.line(C, buyer='R48', priority=2)
         self.sync_plan()
-        got = [self.a_dest() for _ in range(4)]
-        self.assertEqual(sorted(set(got)), sorted({A, B}))
+        self.assertEqual(self.b_routes(), C)
+        self.assertEqual({self.a_dest() for _ in range(4)}, {C})
+
+    def test_line_not_on_destinations_page_alone_is_no_destination(self):
+        b = Buyer.objects.create(organization=self.org, name='Q06')
+        RuleDestination.objects.create(rule=self.rule, destination='+18666744220', buyer=b)
+        self.sync_plan()
+        self.assertEqual(self.b_routes(), 'Destination missed (not on Destinations page)')
+        self.assertEqual(self.a_dest(), self.b_routes())
 
     def test_calls_b_has_not_got_yet_still_count_after_a_new_plan(self):
         # Review finding: A routed calls, B came back long enough to send a

@@ -395,6 +395,10 @@ class ReadyTests(TestCase):
                                                rule_type='priority', priority=1)
         self.dest = RuleDestination.objects.create(rule=self.rule, destination='+18779641512',
                                                    buyer=self.buyer, priority=1, weight=100)
+        # CH-502: the buyer's line is on its Destinations page, as every live one must be.
+        from buyers.destination import Destination
+        self.listed = Destination.objects.create(organization=self.org, buyer=self.buyer, name='ADST|1512|',
+                                                 tfn='+18779641512', enabled=True)
         self.phone = PhoneNumber.objects.create(organization=self.org, number='+18888844542', vendor='Other',
                                                 status='active', campaign=self.camp)
         CallLog.objects.create(organization=self.org, campaign=self.camp, caller_number='+15551234567',
@@ -412,6 +416,12 @@ class ReadyTests(TestCase):
         self.assertEqual((r['status'], r['label']), ('not_ready', 'Not Taking Calls'))
         self.assertIn('No buyer line is open', r['why'])
         self.assertNotIn('ADST', r['detail'])
+
+    def test_a_line_not_on_the_destinations_page_is_not_taking_calls(self):
+        # CH-502: with its number gone from the buyer's Destinations page the
+        # line takes no calls, and TFN Check says so.
+        self.listed.delete()
+        self.assertEqual(self.result(staff=True)['status'], 'not_ready')
 
     def test_balance_too_low_is_not_taking_calls(self):
         from decimal import Decimal

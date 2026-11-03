@@ -611,10 +611,8 @@ class RoutingEngine:
         view - on 5 October one took 155 calls while showing as paused. Pausing
         a destination to stop traffic did nothing but hide it.
 
-        Absence is not a pause. Calls route through RoutingRule/RuleDestination,
-        and not every one of those has a matching buyers.Destination row; when
-        there is no row there is nothing to honour, so the call proceeds. Only
-        a row that exists and says `enabled=False` stops it.
+        A line with no row at all is refused before this is asked
+        (`line_not_listed`, CH-502); here no row means nothing to honour.
         """
         if not destination_number:
             return True
@@ -632,6 +630,34 @@ class RoutingEngine:
         if row is None:
             return True
         return bool(row.enabled)
+
+    @staticmethod
+    def line_not_listed(destination) -> bool:
+        """CH-502 (Sir, 3 Nov): a campaign line whose number is not on its
+        buyer's Destinations page takes no calls.
+
+        Such a line used to route ("absence is not a pause"). On 3 Nov eight
+        old Nov 3 lines tagged CDM kept sending CDM calls after CDM's own line
+        was removed - each was swapped to CDM's live TFN - and 28 Q06 lines
+        (Q06 has no Destinations row at all) took 12 calls nobody answered.
+        The campaign page already drew their switch off ("Not on Destinations
+        page", CH-493); now routing agrees with it.
+
+        Phone lines with a buyer only: a line naming no buyer, a SIP line and
+        a line that names the buyer without a number are left as they were.
+        A lookup failure never costs a call.
+        """
+        if not destination.buyer_id:
+            return False
+        if destination.destination_type != RuleDestination.DestinationType.PHONE:
+            return False
+        if len(_d10(destination.destination)) < 10:
+            return False
+        try:
+            return RoutingEngine.buyer_destination(destination.buyer, destination.destination) is None
+        except Exception:
+            logger.exception('could not look up the Destinations row for %s', destination.destination)
+            return False
 
     @staticmethod
     def get_valid_destination(rule: RoutingRule, call_data: dict):
@@ -713,6 +739,9 @@ class RoutingEngine:
             if buyer.status != 'active':
                 reason = f'buyer {buyer.name} is {buyer.status}'
                 dest_fault = 'Destination missed (buyer paused)'
+            elif RoutingEngine.line_not_listed(destination):
+                reason = f'destination {destination.destination} is not on the Destinations page'
+                dest_fault = 'Destination missed (not on Destinations page)'
             elif not RoutingEngine.is_destination_enabled(
                 buyer, destination.destination
             ):

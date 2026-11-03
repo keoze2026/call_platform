@@ -136,6 +136,13 @@ Last updated: 31 Oct 2026.
 ### 3.3 Caps
 - **0** on concurrency, daily or monthly cap means **no limit** (CH-235).
 
+### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
+- A campaign line takes calls only when its number is on its buyer's
+  **Destinations page**. A line marked "Not on Destinations page" takes **no
+  calls**, and is never swapped to another TFN of the same buyer.
+- To make such a line work, add its number on the Destinations page under the
+  right buyer.
+
 ---
 
 ## 4. Access and privacy
