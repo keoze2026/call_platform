@@ -295,7 +295,7 @@ def call_detail(request: HttpRequest, call_id: str):
 
     try:
         call = scope_queryset(request.auth, CallLog.objects.select_related(
-            'campaign', 'buyer', 'publisher', 'routing_rule'
+            'campaign', 'buyer', 'publisher', 'routing_rule', 'rule_destination'
         )).get(id=call_id, organization=request.auth.organization)
         require_reports_unlock(request, None, started_at=call.created_at)
     except CallLog.DoesNotExist:

@@ -1077,6 +1077,102 @@ class AnalyticsService:
             },
 
             'timeline': timeline,
+
+            # CH-565: Sir's call panel (header, legs, timing). Stored facts only.
+            'panel': AnalyticsService._call_panel(call),
+        }
+
+    @staticmethod
+    def _call_panel(call) -> dict:
+        """CH-565 (Sir, 5 Nov - the call panel he drew): what the header, the
+        Caller -> TFN -> Campaign -> Buyer card, the timing bar and the legs show.
+
+        Every value is read from what the call stored; nothing is estimated.
+        Not here because we do not measure them: audio quality (jitter, loss,
+        latency), sub-second connection steps, who hung up an answered call.
+        Nothing from the AI audit (CH-548 keeps that to its own logins).
+        """
+        import re
+        from routing.engine import RoutingEngine
+        from routing.retry_group import attempts_of, group_view
+
+        def iso(dt):
+            return dt.isoformat() if dt else None
+
+        def line_name(buyer, number):
+            if not buyer or not number:
+                return None
+            try:
+                row = RoutingEngine.buyer_destination(buyer, number)
+            except Exception:
+                return None
+            return row.name if row is not None else None
+
+        started, waited = group_view(call)
+        answered = bool(call.answered_at) and call.status == CallLog.Status.COMPLETED
+        end = call.ended_at
+
+        # Every destination rung on this call (CH-514): each miss is a hidden
+        # row written when the miss was reported, backdated by its ring time;
+        # the next destination was dialled at that moment.
+        legs, leg_start = [], call.created_at
+        tries = (CallLog.objects.filter(retry_root_id=call.pk, twilio_call_sid__contains='#try')
+                 .select_related('buyer').order_by('created_at'))
+        for t in tries:
+            missed_at = t.created_at + timedelta(seconds=max(0, t.ring_seconds or 0))
+            legs.append({
+                'destination': t.destination_number,
+                'name': line_name(t.buyer, t.destination_number),
+                'buyer': t.buyer.name if t.buyer_id else None,
+                'result': 'busy' if t.block_reason == 'Destination busy' else 'no_answer',
+                'started_at': iso(leg_start),
+                'ring_seconds': max(0, int((missed_at - leg_start).total_seconds())),
+                'talk_seconds': 0,
+            })
+            leg_start = missed_at
+        if call.destination_number:
+            stop = call.answered_at if answered else end
+            legs.append({
+                'destination': call.destination_number,
+                'name': line_name(call.buyer, call.destination_number),
+                'buyer': call.buyer.name if call.buyer_id else None,
+                'result': 'answered' if answered else (call.status or ''),
+                'reason': None if answered else (call.block_reason or None),
+                'started_at': iso(leg_start),
+                'ring_seconds': max(0, int((stop - leg_start).total_seconds())) if stop else None,
+                'talk_seconds': (call.duration or 0) if answered else 0,
+            })
+
+        rule = None
+        rd = call.rule_destination
+        if rd is not None and rd.convert_on:
+            rule = {'on': rd.convert_on, 'seconds': rd.convert_seconds or 0}
+        elif call.campaign_id:
+            min_dur = getattr(call.campaign, 'min_call_duration', 0) or 0
+            rule = {'on': 'length' if min_dur else 'connected', 'seconds': min_dur}
+
+        sid = call.twilio_call_sid or ''
+        m = re.match(r'^\d+\.(\d+)$', sid)
+        h = call.id.hex.upper()
+        channels = getattr(call, 'voice_channels', None)
+        return {
+            'display_id': f'AVX-{h[:4]}-{h[4:8]}',
+            'session': f'S-{m.group(1)}' if m else None,
+            'started_at': iso(started),
+            'answered_at': iso(call.answered_at) if answered else None,
+            'ended_at': iso(end),
+            'answered_in': waited if answered else None,
+            'wait_seconds': waited,
+            'talk_seconds': (call.duration or 0) if answered else 0,
+            'total_seconds': max(0, int((end - started).total_seconds())) if end else None,
+            'repeat': bool(call.is_duplicate),
+            # Tries the sender made for this one call, shown as one row (CH-215).
+            'sender_tries': attempts_of(call),
+            'destination_name': line_name(call.buyer, call.destination_number),
+            'convert_rule': rule,
+            'legs': legs,
+            'recording_sides': 'separate' if channels == 2 else 'mixed' if channels == 1 else None,
+            'answer_confirmed_later': any(str(t).startswith('revo:') for t in (call.tags or [])),
         }
 
     @staticmethod

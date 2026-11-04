@@ -10010,3 +10010,30 @@ those lines (CH-502) - they only kept showing. 5 Nov: 366 such lines.
   a record (`accounts/activity_signals.py`).
 
 Tests: `routing/test_orphan_lines.py` (8).
+
+## CH-565 - Call panel as Sir drew it: every TFN rung, timing, pay rule, call ID
+
+Sir, 5 Nov (the call panel design he sent): "Under these activity and
+parameters we can add more informative details which i sent you ... do not
+use any real server name - audit name and any brand name, any carrier name."
+
+`GET /api/analytics/calls/{id}/detail` also returns `panel` (frontend CH-565
+draws it):
+- `legs`: every destination rung on the call - each failover miss (CH-514)
+  with its result and ring time, then the last one (answered with its ring and
+  talk time, or how it ended). A miss row is written when the miss is
+  reported and backdated by its ring time, so each leg's ring time is the time
+  from the previous leg's end - right even while Server A sends 0 for it.
+- `answered_in`, `wait_seconds`, `talk_seconds`, `total_seconds` (a grouped
+  call counts from the sender's first try, as the Call Log does - CH-215),
+  `repeat`, `sender_tries`, `destination_name` (its Destinations-page name),
+  `convert_rule` (the line's own Convert On, else the campaign's), `display_id`
+  ("AVX-7F3K-92Q1", from the call id), `session` (the call's switch session
+  number), `recording_sides` (caller and agent apart, when known),
+  `answer_confirmed_later` (answer confirmed afterwards from the publisher's
+  report).
+- Stored facts only. Not sent, because nothing measures them: audio quality
+  (jitter, loss, latency), sub-second connection steps, who hung up an
+  answered call. Nothing from the AI audit (CH-548).
+
+Tests: `analytics/test_call_panel.py` (4).
