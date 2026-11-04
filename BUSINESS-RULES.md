@@ -106,7 +106,7 @@ Last updated: 31 Oct 2026.
 | Cap reached | **"Overflow Missed"** |
 | Switch never reported the end | **"Not Connected"** (CH-229) |
 | Out of balance (user workspace) | Missed, **"Insufficient Funds"** (CH-255) |
-| Duplicate on "Different" with nowhere left | Missed, **"Duplicate call"** |
+| Duplicate on "Different" with nowhere left | Missed, **"No Destination"**, Repeated = Yes (CH-526, Sir 4 Nov; was "Duplicate call") |
 
 ### 2.3 Totals
 - **Repeated** counts any earlier call from the caller to the campaign inside

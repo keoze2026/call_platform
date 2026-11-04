@@ -13,10 +13,12 @@ Two holes, both tested end to end through the route request:
 Run:  python manage.py test routing.test_duplicates_never_same_tfn
 """
 import json
+from zoneinfo import ZoneInfo
 from unittest import mock
 
 from django.core.cache import cache
 from django.test import Client, TestCase, override_settings
+from django.utils import timezone
 
 from accounts.models import Organization
 from buyers.destination import Destination
@@ -81,9 +83,13 @@ class DifferentNeverSameTfnTests(TestCase):
             self.end(call)  # rang out, nobody answered
         self.assertEqual(sorted(seen), sorted([A, B, C]))
         # Every TFN has had him: the fourth call is not forwarded at all.
+        # CH-526 (Sir, 4 Nov): its comment is "No Destination"; Repeated = Yes.
         fourth = self.dial()
-        self.assertEqual((fourth.status, fourth.block_reason, fourth.destination_number),
-                         ('no_answer', 'Duplicate call', ''))
+        self.assertEqual((fourth.status, fourth.block_reason, fourth.destination_number, fourth.buyer_id),
+                         ('no_answer', 'No Destination', '', None))
+        self.assertTrue(fourth.is_duplicate)
+        self.assertIn('no destination this caller has not already reached',
+                      str(fourth.routing_trace))
 
     def test_answered_calls_count_too(self):
         first = self.dial()
@@ -163,3 +169,37 @@ class RotationRespectsDuplicatesTests(TestCase):
     def test_without_duplicates_rotation_is_unchanged(self):
         got = {RoutingEngine.pick_live_destination(self.buyer).tfn for _ in range(6)}
         self.assertEqual(got, {A, B, C})
+
+
+class RelabelPastDuplicatesTests(TestCase):
+    """CH-526: relabel_duplicate_refusals."""
+
+    def test_dry_run_then_apply(self):
+        import io
+        from django.core.management import call_command
+        from accounts.models import Organization
+        from analytics.models import CallRecord
+        from routing.signals import mirror_call_log
+        org = Organization.objects.create(name='Avortyx', slug='avx')
+        mk = lambda sid, **kw: CallLog.objects.create(  # noqa: E731
+            organization=org, caller_number='+13868645240', called_number='+18443754175',
+            twilio_call_sid=sid, status='no_answer', ended_at=timezone.now(), **kw)
+        refused = mk('a', block_reason='Duplicate call', is_duplicate=True)
+        hidden = mk('b', block_reason='Duplicate call', retry_hidden=True)
+        dialled = mk('c', block_reason='Duplicate call', destination_number='+18334094605')
+        other = mk('d', block_reason='Not Connected')
+        mirror_call_log(refused.id)
+        day = timezone.now().astimezone(ZoneInfo('America/New_York')).date().isoformat()
+        out = io.StringIO()
+        call_command('relabel_duplicate_refusals', '--start', day, '--end', day, stdout=out)
+        self.assertIn('2 calls', out.getvalue())
+        self.assertEqual(CallLog.objects.get(pk=refused.pk).block_reason, 'Duplicate call')
+        call_command('relabel_duplicate_refusals', '--start', day, '--end', day, '--apply', stdout=io.StringIO())
+        r = CallLog.objects.get(pk=refused.pk)
+        self.assertEqual((r.block_reason, r.is_duplicate, r.routing_trace['ch526_relabelled']),
+                         ('No Destination', True, 'Duplicate call'))
+        self.assertEqual(CallLog.objects.get(pk=hidden.pk).block_reason, 'No Destination')
+        self.assertEqual(CallLog.objects.get(pk=dialled.pk).block_reason, 'Duplicate call')
+        self.assertEqual(CallLog.objects.get(pk=other.pk).block_reason, 'Not Connected')
+        self.assertEqual(CallRecord.objects.get(id=refused.id).block_reason, 'No Destination')
+        self.assertEqual(CallLog.objects.count(), 4)

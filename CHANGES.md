@@ -9434,3 +9434,31 @@ last 0 s, so every redial was its own row.
 - Past days: `group_call_retries --date YYYY-MM-DD` (dry run), then `--apply`.
 
 Tests: `routing/test_retry_refused.py` OurRefusalBurstTests (7).
+
+## CH-526 - A repeat caller with no line left shows "No Destination" (BACKEND)
+
+Sir, 4 Nov: "When destination not active and 1 call keep coming again and
+again it should only show No destination" / "Comment should show - No
+destination". 13868645240 (C-10): reached Q11 at 6:48:54 AM EST, then 5 more
+calls showed "Duplicate Call" - on "Different" the caller may not reach Q11
+again, and every other line was off.
+
+- `routing/engine.py`: on "Different", a caller with no line left that has
+  not had him is refused as a line missed - status missed, comment
+  "No Destination", no line or buyer (CH-519). Repeated stays Yes, and the
+  routing trace still says "no destination this caller has not already
+  reached". Routing itself is unchanged: he is still never sent to a TFN
+  that already had him.
+- `scripts/fallback/avx_fallback.py`: Server A's own routing (used only when
+  Server B does not answer) writes it the same way. Takes effect on Server A
+  after `bash scripts/fallback/install_a.sh`; until then such a call routed
+  by Server A alone still reads "Duplicate call".
+- `python manage.py relabel_duplicate_refusals --start .. --end .. [--apply]`
+  writes "No Destination" on past ones never sent to a line. Dry run by
+  default; nothing deleted; the old comment is kept in
+  routing_trace["ch526_relabelled"].
+- "Duplicate call blocked" (the separate duplicate-call block switch) is
+  unchanged.
+
+Tests: `routing/test_duplicates_never_same_tfn.py`, `routing/test_fallback.py`.
+BUSINESS-RULES.md 2.2.

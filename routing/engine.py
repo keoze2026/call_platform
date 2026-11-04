@@ -22,6 +22,11 @@ def _d10(number) -> str:
     and "8667404516" are the same TFN when duplicates are compared (CH-241)."""
     return ''.join(c for c in str(number or '') if c.isdigit())[-10:]
 
+# CH-526: a repeat caller on "Different" with no line left that has not had
+# him is refused like any call no line can take - written "No Destination".
+DUPLICATE_NO_LINE = 'Destination missed (repeat caller, no line left that has not had him)'
+
+
 class RoutingEngine:
     @staticmethod
     def get_caller_state(area_code: str) -> str:
@@ -1115,7 +1120,12 @@ class RoutingEngine:
                 # Incoming and in the duplicate report, and their next call
                 # gets the same treatment, not a blacklist entry.
                 if trace: trace.step('duplicate', False, 'no destination this caller has not already reached; shown as missed, not forwarded')
-                return {'destination': None, 'rule': None, 'error': 'Duplicate call'}
+                # CH-526 (Sir, 4 Nov: "When destination not active and 1 call
+                # keep coming again and again it should only show No
+                # destination"): the comment is "No Destination", as for any
+                # call no line could take. That he called before still shows:
+                # Repeated = Yes, and this step in the routing trace.
+                return {'destination': None, 'rule': None, 'error': DUPLICATE_NO_LINE}
             # Original whose destination is gone: forward like a regular call
             # rather than lose it - Normal/Original always forward.
             for key in ('dup_only_destination', 'dup_exclude_destinations', 'dup_exclude_buyers'):

@@ -255,7 +255,8 @@ class SameDecisionTests(FallbackBase):
         caller = '+15553334444'
         self.assertEqual(self.a_dest(caller=caller), A)
         self.assertEqual(self.a_dest(caller=caller), B)
-        self.assertEqual(self.a_dest(caller=caller), 'Duplicate call')
+        # CH-526: Server A refuses it the same way, as a line missed (No Destination).
+        self.assertTrue(self.a_dest(caller=caller).startswith('Destination missed'))
 
     def test_insufficient_funds(self):
         self.line(A)

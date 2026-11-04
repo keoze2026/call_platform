@@ -633,7 +633,8 @@ class Router:
         rule, dest = run()
         if not dest and prior:
             if mode == 'different':
-                return {'error': 'Duplicate call'}
+                # CH-526: written "No Destination", as Server B writes it.
+                return {'error': 'Destination missed (repeat caller, no line left that has not had him)'}
             for k in ('dup_only_destination', 'dup_exclude_destinations', 'dup_exclude_buyers'):
                 call.pop(k, None)
             rule, dest = run()
