@@ -36,10 +36,30 @@ class Command(BaseCommand):
         # CH-547: seconds instead, for the voice check's --loop mode.
         parser.add_argument('--min-age-seconds', type=int, default=None)
         parser.add_argument('--retry-missing', action='store_true', help='try "missing" ones again')
+        # CH-552: named calls, checked or not (scripts/sound_check "try") -
+        # by caller number (any format, last 10 digits) or call id.
+        parser.add_argument('--caller', action='append', default=[], help='caller number (repeatable)')
+        parser.add_argument('--id', action='append', default=[], help='call id (repeatable)')
 
     def handle(self, *args, **o):
         now = timezone.now()
         labels = ['', 'missing'] if o['retry_missing'] else ['']
+        if o['caller'] or o['id']:
+            from django.db.models import Q
+            want = Q()
+            for number in o['caller']:
+                digits = ''.join(ch for ch in number if ch.isdigit())[-10:]
+                if len(digits) == 10:
+                    want |= Q(caller_number__endswith=digits)
+            for call_id in o['id']:
+                want |= Q(id=call_id)
+            if not want:
+                return                                   # nothing usable named: list nothing
+            qs = (CallLog.objects.filter(want, status__in=FINISHED,
+                                         created_at__gte=now - timedelta(days=max(1, o['days'])))
+                  .exclude(recording_url='').order_by('-ended_at')
+                  .values_list('id', 'recording_url', 'status', 'duration', 'ended_at', 'caller_number')[:max(1, o['limit'])])
+            return self._print(qs, now)
         qs = (CallLog.objects
               .filter(voice_label__in=labels, retry_hidden=False, status__in=FINISHED,
                       created_at__gte=now - timedelta(days=max(1, o['days'])),
@@ -48,15 +68,18 @@ class Command(BaseCommand):
                                            else timedelta(minutes=max(1, o['min_age']))))
               .exclude(recording_url='')
               .order_by('-ended_at')
-              .values_list('id', 'recording_url', 'status', 'duration', 'ended_at')[:max(1, o['limit'])])
-        for call_id, url, status, duration, ended_at in qs:
+              .values_list('id', 'recording_url', 'status', 'duration', 'ended_at', 'caller_number')[:max(1, o['limit'])])
+        self._print(qs, now)
+
+    def _print(self, qs, now):
+        for call_id, url, status, duration, ended_at, caller in qs:
             if not is_recording_link(url):
                 continue
             name = url.rstrip('/').rsplit('/', 1)[-1]
             talk = int(duration or 0) if status == 'completed' else None
             age = int((now - ended_at).total_seconds() // 60) if ended_at else None
             public = public_recording_url(url)
-            item = {'id': str(call_id), 'url': public, 'file': name, 'talk': talk, 'age': age}
+            item = {'id': str(call_id), 'url': public, 'file': name, 'talk': talk, 'age': age, 'caller': caller}
             # CH-543: caller and agent apart, where Server A records them so
             # (deploy/split_channels.py) - same host, /recordings/split/.
             if '/recordings/' in public:

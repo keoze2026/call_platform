@@ -9833,3 +9833,27 @@ roughly 5,500 billed minutes per provider.
   length (the real price of a call), next to what this test cost.
 
 Tests: `routing/test_ai_compare.py` (+1).
+
+## CH-552 - PANNs sound check, step 1: hear what a call sounds like (Server B script)
+
+Sir, 4 Nov: "Beep and machine-sound detection: PANNs or YAMNet on the caller
+channel." Same day, three IVR calls (only music in the recording: callers
+13134598968, 13526054139, 17705585711) came out "No Voice | Dead Caller":
+Silero hears speech only, so music counts as silence.
+
+- `scripts/sound_check/install.sh`: CPU-only PyTorch, `panns-inference` and
+  the Cnn14 model (AudioSet, 527 kinds of sound) into /opt/avx-voice/venv.
+- `scripts/sound_check/sound_check.py try --caller N ... | --id ID ...`:
+  listens to named calls and PRINTS, per side (caller / agent when the split
+  files can be read, otherwise the mixed recording; talk part only; first 120
+  s): seconds of speech, music, tone (beep, dial / busy tone, ringing, DTMF),
+  silence and noise in 2-second windows, the five sounds heard most, and
+  Silero's speech seconds for the same audio. Changes nothing. 2 CPU threads,
+  lowest priority. Nothing on Server A.
+- `voice_pending --caller N` / `--id ID`: named calls, checked or not (any
+  number format, last 10 digits); lines also carry the caller number.
+- Step 2 (CH-553), after the numbers on known calls are seen: the
+  "Voicemail / IVR" label and machine sound on the caller side in the AI
+  audit.
+
+Tests: `routing/test_sound_check.py` (5) - PANNs replaced by a stand-in.
