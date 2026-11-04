@@ -270,11 +270,17 @@ async def run(args, keys, vad=None):
             if not pcm:
                 log(f'{cid} {side}: cannot decode, skipped')
                 continue
+            full = len(pcm) / (SR * 2)
+            # CH-551: long calls - only the first N minutes are streamed (the
+            # same N for both providers and for Silero); the full length is
+            # kept for the cost per call.
+            if args.max_minutes:
+                pcm = pcm[:int(args.max_minutes * 60 * SR) * 2]
             if (cid, side) not in seen_silero:
                 r = await asyncio.to_thread(vad.side, pcm)
                 with open(silero_path, 'a') as f:
                     f.write(json.dumps({'id': cid, 'side': side, 'speech': r['speech'], 'audio': r['audio'],
-                                        'beep': r['beep']}) + '\n')
+                                        'audio_full': round(full, 2), 'beep': r['beep']}) + '\n')
             for p in pending:
                 tasks.append(asyncio.create_task(one(cid, side, p, pcm)))
         if n % 20 == 0:
@@ -436,7 +442,15 @@ def report(args):
                          f'95% within {pct(lat, 0.95):.2f} s')
         if cost:
             avg = sum(cost.values()) / len(cost)
-            lines.append(f'  cost per call (both sides): average ${avg:.4f}; this test ${sum(cost.values()):.2f}')
+            lines.append(f'  this test: ${sum(cost.values()):.2f} (average ${avg:.4f} per call, audio streamed)')
+        # CH-551: the real cost per call is for the whole call, both sides.
+        full = [sum(float(silero[(i, s)].get('audio_full', silero[(i, s)]['audio'])) for s in ('caller', 'agent')
+                    if (i, s) in silero) for i in ids]
+        full = [x for x in full if x]
+        if full:
+            mins = sum(full) / len(full) / 60
+            call_usd = mins / 60 * AAI_USD_PER_HOUR if p == 'assemblyai' else mins * DG_USD_PER_MIN
+            lines.append(f'  cost per call, whole call both sides ({mins:.1f} min on average): ${call_usd:.4f}')
         lines.append('')
     text = '\n'.join(lines)
     with open(os.path.join(out, 'summary.txt'), 'w') as f:
@@ -458,6 +472,8 @@ def main(argv=None):
     r.add_argument('--concurrency', type=int, default=5, help='streams at once per provider')
     r.add_argument('--providers', default='deepgram,assemblyai')
     r.add_argument('--speed', type=float, default=1.0, help='1 = real time, as on a live call')
+    r.add_argument('--max-minutes', type=float, default=0,
+                   help='stream only the first N minutes of each side (0 = all of it)')
     s = sub.add_parser('sheet')
     s.add_argument('--count', type=int, default=50)
     p = sub.add_parser('report')

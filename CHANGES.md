@@ -9819,3 +9819,17 @@ Test tooling only: nothing in the app, the calls or the AI audit changes.
 
 Tests: `routing/test_ai_compare.py` (5) - against stand-in Deepgram and
 AssemblyAI servers speaking each protocol.
+
+## CH-551 - Speech-to-text test: cap long calls, cost per whole call (Server B script)
+
+The 200 calls Server A handed over (4 Nov) average 13.8 minutes a side
+(2,750 caller minutes): streamed in real time that is about 18 hours and
+roughly 5,500 billed minutes per provider.
+
+- `compare_stt.py run --max-minutes N`: only the first N minutes of each side
+  are streamed - the same audio for Deepgram, AssemblyAI and Silero, so the
+  comparison stays fair. 0 (the default) = the whole file.
+- `report`: "cost per call, whole call both sides" from each call's full
+  length (the real price of a call), next to what this test cost.
+
+Tests: `routing/test_ai_compare.py` (+1).

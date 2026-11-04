@@ -131,9 +131,26 @@ class CompareSttTests(SimpleTestCase):
                 os.environ[k] = v
 
     def run_tool(self, *extra):
-        ns = type('A', (), {'limit': 200, 'concurrency': 3, 'providers': 'deepgram,assemblyai', 'speed': 20.0})()
+        ns = type('A', (), {'limit': 200, 'concurrency': 3, 'providers': 'deepgram,assemblyai', 'speed': 20.0,
+                           'max_minutes': self.max_minutes})()
         keys = {'DEEPGRAM_API_KEY': 'dg-test', 'ASSEMBLYAI_API_KEY': 'aai-test'}
         return asyncio.run(self.cs.run(ns, keys, vad=FakeVad()))
+
+    max_minutes = 0
+
+    def test_long_calls_are_cut_the_same_for_everyone_and_costed_in_full(self):
+        self.max_minutes = 0.25 / 60                         # first 0.25 s of the 0.5 s files
+        self.run_tool()
+        with open(os.path.join(self.base, 'results', 'silero.jsonl')) as f:
+            rows = [json.loads(line) for line in f]
+        self.assertTrue(all(r['audio'] == 0.25 and r['audio_full'] == 0.5 for r in rows), rows)
+        self.assertTrue(all(r['audio_s'] == 0.25 for r in self.streams()))
+        import io
+        from contextlib import redirect_stdout
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            self.cs.report(type('A', (), {'reference': ''})())
+        self.assertIn('whole call both sides (0.0 min on average)', buf.getvalue())
 
     def streams(self):
         with open(os.path.join(self.base, 'results', 'streams.jsonl')) as f:
