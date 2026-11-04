@@ -9786,3 +9786,36 @@ ever see this." And for "Voice (one channel)": "Ok - Voice Found".
   on the Automated Report page.
 
 Tests: `routing/test_ai_access.py` (7); AI tests now use an audit-team login.
+
+## CH-549 - Speech-to-text test: Deepgram Nova-3 vs AssemblyAI Universal-Streaming (Server A + B scripts)
+
+Sir, 4 Nov: "run Deepgram (Nova-3) and AssemblyAI (Universal-Streaming) on the
+same 200 of our recordings, both channels. Compare accuracy on caller speech,
+latency and cost per call, and send me the results. We go with the winner."
+Test tooling only: nothing in the app, the calls or the AI audit changes.
+
+- `scripts/ai_compare/collect_on_a.sh` (Server A): copies the newest 200 calls
+  with both split files (caller / agent) into one tar at the lowest CPU and
+  disk priority, offers it to Server B over the private link only (port 8099,
+  opened for 10.20.0.2 for 30 minutes, closed again), then deletes the copy.
+- `scripts/ai_compare/fetch_on_b.sh` (Server B): fetches it (checksum checked)
+  into /opt/ai-compare/split (root only).
+- `scripts/ai_compare/install.sh`: adds `websockets` to the voice check's
+  Python (/opt/avx-voice/venv).
+- `scripts/ai_compare/compare_stt.py`:
+  - `run`: each side of each call streamed to both providers like a live
+    call (16 kHz PCM, 100 ms pieces, real-time pace, wss:// only); Silero
+    measures each side's speech as the yardstick. Resumable.
+  - `sheet`: 50 calls (mostly the caller talks, up to 10 silent) as mp3 + a
+    reference.csv for the audit team to type what the caller said.
+  - `report`: per provider - caller speech found / missed / made up (vs
+    Silero), word error rate vs the audit team, latency of final words
+    (median, 95%), cost per call (both sides) and of the test.
+- Privacy: Deepgram `mip_opt_out=true` on every request; AssemblyAI needs the
+  account opted out of model training (their streaming then keeps nothing).
+  Keys `DEEPGRAM_API_KEY`, `ASSEMBLYAI_API_KEY` read from .env, never printed.
+- Prices used: AssemblyAI $0.15/hour of connection, Deepgram $0.0077/min
+  (AAI_USD_PER_HOUR / DG_USD_PER_MIN) - checked against each Usage page.
+
+Tests: `routing/test_ai_compare.py` (5) - against stand-in Deepgram and
+AssemblyAI servers speaking each protocol.
