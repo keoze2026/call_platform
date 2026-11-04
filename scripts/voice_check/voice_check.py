@@ -9,6 +9,11 @@ the files hold any audio data at all. voice_results turns that into Sir's
 labels (routing/ai_labels.py). Calls without the split files are checked as
 one mixed recording, as before.
 
+CH-547 ("Pending AI check" should clear at once): cron starts it every minute
+with --loop 55 - it keeps looking for 55 s, takes each call MIN_AGE_SECONDS (5)
+after it ends and saves its result straight away:
+    * * * * * cd /opt/call_platform && BATCH=20 /opt/avx-voice/venv/bin/python scripts/voice_check/voice_check.py --loop 55 >> /var/log/voice_check.log 2>&1
+
 Sir, 4 Nov: "We have audit members who spend lots of time auditing no voice
 calls ... add AI to audit calls - just for us, not for consumer."
 
@@ -62,6 +67,11 @@ MODEL = os.environ.get('VOICE_MODEL', '/opt/avx-voice/silero_vad.onnx')
 MANAGE = os.environ.get('MANAGE', 'docker compose exec -T web python manage.py')
 BATCH = int(os.environ.get('BATCH', '200'))
 MIN_AGE_MIN = int(os.environ.get('MIN_AGE_MIN', '1'))
+# CH-547 (Sir: "Pending AI check" should clear at once): in --loop mode a call
+# is picked up this many seconds after it ends (the recording is complete at
+# hang-up), and the next look comes LOOP_PAUSE seconds after an empty one.
+MIN_AGE_SECONDS = int(os.environ.get('MIN_AGE_SECONDS', '5'))
+LOOP_PAUSE = float(os.environ.get('LOOP_PAUSE', '3'))
 DAYS = int(os.environ.get('DAYS', '2'))
 SAVE_EVERY = int(os.environ.get('SAVE_EVERY', '10'))
 # CH-536: a call checked a minute after it ends whose file cannot be read yet is
@@ -307,6 +317,8 @@ def main():
     ap.add_argument('--limit', type=int, default=BATCH)
     ap.add_argument('--retry-missing', action='store_true')
     ap.add_argument('--file', nargs='+', help='just measure these files and exit')
+    ap.add_argument('--loop', type=int, default=0,
+                    help='keep checking for this many seconds (CH-547: cron every minute with --loop 55)')
     o = ap.parse_args()
     if o.file:
         check_files(o.file)
@@ -326,13 +338,31 @@ def main():
         log(f'model not found: {MODEL} - run scripts/voice_check/install.sh')
         return 1
 
-    args = ['voice_pending', '--limit', str(o.limit), '--days', str(DAYS), '--min-age', str(MIN_AGE_MIN)]
+    vad = None
+    if not o.loop:
+        vad = Vad(MODEL)
+        return one_pass(o, vad, f'--min-age {MIN_AGE_MIN}')[1]
+    # CH-547: keep looking for o.loop seconds - a call is checked a few
+    # seconds after it ends instead of up to two minutes later.
+    deadline, failed = time.time() + o.loop, 0
+    vad = Vad(MODEL)
+    while time.time() < deadline:
+        done, rc = one_pass(o, vad, f'--min-age-seconds {MIN_AGE_SECONDS}')
+        failed = failed or rc
+        if not done:
+            time.sleep(LOOP_PAUSE)
+    return failed
+
+
+def one_pass(o, vad, age_arg):
+    """Check the waiting calls once. Returns (calls handled, exit code)."""
+    args = ['voice_pending', '--limit', str(o.limit), '--days', str(DAYS)] + age_arg.split()
     if o.retry_missing:
         args.append('--retry-missing')
     p = manage(args)
     if p.returncode != 0:
         log(f'voice_pending failed: {p.stderr.strip()[-300:]}')
-        return 1
+        return 0, 1
     items = []
     for line in p.stdout.splitlines():
         try:
@@ -340,11 +370,13 @@ def main():
         except ValueError:
             continue
     if not items:
-        return 0
+        return 0, 0
 
-    vad = Vad(MODEL)
     log(f'{len(items)} calls to check' + (' (dry run, nothing saved)' if o.dry_run else ''))
     pending, done, started, failed = [], 0, time.time(), False
+    # CH-547: a few new calls are saved one by one, so each label shows at
+    # once; a backlog is saved in tens (CH-534).
+    save_every = 1 if (o.loop and len(items) <= 5) else SAVE_EVERY
 
     def save(batch):
         # CH-534: saved every SAVE_EVERY calls, so results appear while a
@@ -366,7 +398,7 @@ def main():
                 + (', NO AUDIO DATA' if result['no_data'] else ''))
             if not o.dry_run:
                 pending.append(result)
-                if len(pending) >= SAVE_EVERY:
+                if len(pending) >= save_every:
                     failed = not save(pending) or failed
                     pending = []
             continue
@@ -394,13 +426,13 @@ def main():
         if o.dry_run or result is None:
             continue
         pending.append(result)
-        if len(pending) >= SAVE_EVERY:
+        if len(pending) >= save_every:
             failed = not save(pending) or failed
             pending = []
     if not o.dry_run and pending:
         failed = not save(pending) or failed
     log(f'{done} calls in {time.time() - started:.0f}s' + (' - dry run, nothing saved' if o.dry_run else ''))
-    return 1 if failed else 0
+    return done, 1 if failed else 0
 
 
 if __name__ == '__main__':

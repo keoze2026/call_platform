@@ -275,3 +275,20 @@ class BackfillAndCommentTests(AiAuditFlowTests):
         with mock.patch('analytics.team_report.telegram') as tg:
             self.results([two(0, 4.0, cid=str(c.id))])
         self.assertIn('\nComment: <i>Agent speaks, caller silent, no beeping', tg.call_args[0][1]['text'])
+
+
+class InstantCheckTests(AiAuditFlowTests):
+    """CH-547: a call is offered to the voice check seconds after it ends."""
+
+    def test_min_age_in_seconds(self):
+        just = self.call()
+        CallLog.objects.filter(pk=just.pk).update(ended_at=timezone.now() - timedelta(seconds=8))
+        out = io.StringIO()
+        call_command('voice_pending', stdout=out)                      # minutes: not yet
+        self.assertNotIn(str(just.id), out.getvalue())
+        out = io.StringIO()
+        call_command('voice_pending', '--min-age-seconds', '5', stdout=out)
+        self.assertIn(str(just.id), out.getvalue())
+        out = io.StringIO()
+        call_command('voice_pending', '--min-age-seconds', '30', stdout=out)
+        self.assertNotIn(str(just.id), out.getvalue())

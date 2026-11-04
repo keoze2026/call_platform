@@ -33,6 +33,8 @@ class Command(BaseCommand):
         parser.add_argument('--limit', type=int, default=200)
         parser.add_argument('--days', type=int, default=2, help='only calls from the last N days')
         parser.add_argument('--min-age', type=int, default=1, help='minutes since the call ended (CH-536: 1)')
+        # CH-547: seconds instead, for the voice check's --loop mode.
+        parser.add_argument('--min-age-seconds', type=int, default=None)
         parser.add_argument('--retry-missing', action='store_true', help='try "missing" ones again')
 
     def handle(self, *args, **o):
@@ -41,7 +43,9 @@ class Command(BaseCommand):
         qs = (CallLog.objects
               .filter(voice_label__in=labels, retry_hidden=False, status__in=FINISHED,
                       created_at__gte=now - timedelta(days=max(1, o['days'])),
-                      ended_at__lte=now - timedelta(minutes=max(1, o['min_age'])))
+                      ended_at__lte=now - (timedelta(seconds=max(0, o['min_age_seconds']))
+                                           if o['min_age_seconds'] is not None
+                                           else timedelta(minutes=max(1, o['min_age']))))
               .exclude(recording_url='')
               .order_by('-ended_at')
               .values_list('id', 'recording_url', 'status', 'duration', 'ended_at')[:max(1, o['limit'])])

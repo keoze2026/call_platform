@@ -9743,3 +9743,20 @@ the AI Audit page the same evening.
   the split files, Server B still checked one channel, with nothing logged.
 
 Tests: `routing/test_ai_reports.py` (8), `routing/test_ai_labels.py` (+2).
+
+## CH-547 - "Pending AI check" clears seconds after the call ends (Server B host script)
+
+Sir wants the AI status at once. The voice check ran once a minute and took
+calls 1 minute after they ended: up to ~2 minutes of "Pending AI check".
+
+- `voice_check.py --loop 55`: started by cron every minute, it keeps looking
+  for 55 s - takes each call MIN_AGE_SECONDS (5) after it ends (the recording
+  is complete at hang-up), pauses LOOP_PAUSE (3 s) when nothing waits, and
+  saves a few new calls one by one so each label shows straight away (a
+  backlog still in tens). The run lock keeps one loop at a time.
+- `voice_pending --min-age-seconds N`.
+- Expected: label on screen about 10-15 s after hang-up for a short call
+  (longer recordings take longer to listen to).
+
+Tests: `routing/test_ai_labels.py` (+1); the loop was run with stand-ins (2
+calls waiting, 1 arriving mid-loop: each saved on its own).
