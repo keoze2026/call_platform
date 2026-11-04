@@ -21,7 +21,7 @@ from routing.models import CallLog
 
 stats_router = Router(tags=["Stats API"], auth=APIKeyAuth())
 
-LIVE_STATUSES = ['in_progress', 'ringing', 'initiated']
+# CH-538: live calls use the one live rule (routing/live.py).
 
 
 class _Filters:
@@ -310,11 +310,10 @@ def concurrency(request: HttpRequest):
     every live call with every buyer's and campaign's name.
     """
     from accounts.permissions import scope_queryset
-    live = scope_queryset(request.auth, CallLog.objects.filter(
+    from routing.live import live as live_only
+    live = live_only(scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
-        status__in=LIVE_STATUSES,
-        created_at__gte=timezone.now() - timedelta(hours=4),
-    ))
+    )))
 
     def grouped(field_id, name_attr):
         rows = live.values(field_id).annotate(cc=Count('id')).order_by('-cc')

@@ -78,9 +78,21 @@ def _hash(filters, fields) -> str:
     return hashlib.sha256(raw.encode()).hexdigest()
 
 
+def _version(user) -> str:
+    """CH-538: the workspace's report version - one higher after every call
+    event (routing/call_events.py). In the key of today's reports and the
+    header, so a call created, answered or ended makes the very next request
+    fresh: the cache is cleared by the event, not by a timer."""
+    from routing.call_events import report_version
+    return report_version(user.organization_id)
+
+
 def _today_stamp(user, filters, audience) -> str:
     from analytics.report_stamp import report_stamp
-    key = (f'reports:stamp:{user.organization_id}:{audience}:'
+    # The version is in the key: a call event never waits out the stamp's
+    # few seconds. The stamp still catches what no event reports (a cost
+    # written with .update(), a rename).
+    key = (f'reports:stamp:{user.organization_id}:{audience}:{_version(user)}:'
            f'{_hash(filters, _STAMP_FIELDS)}')
     stamp = _cache_get(key)
     if stamp is None:
@@ -114,7 +126,7 @@ HEADER_TTL_SECONDS = 4
 
 def short_response(request, filters, name, compute, ttl=HEADER_TTL_SECONDS):
     user = request.auth
-    key = (f'reports:short:{name}:{user.organization_id}:{_audience(user)}:'
+    key = (f'reports:short:{name}:{user.organization_id}:{_audience(user)}:{_version(user)}:'
            f'{_hash(filters, _KEY_FIELDS)}')
     hit = _cache_get(key)
     if hit is not None:

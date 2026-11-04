@@ -14,6 +14,7 @@ The mirroring itself runs in a Celery worker, not in the request thread — the
 receiver only enqueues. Enqueueing happens on transaction commit so the worker
 can never read a CallLog row that has not been written yet.
 """
+import logging
 from decimal import Decimal
 
 from django.db import transaction
@@ -22,6 +23,8 @@ from django.dispatch import receiver
 
 from .models import CallLog
 from analytics.models import CallRecord
+
+logger = logging.getLogger(__name__)
 
 TERMINAL_STATUSES = {
     CallLog.Status.COMPLETED,
@@ -219,17 +222,36 @@ def mirror_call_log(call_log_id) -> bool:
 
 @receiver(post_save, sender=CallLog)
 def sync_call_record(sender, instance: CallLog, created, **kwargs):
-    if instance.status not in TERMINAL_STATUSES:
-        return
+    """Every call event, once committed: the Reports copy of a finished call
+    is written there and then, and the reports are told (CH-538).
+
+    Sir, 4 Nov: "Don't wait for hangup or a batch sync ... any call appears in
+    Reports and Call Log within 2 seconds." The copy used to be queued for a
+    Celery worker. Between the hang-up and the worker getting to it the call
+    was in neither half of the report - no longer live, not yet in the copy -
+    so it vanished from Reports for a few seconds, longer when the worker was
+    busy (CDM, 9:36 AM: two calls, a refresh showed one). It is written in this
+    request now, a few queries; the worker is only the fallback if it fails.
+    """
+    from routing import call_events
 
     call_log_id = str(instance.id)
+    organization_id = instance.organization_id
+    terminal = instance.status in TERMINAL_STATUSES
+    event = call_events.event_name(instance.status, created)
 
-    def _enqueue():
-        try:
-            from tasks import mirror_call_record
-            mirror_call_record.delay(call_log_id)
-        except Exception:
-            # Broker unreachable — mirror inline rather than lose the record
-            mirror_call_log(call_log_id)
+    def _after_commit():
+        if terminal:
+            try:
+                mirror_call_log(call_log_id)
+            except Exception:
+                logger.exception('reports copy of call %s failed here; queued for the worker', call_log_id)
+                try:
+                    from tasks import mirror_call_record
+                    mirror_call_record.delay(call_log_id)
+                except Exception:
+                    logger.exception('reports copy of call %s could not be queued either', call_log_id)
+        # After the copy, so a page reloading on this event finds the call.
+        call_events.publish(organization_id, event)
 
-    transaction.on_commit(_enqueue)
+    transaction.on_commit(_after_commit)

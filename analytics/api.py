@@ -326,7 +326,8 @@ def live_summary(request: HttpRequest):
 
     from routing.models import CallLog
 
-    LIVE = ['in_progress', 'ringing', 'initiated', 'queued']
+    from routing.live import LIVE_STATUSES, live as live_only
+    LIVE = list(LIVE_STATUSES)
     org = request.auth.organization
     start_of_day = timezone.localtime().replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -343,7 +344,9 @@ def live_summary(request: HttpRequest):
         revenue=Coalesce(Sum('revenue', filter=Q(status='completed')), Decimal('0')),
     )
 
-    live = today.filter(status__in=LIVE).order_by('created_at')
+    # CH-538: the one live rule (routing/live.py) - every live call, also one
+    # that started before midnight, as the Live Monitor and Reports count it.
+    live = live_only(scope_queryset(request.auth, CallLog.objects.filter(organization=org))).order_by('created_at')
     longest = live.first()
 
     return 200, {
@@ -368,10 +371,10 @@ def live_calls(request: HttpRequest):
     from routing.models import CallLog
     from django.utils import timezone
 
-    calls = scope_queryset(request.auth, CallLog.objects.filter(
+    from routing.live import live
+    calls = live(scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
-        status='in_progress'
-    ).select_related('campaign', 'buyer', 'publisher')).order_by('-created_at')
+    ).select_related('campaign', 'buyer', 'publisher'))).order_by('-created_at')
 
     return 200, [
         {

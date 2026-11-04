@@ -10,3 +10,6 @@ CACHES = {'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'
 CELERY_TASK_ALWAYS_EAGER = False
 CELERY_BROKER_URL = 'memory://'
 PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
+
+# CH-538: call events are pushed on the channel layer; no Redis in tests.
+CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}

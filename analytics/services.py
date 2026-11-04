@@ -387,9 +387,11 @@ class AnalyticsService:
 
     @staticmethod
     def _live_qs(user: User, filters):
-        qs = AnalyticsService._calllog_range_qs(user, filters).filter(
-            status__in=['in_progress', 'ringing', 'initiated'])
-        if getattr(filters, 'status', None) and filters.status not in ['in_progress', 'ringing', 'initiated']:
+        # CH-538: the one live rule (routing/live.py) the header and the Live
+        # Monitor use, inside the dates on screen.
+        from routing.live import LIVE_STATUSES, live
+        qs = live(AnalyticsService._calllog_range_qs(user, filters))
+        if getattr(filters, 'status', None) and filters.status not in LIVE_STATUSES:
             qs = qs.none()
         # CH-531: a call still live has no recording to check yet - it is not
         # part of a voice-filtered list.

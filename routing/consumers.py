@@ -30,6 +30,12 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
 
         self.group_name = f"live_calls_{self.user_id}"
         await self.channel_layer.group_add(self.group_name, self.channel_name)
+        # CH-538: "a call event happened" for this workspace's reports - the
+        # event name only, never the call (routing/call_events.py).
+        org_id = await self.get_org_id()
+        self.reports_group = f"reports_org_{org_id}" if org_id else None
+        if self.reports_group:
+            await self.channel_layer.group_add(self.reports_group, self.channel_name)
         await self.accept()
 
         # Send current active calls on connect
@@ -42,6 +48,8 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
     async def disconnect(self, close_code):
         if hasattr(self, 'group_name'):
             await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        if getattr(self, 'reports_group', None):
+            await self.channel_layer.group_discard(self.reports_group, self.channel_name)
 
     async def receive(self, text_data):
         # Client can request refresh
@@ -51,11 +59,25 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
             'data': calls
         }))
 
+    async def report_changed(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'report.changed',
+            'data': {'event': (event.get('data') or {}).get('event', '')},
+        }))
+
     async def live_call_update(self, event):
         await self.send(text_data=json.dumps({
             'type': 'call_update',
             'data': event['data']
         }))
+
+    @database_sync_to_async
+    def get_org_id(self):
+        from accounts.models import User
+        try:
+            return str(User.objects.only('organization_id').get(id=self.user_id).organization_id or '')
+        except Exception:
+            return ''
 
     @database_sync_to_async
     def get_live_calls(self):
@@ -65,10 +87,10 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
 
         try:
             user = User.objects.get(id=self.user_id)
-            calls = scope_queryset(user, CallLog.objects.filter(
+            from routing.live import live
+            calls = live(scope_queryset(user, CallLog.objects.filter(
                 organization=user.organization,
-                status=CallLog.Status.IN_PROGRESS
-            ).select_related('campaign', 'buyer')).order_by('-created_at')
+            ).select_related('campaign', 'buyer'))).order_by('-created_at')
 
             return [
                 {

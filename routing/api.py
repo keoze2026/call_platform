@@ -173,10 +173,11 @@ def delete_destination(request: HttpRequest, rule_id: str, destination_id: str):
 def live_calls(request: HttpRequest):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'call-flows', 'view')
-    calls = scope_queryset(request.auth, CallLog.objects.filter(
+    # CH-538: the one live rule (routing/live.py): ringing calls are live too.
+    from routing.live import live
+    calls = live(scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
-        status=CallLog.Status.IN_PROGRESS
-    ).select_related('campaign', 'buyer', 'publisher')).order_by('-created_at')
+    ).select_related('campaign', 'buyer', 'publisher'))).order_by('-created_at')
 
     return 200, [RoutingService.format_call(c) for c in calls]
 
@@ -194,16 +195,13 @@ def live_counts(request: HttpRequest):
     """
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'campaigns', 'view')
-    from datetime import timedelta
     from django.db.models import Count
-    from django.utils import timezone
 
-    live = scope_queryset(request.auth, CallLog.objects.filter(
+    # CH-538: the one live rule (routing/live.py), the same as the header's.
+    from routing.live import live as live_only
+    live = live_only(scope_queryset(request.auth, CallLog.objects.filter(
         organization=request.auth.organization,
-        status__in=[CallLog.Status.RINGING, CallLog.Status.IN_PROGRESS],
-        ended_at__isnull=True,
-        created_at__gte=timezone.now() - timedelta(hours=4),
-    ))
+    )))
 
     def by(field):
         out = {}

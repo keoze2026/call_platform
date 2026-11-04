@@ -9597,3 +9597,34 @@ Tests: `routing/test_voice_check.py` (+6, 10).
 - `deploy/record_from_dial.py` (CH-535): the dry run no longer waits for 0
   active calls (it changes nothing); only `--apply` / `--rollback` do. Seen on
   Server A, 4 Nov: the dry run stopped at "48 call(s) active".
+
+## CH-538 - Calls reach Reports at once; one Live rule; cache cleared by call events (BACKEND)
+
+Sir, 4 Nov: "Reporting data updating 10 sec late - CDM had 2 live, a refresh
+showed 1 ... Create the call record the moment a call starts and update it in
+place ... Live counts in Reports must come from the same live source as the
+header and Live Monitor. Clear or update the report cache the moment a call
+event happens ... WebSocket/event push ... within 2 seconds ... keep the speed."
+
+Cause: Reports = live calls (call log) + finished calls (the Reports copy).
+The copy was queued for a Celery worker at hang-up, so between the hang-up
+and the worker a call was in neither half and vanished (CDM 9:36:08 AM).
+
+- The call record is created when the call is routed and updated in place
+  (as before). Its Reports copy is now written in the same request as the
+  answer / hang-up, after commit (routing/signals.py) - the worker is only
+  the fallback if that fails.
+- One Live rule (routing/live.py): ringing or connected, not ended, started
+  under 4 hours ago. Used by the header, Live Monitor (list, counters,
+  socket), Reports, the campaign LIVE column and the stats API. Before: four
+  different rules (the Live Monitor list left out ringing calls).
+- Every call event (routing/call_events.py): the workspace's report version
+  goes up - it is in the key of today's cached reports and of the header, so
+  the next request is fresh; the cache stays for everything else - and
+  "report.changed" (event name only, never call details) is pushed on
+  /ws/live-calls/ to the workspace's own group (reports_org_<id>). Frontend
+  CH-538 listens and reloads.
+- Never raises: Redis or the socket down cannot fail a call.
+
+Tests: `routing/test_realtime_reports.py` (6); test_user_billing adjusted to
+the copy now made in the request (same race, same checks).

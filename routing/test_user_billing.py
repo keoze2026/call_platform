@@ -111,11 +111,13 @@ class UserBillingTests(TestCase):
         _, row, _ = self.route()
         early = []
 
-        def copy_now(call_id):          # the job running at once, before the charge
+        def copy_now(call_id):          # the copy made at once, before the charge
             early.append(call_id)
-            mirror_call_log(call_id)
+            return mirror_call_log(call_id)
 
-        with mock.patch('tasks.mirror_call_record.delay', side_effect=copy_now), \
+        # CH-538: the copy is written in the request (routing.signals), no
+        # longer queued for the worker - the same race, checked the same way.
+        with mock.patch('routing.signals.mirror_call_log', side_effect=copy_now), \
                 mock.patch('django.db.transaction.on_commit', side_effect=lambda fn, *a, **k: fn()):
             row = self.end(row, 61)
         self.assertTrue(early)
