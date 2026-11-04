@@ -203,6 +203,10 @@ Last updated: 31 Oct 2026.
     tones / machine sound (0.3 s or more of beeping).
   Calls recorded before the split: no speech = Dead Caller, speech = "Voice
   Found" (CH-548).
+- CH-553: **Voicemail / IVR** - no human speech and mostly music (PANNs, on
+  Server B): music for at least 4 s and 40% of what was heard
+  (AI_MUSIC_SECONDS, AI_MUSIC_SHARE). Not one of the three No Voice types: no
+  No Voice alert, not in No Voice %.
 - "Pending AI check" until checked. CH-548: seen only by the billing and
   audit team logins (AI_AUDIT_EMAILS) and the owner - not other staff, never
   buyers or publishers. Each No Voice call goes to the team's Telegram at once.

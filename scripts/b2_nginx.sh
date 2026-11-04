@@ -85,6 +85,19 @@ server {
         default_type audio/mpeg;
     }
 
+    # split-recordings (CH-553): caller and agent apart, for the AI audit on Server B only.
+    location ~ ^/recordings/split/([A-Za-z0-9_.-]+)-(caller|agent)\.wav$ {
+        allow 13.140.236.153;
+        allow 2605:a144:2371:9898::/64;
+        allow 127.0.0.1;
+        deny all;
+        root /var/spool/asterisk;
+        try_files /recordings/split/$1-$2.wav =404;
+        types { audio/wav wav; }
+        default_type audio/wav;
+        add_header Cache-Control "no-store" always;
+    }
+
     location @b2 {
         # Bucket path, host and the read-only token (renewed daily).
         include /etc/nginx/avortyx-b2.conf;

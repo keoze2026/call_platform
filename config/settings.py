@@ -903,6 +903,10 @@ AI_BEEP_SECONDS = config('AI_BEEP_SECONDS', default=0.3, cast=float)
 # CH-548 (Sir, 4 Nov): the AI audit only for these logins (billing + audit team
 # emails, comma separated) and the platform owner. Empty = the owner only.
 AI_AUDIT_EMAILS = config('AI_AUDIT_EMAILS', default='')
+# CH-553: "Voicemail / IVR" - no speech, and PANNs heard music for at least
+# AI_MUSIC_SECONDS and at least AI_MUSIC_SHARE of what it listened to.
+AI_MUSIC_SECONDS = config('AI_MUSIC_SECONDS', default=4, cast=float)
+AI_MUSIC_SHARE = config('AI_MUSIC_SHARE', default=0.4, cast=float)
 # CH-546: Telegram - a publisher over this No Voice % in the last hour (with at
 # least AI_RATE_ALERT_MIN_CALLS checked calls), and the daily summary's hour (EST).
 AI_RATE_ALERT_PERCENT = config('AI_RATE_ALERT_PERCENT', default=15, cast=float)

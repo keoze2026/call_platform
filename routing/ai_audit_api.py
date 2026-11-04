@@ -27,7 +27,7 @@ from routing import ai_labels
 
 router = Router(tags=['AI Audit'], auth=JWTAuth())
 ET = ZoneInfo('America/New_York')
-FILTERS = ('', 'no_voice', 'dead_caller', 'agent_only', 'agent_beep', 'valid', 'mixed', 'pending', 'fault',
+FILTERS = ('', 'no_voice', 'dead_caller', 'agent_only', 'agent_beep', 'valid', 'mixed', 'ivr', 'pending', 'fault',
            'reviewed', 'wrong')
 ACCURACY_DAYS = 30
 
@@ -140,6 +140,7 @@ def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, p
         agent_beep=Count('id', filter=Q(ai_label='agent_beep')),
         valid=Count('id', filter=Q(ai_label='valid')),
         mixed=Count('id', filter=Q(ai_label='mixed')),
+        ivr=Count('id', filter=Q(ai_label='ivr')),
         fault=Count('id', filter=Q(voice_audio_fault=True)),
         reviewed=Count('id', filter=~Q(ai_review_label='')),
         wrong=Count('id', filter=~Q(ai_review_label='') & ~Q(ai_review_label=F('ai_label'))),

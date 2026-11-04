@@ -93,6 +93,29 @@ BEEP_TONAL = 0.6             # share of the window's power in the strongest band
 BEEP_MIN_RUN, BEEP_MAX_RUN = 3, 62      # windows: 0.1 s .. 2 s
 
 
+# CH-553: PANNs (scripts/voice_check/panns_sound.py) is asked only about a
+# side where Silero heard less speech than this - is it music (IVR / hold
+# music) or machine tones? The label itself is decided on the server.
+SPEECH_GATE = float(os.environ.get('VOICE_MIN_SECONDS', '1.0'))
+
+
+def sound_of(pcm16):
+    """{'music', 'tone', 'speech', 'seconds'} from PANNs, or None when it is
+    not installed (the AI audit then works as before)."""
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import panns_sound
+    except Exception:
+        return None
+    try:
+        return panns_sound.sound(pcm16, SR)
+    except Exception as e:
+        log(f'PANNs failed: {e}')
+        return None
+
+
 def log(msg):
     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}", flush=True)
 
@@ -279,8 +302,13 @@ def split_sides(vad, item):
                 f"{'ok' if pcm['caller'] else 'unreadable'}, agent {'ok' if pcm['agent'] else 'unreadable'})")
             return None
         talk = item.get('talk')
-        caller = vad.side(talk_part(pcm['caller'], talk))
-        agent = vad.side(talk_part(pcm['agent'], talk))
+        caller_pcm, agent_pcm = talk_part(pcm['caller'], talk), talk_part(pcm['agent'], talk)
+        caller = vad.side(caller_pcm)
+        agent = vad.side(agent_pcm)
+        # CH-553: no speech on a side - music or machine tones there?
+        caller_sound = sound_of(caller_pcm) if caller['speech'] < SPEECH_GATE else None
+        agent_sound = sound_of(agent_pcm) if (caller['speech'] < SPEECH_GATE
+                                               and agent['speech'] < SPEECH_GATE) else None
     finally:
         for path, temporary in paths.values():
             if temporary and path:
@@ -296,6 +324,9 @@ def split_sides(vad, item):
         'caller_speech': caller['speech'], 'agent_speech': agent['speech'],
         'caller_first': first, 'beep': caller['beep'],
         'no_data': caller['no_data'] and agent['no_data'],
+        **({'caller_music': caller_sound['music'], 'caller_tone': caller_sound['tone'],
+            'caller_sound_s': caller_sound['seconds']} if caller_sound else {}),
+        **({'agent_music': agent_sound['music'], 'agent_sound_s': agent_sound['seconds']} if agent_sound else {}),
     }
 
 
@@ -317,6 +348,10 @@ def main():
     ap.add_argument('--limit', type=int, default=BATCH)
     ap.add_argument('--retry-missing', action='store_true')
     ap.add_argument('--file', nargs='+', help='just measure these files and exit')
+    # CH-553: check calls that already have this AI label again (e.g.
+    # dead_caller, once PANNs is installed: IVR calls become Voicemail / IVR).
+    ap.add_argument('--recheck', metavar='AI_LABEL', default='')
+    ap.add_argument('--days', type=int, default=DAYS)
     ap.add_argument('--loop', type=int, default=0,
                     help='keep checking for this many seconds (CH-547: cron every minute with --loop 55)')
     o = ap.parse_args()
@@ -324,7 +359,9 @@ def main():
         check_files(o.file)
         return 0
 
-    lock = open('/tmp/voice_check.lock', 'w')
+    # A re-check has its own lock: it never waits for, or blocks, the
+    # every-minute check of new calls.
+    lock = open('/tmp/voice_recheck.lock' if o.recheck else '/tmp/voice_check.lock', 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -339,7 +376,7 @@ def main():
         return 1
 
     vad = None
-    if not o.loop:
+    if not o.loop or o.recheck:
         vad = Vad(MODEL)
         return one_pass(o, vad, f'--min-age {MIN_AGE_MIN}')[1]
     # CH-547: keep looking for o.loop seconds - a call is checked a few
@@ -356,9 +393,11 @@ def main():
 
 def one_pass(o, vad, age_arg):
     """Check the waiting calls once. Returns (calls handled, exit code)."""
-    args = ['voice_pending', '--limit', str(o.limit), '--days', str(DAYS)] + age_arg.split()
+    args = ['voice_pending', '--limit', str(o.limit), '--days', str(o.days)] + age_arg.split()
     if o.retry_missing:
         args.append('--retry-missing')
+    if o.recheck:
+        args = ['voice_pending', '--limit', str(o.limit), '--days', str(o.days), '--ai-label', o.recheck]
     p = manage(args)
     if p.returncode != 0:
         log(f'voice_pending failed: {p.stderr.strip()[-300:]}')
@@ -395,6 +434,8 @@ def one_pass(o, vad, age_arg):
             done += 1
             log(f"[{done}/{len(items)}] {item['id']}: caller speech {result['caller_speech']:.1f}s, agent speech "
                 f"{result['agent_speech']:.1f}s, caller beep {result['beep']:.1f}s"
+                + (f", caller music {result['caller_music']}s" if 'caller_music' in result else '')
+                + (f", agent music {result['agent_music']}s" if 'agent_music' in result else '')
                 + (', NO AUDIO DATA' if result['no_data'] else ''))
             if not o.dry_run:
                 pending.append(result)
@@ -413,10 +454,16 @@ def one_pass(o, vad, age_arg):
                 line = 'no readable recording'
             else:
                 audio = round(len(pcm) / 2 / SR, 2)
-                one = vad.side(talk_part(pcm, item.get('talk')))
+                part = talk_part(pcm, item.get('talk'))
+                one = vad.side(part)
                 result = {'id': item['id'], 'speech': one['speech'], 'audio': audio, 'beep': one['beep'],
                           'channels': 1, 'no_data': one['no_data']}
                 line = f"audio {audio:.1f}s, speech {one['speech']:.1f}s, beep {one['beep']:.1f}s (one channel)"
+                # CH-553: nobody spoke - music (IVR) or machine tones?
+                snd = sound_of(part) if one['speech'] < SPEECH_GATE and not one['no_data'] else None
+                if snd:
+                    result.update({'music': snd['music'], 'tone': snd['tone'], 'sound_s': snd['seconds']})
+                    line += f", music {snd['music']}s, tone {snd['tone']}s"
         finally:
             if temporary and path:
                 os.unlink(path)

@@ -9857,3 +9857,35 @@ Silero hears speech only, so music counts as silence.
   audit.
 
 Tests: `routing/test_sound_check.py` (5) - PANNs replaced by a stand-in.
+
+## CH-553 - AI audit: Voicemail / IVR (PANNs) and the caller / agent files reachable (BACKEND + Server A + B)
+
+4 Nov: three IVR calls (only music) came out "No Voice | Dead Caller". On
+Server B, `sound_check.py try` (CH-552) heard music 20 of 20 s and 60 of 62 s
+on them, and Silero 0 s of speech. The same output showed why every call is
+still checked as one mixed recording: each split file was a 404.
+
+- New label `ivr` - "Voicemail / IVR" (`routing/ai_labels.py`): no speech
+  and PANNs music for at least AI_MUSIC_SECONDS (4) and AI_MUSIC_SHARE (40%)
+  of what it heard - on the one recording, on the caller's side, or on the
+  agent's side when nobody spoke. Confidence 85 when 70%+ is music, else 70.
+  The audit team can pick it under Wrong; it is a filter on the AI Audit page
+  and in Reports. Not a No Voice type: no Telegram No Voice alert, not in
+  No Voice %. PANNs' machine tones on the caller's side count as beeping.
+  Without PANNs installed nothing changes.
+- `scripts/voice_check/panns_sound.py` (shared with sound_check.py):
+  voice_check.py asks PANNs only about a side where Silero heard no speech
+  (2 threads, lowest priority, first 120 s), and sends music / tone seconds
+  with the result.
+- `voice_check.py --recheck dead_caller --days N` (+ `voice_pending
+  --ai-label`): calls already labelled are checked again - Dead Caller calls
+  that were IVR become Voicemail / IVR. Own lock: the every-minute check is
+  never held up.
+- Server A `deploy/split_nginx.sh install | test | rollback`: rec.v0l1.com
+  serves /recordings/split/<id>-caller|agent.wav to Server B only
+  (13.140.236.153, its IPv6 /64, and localhost; anyone else 403). Before, the
+  site's "location / { return 404; }" answered every split file. Backup,
+  nginx -t, reload, tests, and the backup put back by itself on any failure.
+  `scripts/b2_nginx.sh` writes the same location, so a re-install keeps it.
+
+Tests: `routing/test_ai_ivr.py` (10).

@@ -40,10 +40,20 @@ class Command(BaseCommand):
         # by caller number (any format, last 10 digits) or call id.
         parser.add_argument('--caller', action='append', default=[], help='caller number (repeatable)')
         parser.add_argument('--id', action='append', default=[], help='call id (repeatable)')
+        # CH-553: calls that already have this AI label, to check again
+        # (voice_check.py --recheck dead_caller, once PANNs is installed).
+        parser.add_argument('--ai-label', default='')
 
     def handle(self, *args, **o):
         now = timezone.now()
         labels = ['', 'missing'] if o['retry_missing'] else ['']
+        if o['ai_label']:
+            qs = (CallLog.objects.filter(ai_label=o['ai_label'], status__in=FINISHED,
+                                         created_at__gte=now - timedelta(days=max(1, o['days'])))
+                  .exclude(recording_url='').order_by('-ended_at')
+                  .values_list('id', 'recording_url', 'status', 'duration', 'ended_at', 'caller_number')
+                  [:max(1, o['limit'])])
+            return self._print(qs, now)
         if o['caller'] or o['id']:
             from django.db.models import Q
             want = Q()
