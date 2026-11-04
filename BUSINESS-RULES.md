@@ -202,9 +202,10 @@ Last updated: 31 Oct 2026.
   - **No Voice | Only Agent + Beeping** - agent speaks, caller side only
     tones / machine sound (0.3 s or more of beeping).
   Calls recorded before the split: no speech = Dead Caller, speech = "Voice
-  (one channel)".
-- "Pending AI check" until checked. Main account only - never buyers or
-  publishers. Each No Voice call goes to the team's Telegram at once.
+  Found" (CH-548).
+- "Pending AI check" until checked. CH-548: seen only by the billing and
+  audit team logins (AI_AUDIT_EMAILS) and the owner - not other staff, never
+  buyers or publishers. Each No Voice call goes to the team's Telegram at once.
 - The audit team marks each flagged call Correct or Wrong (with the right
   label); the AI accuracy % (last 30 days) is shown on the AI Audit page, and
   the corrections show which threshold to change (VOICE_MIN_SECONDS,

@@ -115,7 +115,9 @@ class RouteTableGuard(SimpleTestCase):
                     self.assertIn(f'{area}.{action}', keys, f"{op['method']} {op['tmpl']}")
 
 
-@override_settings(ALLOWED_HOSTS=['*'], DEBUG=False,
+# CH-548: the AI audit also needs a listed email; these logins have one, so
+# only the ticks decide here.
+@override_settings(ALLOWED_HOSTS=['*'], DEBUG=False, AI_AUDIT_EMAILS='manager@tick.io,viewer@tick.io',
                    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
 class EveryTickWorks(TransactionTestCase):
     maxDiff = None

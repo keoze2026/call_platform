@@ -4,7 +4,7 @@ On 4 Nov the AI Audit page showed 3,396 calls "Pending AI check": they had
 been listened to (voice_label set) before the labels existed, and the voice
 check does not listen to a call twice. Their label is worked out from what was
 already measured - one mixed recording: no speech = No Voice | Dead Caller,
-speech = Voice (one channel). No Telegram alert for these (they are old).
+speech = Voice Found. No Telegram alert for these (they are old).
 
     docker compose exec -T web python manage.py ai_backfill            # dry run: counts
     docker compose exec -T web python manage.py ai_backfill --apply

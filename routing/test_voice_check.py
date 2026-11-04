@@ -23,7 +23,7 @@ from routing.models import CallLog
 from routing.signals import mirror_call_log
 
 
-@override_settings(ALLOWED_HOSTS=['*'], VOICE_MIN_SECONDS=1.0,
+@override_settings(ALLOWED_HOSTS=['*'], AI_AUDIT_EMAILS='audit@x.io', VOICE_MIN_SECONDS=1.0,
                    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
 class VoiceCheckTests(TestCase):
     def setUp(self):
@@ -103,7 +103,9 @@ class VoiceCheckTests(TestCase):
         self.assertEqual([i['id'] for i in self.pending('--retry-missing')], [str(gone.id)])
 
     def api(self, role, buyer=None):
-        u = User.objects.create(username=f'{role}{self.n}', email=f'{role}{self.n}@x.io', organization=self.org,
+        # CH-548: our staff here is the audit team login (AI_AUDIT_EMAILS).
+        email = 'audit@x.io' if role == 'admin' else f'{role}{self.n}@x.io'
+        u = User.objects.create(username=f'{role}{self.n}', email=email, organization=self.org,
                                 role=role, buyer=buyer)
         return Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(u)}')
 

@@ -60,7 +60,7 @@ class LabelRuleTests(TestCase):
         self.assertEqual(self.label({'id': 'x', 'speech': 7.0, 'audio': 30}), 'mixed')
 
 
-@override_settings(ALLOWED_HOSTS=['*'], VOICE_MIN_SECONDS=1.0, AI_BEEP_SECONDS=0.3,
+@override_settings(ALLOWED_HOSTS=['*'], AI_AUDIT_EMAILS='audit@x.io',VOICE_MIN_SECONDS=1.0, AI_BEEP_SECONDS=0.3,
                    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
                    CHANNEL_LAYERS={'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}})
 class AiAuditFlowTests(TestCase):
@@ -89,7 +89,9 @@ class AiAuditFlowTests(TestCase):
 
     def api(self, role, **kw):
         self.n += 1
-        u = User.objects.create(username=f'{role}{self.n}', email=f'{role}{self.n}@x.io', organization=self.org,
+        # CH-548: our staff here is the audit team login (AI_AUDIT_EMAILS).
+        email = 'audit@x.io' if role == 'admin' else f'{role}{self.n}@x.io'
+        u = User.objects.create(username=f'{role}{self.n}', email=email, organization=self.org,
                                 role=role, **kw)
         return Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(u)}')
 

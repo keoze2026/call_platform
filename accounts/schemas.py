@@ -129,6 +129,8 @@ class UserOutSchema(Schema):
     is_superuser: bool = False
     # CH-243: the workspace's main account, the only one shown API keys.
     is_main_user: bool = False
+    # CH-548: the AI audit is shown to the billing / audit team logins and the owner.
+    can_ai_audit: bool = False
     phone_number: str
     mfa_enabled: bool
     is_email_verified: bool

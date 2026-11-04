@@ -24,8 +24,8 @@ numbers and the thresholds tuned from the audit team's corrections.
        (+ "Possible audio fault" when neither file holds any audio data)
 
 A call recorded before Server A split the sides has one mixed file: nobody
-speaking is still "dead_caller"; speech there is "mixed" (Voice, one channel
-- which side spoke cannot be told).
+speaking is still "dead_caller"; speech there is "mixed", shown as "Voice Found"
+(CH-548, Sir's one word) - which side spoke cannot be told.
 
 Confidence (%) says how clear the numbers were: far from the thresholds is
 high, close to them is lower.
@@ -44,7 +44,7 @@ NAMES = {
     DEAD: 'No Voice | Dead Caller',
     AGENT_ONLY: 'No Voice | No Beep or Customer',
     AGENT_BEEP: 'No Voice | Only Agent + Beeping',
-    MIXED: 'Voice (one channel)',
+    MIXED: 'Voice Found',          # Sir, 4 Nov: one word for it
 }
 FAULT_NOTE = 'Possible audio fault'
 
@@ -65,7 +65,7 @@ def decide(r: dict) -> dict:
         speech = float(r.get('speech') or 0)
         if speech >= thr:
             return {'label': MIXED, 'confidence': None, 'fault': False,
-                    'comment': f'Speech {speech:.1f} s (one channel: which side spoke is not known)'}
+                    'comment': f'Voice found: {speech:.1f} s of speech (caller and agent not recorded apart)'}
         return {'label': DEAD, 'confidence': 70 if not fault else 90, 'fault': fault,
                 'comment': (FAULT_NOTE + ': no audio data. ' if fault else '')
                 + f'No speech on the call ({speech:.1f} s, one channel)'}

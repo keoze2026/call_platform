@@ -33,11 +33,14 @@ ACCURACY_DAYS = 30
 
 
 def _staff(request):
+    # CH-548 (Sir): the billing and audit team logins only (AI_AUDIT_EMAILS)
+    # and the owner - not every staff login, never a buyer or publisher.
+    # The Reports "view" tick still applies on top, as before.
     from accounts.workspace_permissions import require_perm
+    from routing.ai_access import can_see_ai
     user = request.auth
-    if getattr(user, 'role', '') in ('buyer', 'publisher') or getattr(user, 'buyer_id', None) \
-            or getattr(user, 'publisher_id', None):
-        raise HttpError(403, 'AI Audit is for the main account only.')
+    if not can_see_ai(user):
+        raise HttpError(403, 'AI Audit is for the billing and audit team only.')
     require_perm(user, 'reporting', 'view')
     return user
 

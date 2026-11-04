@@ -177,6 +177,14 @@ class AuthService:
 
 
 
+def _can_ai_audit(user) -> bool:
+    try:
+        from routing.ai_access import can_see_ai
+        return can_see_ai(user)
+    except Exception:
+        return False
+
+
 def _is_main_user(user) -> bool:
     from accounts.main_user import is_main_user
     try:
@@ -200,6 +208,8 @@ class ProfileService:
             'is_staff': bool(user.is_staff),
             'is_superuser': bool(user.is_superuser),
             'is_main_user': _is_main_user(user),
+            # CH-548: may this login see the AI audit (billing / audit team, owner).
+            'can_ai_audit': _can_ai_audit(user),
             'phone_number': user.phone_number,
             'mfa_enabled': user.mfa_enabled,
             'is_email_verified': user.is_email_verified,

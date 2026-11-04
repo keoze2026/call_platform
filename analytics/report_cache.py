@@ -116,7 +116,10 @@ def _range_is_closed(filters, user) -> bool:
 def _audience(user) -> str:
     if getattr(user, 'role', '') in ('buyer', 'publisher'):
         return f'partner:{user.id}'
-    return f'role:{user.role}'
+    # CH-548: the AI audit fields go to the billing / audit team logins only,
+    # so they never share a cached answer with the rest of the staff.
+    from routing.ai_access import can_see_ai
+    return f'role:{user.role}' + (':ai' if can_see_ai(user) else '')
 
 
 # CH-482: the header's Live / Total / balance (GET /api/analytics/dashboard).

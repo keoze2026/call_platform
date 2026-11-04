@@ -26,7 +26,7 @@ from routing.signals import mirror_call_log
 ET = ZoneInfo('America/New_York')
 
 
-@override_settings(ALLOWED_HOSTS=['*'], VOICE_TELEGRAM_ALERTS=True, REPORTS_BOT_TOKEN='t',
+@override_settings(ALLOWED_HOSTS=['*'], AI_AUDIT_EMAILS='audit@x.io',VOICE_TELEGRAM_ALERTS=True, REPORTS_BOT_TOKEN='t',
                    AI_RATE_ALERT_PERCENT=15, AI_RATE_ALERT_MIN_CALLS=10, AI_DAILY_SUMMARY_HOUR=9,
                    CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
                    CHANNEL_LAYERS={'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}})
@@ -57,7 +57,9 @@ class AiReportsTests(TestCase):
 
     def api(self, role, **kw):
         self.n += 1
-        u = User.objects.create(username=f'{role}{self.n}', email=f'{role}{self.n}@x.io', organization=self.org,
+        # CH-548: our staff here is the audit team login (AI_AUDIT_EMAILS).
+        email = 'audit@x.io' if role == 'admin' else f'{role}{self.n}@x.io'
+        u = User.objects.create(username=f'{role}{self.n}', email=email, organization=self.org,
                                 role=role, **kw)
         return Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(u)}')
 

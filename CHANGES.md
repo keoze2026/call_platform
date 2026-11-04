@@ -9760,3 +9760,29 @@ calls 1 minute after they ended: up to ~2 minutes of "Pending AI check".
 
 Tests: `routing/test_ai_labels.py` (+1); the loop was run with stand-ins (2
 calls waiting, 1 arriving mid-loop: each saved on its own).
+
+## CH-548 - AI audit for the billing and audit team logins only; "Voice Found"
+
+Sir, 4 Nov: "give this option under audit email and billing email only ...
+only billing email and audit team email should see this - no publisher or buyer
+ever see this." And for "Voice (one channel)": "Ok - Voice Found".
+
+- New setting `AI_AUDIT_EMAILS` (Server B `.env`, comma separated, any letter
+  case): the logins that see the AI audit. The platform owner (superuser)
+  always does. Empty = the owner only. A buyer or publisher login never does,
+  even with a listed email.
+- `routing/ai_access.py` `can_see_ai(user)` is the one rule, used by:
+  - the AI Audit API (`/api/ai-audit/...`): 403 for everyone else (before: any
+    staff login with Reports access);
+  - Reports / Call Log: `ai_label`, `voice_label`, `voice_seconds` blanked;
+    the AI Label and voice filters ignored (they neither narrow nor reveal);
+  - the report cache: AI logins never share a cached answer with other staff;
+  - `/api/accounts/me`: `can_ai_audit` tells the portal whether to show the
+    AI Audit menu, the AI Label column / filter and No Voice columns.
+- "Voice (one channel)" is now "Voice Found" (label name, AI comment "Voice
+  found: X s of speech (caller and agent not recorded apart)"). The stored
+  value stays `mixed`.
+- Telegram No Voice alerts are unchanged: they go to the team chat connected
+  on the Automated Report page.
+
+Tests: `routing/test_ai_access.py` (7); AI tests now use an audit-team login.

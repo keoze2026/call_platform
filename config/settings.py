@@ -900,6 +900,9 @@ PAID_MISSED_RECORDING = config('PAID_MISSED_RECORDING', default=False, cast=bool
 VOICE_TELEGRAM_ALERTS = config('VOICE_TELEGRAM_ALERTS', default=False, cast=bool)
 # CH-543: the caller side counts as "beeping" from this many seconds of tones.
 AI_BEEP_SECONDS = config('AI_BEEP_SECONDS', default=0.3, cast=float)
+# CH-548 (Sir, 4 Nov): the AI audit only for these logins (billing + audit team
+# emails, comma separated) and the platform owner. Empty = the owner only.
+AI_AUDIT_EMAILS = config('AI_AUDIT_EMAILS', default='')
 # CH-546: Telegram - a publisher over this No Voice % in the last hour (with at
 # least AI_RATE_ALERT_MIN_CALLS checked calls), and the daily summary's hour (EST).
 AI_RATE_ALERT_PERCENT = config('AI_RATE_ALERT_PERCENT', default=15, cast=float)

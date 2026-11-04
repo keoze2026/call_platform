@@ -242,7 +242,9 @@ def mask_partner_money(user, data):
     Takes a dict or a list of dicts and returns it, so it wraps a return
     value. Non-partner roles pass through untouched.
     """
-    hidden = MASKED_KEYS.get(getattr(user, 'role', ''))
+    # CH-548: the AI audit fields only for the billing / audit team logins.
+    from routing.ai_access import AI_FIELDS, can_see_ai
+    hidden = tuple(MASKED_KEYS.get(getattr(user, 'role', ''), ())) + (() if can_see_ai(user) else AI_FIELDS)
     if not hidden:
         return data
     rows = data if isinstance(data, list) else [data]
@@ -325,13 +327,14 @@ class AnalyticsService:
 
         # CH-531: the staff-only voice filter (no_voice / voice / unchecked).
         # A partner login's value is ignored - the check is not theirs to see.
+        from routing.ai_access import can_see_ai
         voice = (_f(filters, 'voice') or '').strip().lower()
-        if voice and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+        if voice and can_see_ai(user):
             qs = qs.filter(voice_label='' if voice == 'unchecked' else voice)
 
         # CH-546: the AI Label filter (staff only, like the voice filter).
         ai = (_f(filters, 'ai_label') or '').strip().lower()
-        if ai and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+        if ai and can_see_ai(user):
             from routing.ai_labels import NO_VOICE
             if ai == 'no_voice':
                 qs = qs.filter(ai_label__in=NO_VOICE)
@@ -407,10 +410,11 @@ class AnalyticsService:
             qs = qs.none()
         # CH-531: a call still live has no recording to check yet - it is not
         # part of a voice-filtered list.
-        if (_f(filters, 'voice') or '').strip() and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+        from routing.ai_access import can_see_ai
+        if (_f(filters, 'voice') or '').strip() and can_see_ai(user):
             qs = qs.none()
         # CH-546: nor of an AI-label-filtered one.
-        if (_f(filters, 'ai_label') or '').strip() and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+        if (_f(filters, 'ai_label') or '').strip() and can_see_ai(user):
             qs = qs.none()
         return qs
 
