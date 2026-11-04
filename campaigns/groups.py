@@ -102,6 +102,37 @@ def group_destinations(group):
     return out
 
 
+def group_tops(group):
+    """CH-562 (Yanko, 5 Nov: "we still have to go & look on each camp to
+    confirm if any other tfn is top too"): per campaign of the group, the
+    destinations at its top priority, live ones marked - more than one live
+    at the top means the calls are shared between them."""
+    from buyers.destination import Destination
+    live = {}
+    for tfn, buyer_id, enabled in (Destination.objects.filter(organization=group.organization)
+                                   .values_list('tfn', 'buyer_id', 'enabled')):
+        k = (digits_key(tfn), str(buyer_id or ''))
+        live[k] = live.get(k, False) or bool(enabled)
+    out = []
+    for c in _members([group]):
+        rule = campaign_rule(c)
+        rows = list(rule.destinations.select_related('buyer').all()) if rule else []
+        if not rows:
+            out.append({'campaign_id': str(c.id), 'campaign_name': c.name, 'priority': None, 'lines': [],
+                        'live_at_top': 0})
+            continue
+        top = min(d.priority for d in rows)
+        lines = [{'number': to_e164(d.destination) or d.destination,
+                  'buyer_name': d.buyer.name if d.buyer_id else '',
+                  'weight': d.weight,
+                  'live': live.get((digits_key(d.destination), str(d.buyer_id or '')), False)}
+                 for d in rows if d.priority == top]
+        lines.sort(key=lambda x: (not x['live'], x['buyer_name'], x['number']))
+        out.append({'campaign_id': str(c.id), 'campaign_name': c.name, 'priority': top, 'lines': lines,
+                    'live_at_top': sum(1 for x in lines if x['live'])})
+    return out
+
+
 def _billing(data, required):
     """Rate and Convert ON: mandatory when a destination is added (as on the
     campaign page, CH-248); optional on a change."""
@@ -141,7 +172,7 @@ def _int(value, name, low, high):
     return v
 
 
-def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=None, **billing):
+def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=None, only_top=False, **billing):
     """Add, remove or update one destination in every campaign of the groups.
 
     Returns {'action', 'number', 'groups': [...], 'results': [{campaign, group,
@@ -168,6 +199,10 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
     fields.update(_billing(billing, required=action == ADD))
     if action == UPDATE and not fields:
         raise ValueError('Nothing to change: give a priority, weight, rate or Convert ON')
+    if only_top and action == REMOVE:
+        raise ValueError('"Only line at this priority" goes with adding or changing a destination')
+    if only_top and action == UPDATE and 'priority' not in fields:
+        raise ValueError('Give the priority this destination should be the only one at')
 
     buyer = None
     if action != ADD and buyer_id:
@@ -212,7 +247,9 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
                 for f, v in fields.items():
                     setattr(new, f, v)
                 new.save()
-                results.append({**row, 'result': 'added', 'detail': f'priority {new.priority} · weight {new.weight}' + note})
+                moved = _make_only_at(rule, [new.id], new.priority) if only_top else []
+                results.append({**row, 'result': 'added', 'detail': f'priority {new.priority} · weight {new.weight}'
+                                + (f' · moved down: {", ".join(moved)}' if moved else '') + note})
             elif action == REMOVE:
                 if not rows:
                     results.append({**row, 'result': 'unchanged', 'detail': 'not in this campaign' + note})
@@ -232,10 +269,15 @@ def apply(user, group_ids, action, number, buyer_id=None, priority=None, weight=
                             changes.append(f'{f.replace("_", " ")} {old}→{v}')
                             setattr(d, f, v)
                     d.save()
+                if only_top:
+                    moved = _make_only_at(rule, [d.id for d in rows], fields['priority'])
+                    if moved:
+                        changes.append(f'moved down: {", ".join(moved)}')
                 results.append({**row, 'result': 'changed' if changes else 'unchanged',
                                 'detail': (', '.join(dict.fromkeys(changes)) or 'already set') + note})
     changed = sum(1 for r in results if r['result'] != 'unchanged')
-    _log(user, groups, action, to_e164(number), fields, changed, len(campaigns))
+    _log(user, groups, action, to_e164(number), {**fields, **({'only_top': True} if only_top else {})},
+         changed, len(campaigns))
     return {'action': action, 'number': to_e164(number), 'groups': [g.name for g in groups],
             'results': results, 'changed': changed, 'campaigns': len(campaigns)}
 
@@ -273,7 +315,7 @@ def apply_many(user, group_ids, action, items, priority=None, weight=None, **bil
     return out
 
 
-def set_line(user, group, number, campaigns, buyer_id=None, **billing):
+def set_line(user, group, number, campaigns, buyer_id=None, only_top=False, **billing):
     """CH-415 (Sir's Campaign Group design): one destination in a group, in
     exactly the campaigns marked included, each with its own priority and
     weight. Campaigns not listed are left as they are.
@@ -356,7 +398,9 @@ def set_line(user, group, number, campaigns, buyer_id=None, **billing):
                 for f, v in adds.items():
                     setattr(new, f, v)
                 new.save()
-                results.append({**row, 'result': 'added', 'detail': f'priority {new.priority} · weight {new.weight}' + note})
+                moved = _make_only_at(rule, [new.id], new.priority) if only_top else []
+                results.append({**row, 'result': 'added', 'detail': f'priority {new.priority} · weight {new.weight}'
+                                + (f' · moved down: {", ".join(moved)}' if moved else '') + note})
             elif included:
                 changes = []
                 for d in rows:
@@ -371,6 +415,10 @@ def set_line(user, group, number, campaigns, buyer_id=None, **billing):
                             changes.append(f'{f.replace("_", " ")} {old}→{v}')
                             setattr(d, f, v)
                     d.save()
+                if only_top and rows:
+                    moved = _make_only_at(rule, [d.id for d in rows], rows[0].priority)
+                    if moved:
+                        changes.append(f'moved down: {", ".join(moved)}')
                 results.append({**row, 'result': 'changed' if changes else 'unchanged',
                                 'detail': (', '.join(dict.fromkeys(changes)) or 'already set') + note})
             elif rows:
@@ -428,6 +476,21 @@ def _log_text(user, group, text):
                       'group_action': text, 'changes': {}})
     except Exception:  # noqa: BLE001 - the log line never costs the change
         pass
+
+
+def _make_only_at(rule, keep_ids, priority) -> list:
+    """CH-562 (Yanko, 5 Nov: "when ever i was setting top tfns ... i saw many
+    other tfns set there too which slows down on filling SOS tfns"): every
+    OTHER destination of this campaign at `priority` moves one step below, so
+    the line just set is the only one there. Returns "number p→p+1" texts."""
+    moved = []
+    if rule is None:
+        return moved
+    for d in rule.destinations.filter(priority=priority).exclude(id__in=list(keep_ids)):
+        d.priority = priority + 1
+        d.save(update_fields=['priority'])
+        moved.append(f'{to_e164(d.destination) or d.destination} {priority}→{priority + 1}')
+    return moved
 
 
 def _in_other_rules(campaign, rule, key) -> bool:

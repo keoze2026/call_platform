@@ -59,6 +59,9 @@ class ApplyIn(Schema):
     revenue: Optional[float] = None
     convert_on: Optional[str] = None
     convert_seconds: Optional[int] = None
+    # CH-562: make this destination the only one at its priority in each
+    # campaign (the others there move one step down).
+    only_top: bool = False
 
 
 class LineCampaign(Schema):
@@ -75,6 +78,7 @@ class LineIn(Schema):
     revenue: Optional[float] = None
     convert_on: Optional[str] = None
     convert_seconds: Optional[int] = None
+    only_top: bool = False
 
 
 def _staff(user, area='campaigns', action='view'):
@@ -125,6 +129,16 @@ def apply_change(request: HttpRequest, data: ApplyIn):
     _staff(request.auth, 'call-flows', 'delete' if data.action == G.REMOVE else 'edit')
     require(request.auth, Capability.EDIT)
     try:
+        if data.numbers and data.only_top and len(data.numbers) > 1:
+            return 400, {'detail': '"Only line at this priority" works with one destination at a time'}
+        if data.numbers and len(data.numbers) == 1 and data.only_top:
+            n = data.numbers[0]
+            return 200, G.apply(request.auth, data.group_ids, data.action, n.number, buyer_id=n.buyer_id,
+                                priority=data.priority, weight=data.weight,
+                                revenue=n.revenue if n.revenue is not None else data.revenue,
+                                convert_on=n.convert_on or data.convert_on,
+                                convert_seconds=n.convert_seconds if n.convert_seconds is not None else data.convert_seconds,
+                                only_top=True)
         if data.numbers:
             return 200, G.apply_many(request.auth, data.group_ids, data.action,
                                      [n.dict() for n in data.numbers], priority=data.priority,
@@ -132,7 +146,8 @@ def apply_change(request: HttpRequest, data: ApplyIn):
                                      convert_on=data.convert_on, convert_seconds=data.convert_seconds)
         return 200, G.apply(request.auth, data.group_ids, data.action, data.number, buyer_id=data.buyer_id,
                             priority=data.priority, weight=data.weight, revenue=data.revenue,
-                            convert_on=data.convert_on, convert_seconds=data.convert_seconds)
+                            convert_on=data.convert_on, convert_seconds=data.convert_seconds,
+                            only_top=data.only_top)
     except ValueError as e:
         return 400, {'detail': str(e)}
 
@@ -175,7 +190,7 @@ def delete_group(request: HttpRequest, group_id: str):
 def group_destinations(request: HttpRequest, group_id: str):
     _staff(request.auth, 'call-flows', 'view')
     g = _get(request.auth, group_id)
-    return 200, {'group': G.format_group(g), 'items': G.group_destinations(g)}
+    return 200, {'group': G.format_group(g), 'items': G.group_destinations(g), 'tops': G.group_tops(g)}
 
 
 @router.post("/{group_id}/line", response={200: dict, 400: dict})
@@ -189,7 +204,8 @@ def set_line(request: HttpRequest, group_id: str, data: LineIn):
     try:
         return 200, G.set_line(request.auth, g, data.number, [c.dict() for c in data.campaigns],
                                buyer_id=data.buyer_id, revenue=data.revenue,
-                               convert_on=data.convert_on, convert_seconds=data.convert_seconds)
+                               convert_on=data.convert_on, convert_seconds=data.convert_seconds,
+                               only_top=data.only_top)
     except ValueError as e:
         return 400, {'detail': str(e)}
 

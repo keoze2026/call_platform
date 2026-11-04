@@ -9959,3 +9959,23 @@ publisher moves to the AI Audit page:
   "Voice Found" calls are not counted. AI Audit logins only (CH-548).
 
 Tests: `routing/test_ai_reports.py` (+1).
+
+## CH-562 - Campaign Groups: who is at the top, and "Only line at this priority"
+
+Yanko, 5 Nov: "we still have to go & look on each camp to confirm if any other
+tfn is top too ... many other tfns set there too which slows down on filling
+SOS tfns."
+
+- `GET /api/campaign-groups/{id}/destinations` also returns `tops`: per
+  campaign in the group, the lowest priority number used and every
+  destination at it (number, buyer, weight, live = its Destination is on),
+  plus how many of them are live (`group_tops`).
+- `only_top` (off unless sent) on "apply" and on "set line": after the
+  destination is added or its priority changed, every OTHER destination at
+  that same priority in those campaigns moves one step down (priority + 1).
+  Lines already at priority + 1 stay where they are. Nothing is
+  removed or paused; the history entry lists each move
+  ("moved down: +1555... 1→2"). Refused with "remove", without a priority, or for more
+  than one destination at a time.
+
+Tests: `campaigns/test_groups.py` (+4, OnlyTopTests).

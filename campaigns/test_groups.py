@@ -251,3 +251,54 @@ class GroupLineTests(CampaignGroupTests.__base__):
         self.assertEqual(r.status_code, 200, r.content)
         texts = [x['text'] for x in r.json()['items']]
         self.assertTrue(any('removed from C-02' in t for t in texts), texts)
+
+
+class OnlyTopTests(CampaignGroupTests):
+    """CH-562: an SOS TFN as the only line at the top of every campaign, and
+    the per-campaign view of who is at the top."""
+
+    def test_only_top_moves_the_others_at_that_priority_one_down(self):
+        a = self.make_group('Group A', self.camps[:3])
+        r = self.post('/api/campaign-groups/apply', {'group_ids': [a], 'action': 'update', 'number': '18005550100',
+                                                     'priority': 1, 'only_top': True})
+        self.assertEqual(r.status_code, 200, r.content)
+        for c in self.camps[:3]:
+            self.assertEqual([d.priority for d in self.rows(c)], [1])
+            self.assertEqual([d.priority for d in self.rows(c, '8005550200')], [2])     # was 1
+        self.assertIn('moved down: +18005550200 1→2', r.json()['results'][0]['detail'])
+
+    def test_without_the_option_nothing_else_moves(self):
+        a = self.make_group('Group A', self.camps[:1])
+        self.post('/api/campaign-groups/apply', {'group_ids': [a], 'action': 'update', 'number': '18005550100',
+                                                 'priority': 1})
+        self.assertEqual([d.priority for d in self.rows(self.camps[0], '8005550200')], [1])
+
+    def test_add_as_only_top_and_tops_view(self):
+        Destination.objects.create(organization=self.org, buyer=self.buyer, name='MTG 3', tfn='+18005550300',
+                                   enabled=True)
+        a = self.make_group('Group A', self.camps[:2])
+        tops = self.c.get(f'/api/campaign-groups/{a}/destinations').json()['tops']
+        self.assertEqual([(t['campaign_name'], t['priority'], [x['number'] for x in t['lines']]) for t in tops],
+                         [('C-01', 1, ['+18005550200']), ('C-02', 1, ['+18005550200'])])
+        r = self.post('/api/campaign-groups/apply', {
+            'group_ids': [a], 'action': 'add', 'numbers': [{'number': '18005550300', 'buyer_id': str(self.buyer.id)}],
+            'priority': 1, 'weight': 100, 'revenue': 1, 'convert_on': 'incoming', 'only_top': True})
+        self.assertEqual(r.status_code, 200, r.content)
+        tops = self.c.get(f'/api/campaign-groups/{a}/destinations').json()['tops']
+        self.assertEqual([[x['number'] for x in t['lines']] for t in tops], [['+18005550300'], ['+18005550300']])
+        self.assertEqual(tops[0]['live_at_top'], 1)
+
+    def test_set_line_only_top_and_refusals(self):
+        a = self.make_group('Group A', self.camps[:1])
+        r = self.post(f'/api/campaign-groups/{a}/line', {
+            'number': '18005550100', 'only_top': True,
+            'campaigns': [{'campaign_id': str(self.camps[0].id), 'included': True, 'priority': 1}]})
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual([d.priority for d in self.rows(self.camps[0], '8005550200')], [2])
+        bad = self.post('/api/campaign-groups/apply', {'group_ids': [a], 'action': 'remove', 'number': '18005550100',
+                                                       'only_top': True})
+        self.assertEqual(bad.status_code, 400)
+        two = self.post('/api/campaign-groups/apply', {
+            'group_ids': [a], 'action': 'add', 'priority': 1, 'only_top': True, 'revenue': 1, 'convert_on': 'incoming',
+            'numbers': [{'number': '18005550100'}, {'number': '18005550200'}]})
+        self.assertEqual(two.status_code, 400)
