@@ -190,6 +190,26 @@ Last updated: 31 Oct 2026.
   (VOICE_TELEGRAM_ALERTS). Audit members listen to those calls only; a call
   they find was labelled wrong is reported to us to tune VOICE_MIN_SECONDS.
 
+### 3.10 AI audit, each side apart - CH-543 (Sir, 4 Nov)
+- Server A records every call twice: the mixed recording as before (what
+  buyers hear) and caller / agent apart (kept 12 hours, only for the AI).
+- Each side is listened to on our own server (no outside service), about 1-2
+  minutes after the call ends. Labels:
+  - **Valid Call** - the caller speaks (1 s or more);
+  - **No Voice | Dead Caller** - both sides silent; "Possible audio fault"
+    when the files hold no audio data at all;
+  - **No Voice | No Beep or Customer** - agent speaks, caller silent;
+  - **No Voice | Only Agent + Beeping** - agent speaks, caller side only
+    tones / machine sound (0.3 s or more of beeping).
+  Calls recorded before the split: no speech = Dead Caller, speech = "Voice
+  (one channel)".
+- "Pending AI check" until checked. Main account only - never buyers or
+  publishers. Each No Voice call goes to the team's Telegram at once.
+- The audit team marks each flagged call Correct or Wrong (with the right
+  label); the AI accuracy % (last 30 days) is shown on the AI Audit page, and
+  the corrections show which threshold to change (VOICE_MIN_SECONDS,
+  AI_BEEP_SECONDS).
+
 ### 3.9 Recording on paid 0-second calls - CH-535 (Sir, 4 Nov)
 - A call the buyer pays for always has its recording, even when nobody spoke
   for a second: **Missed With Conversion** (paid on Incoming Call) and a late

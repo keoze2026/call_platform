@@ -1,6 +1,14 @@
 #!/usr/bin/env python3
 """CH-531: listen to every answered call's recording and say if anyone spoke.
 
+CH-543 (Sir, 4 Nov - AI audit upgrade): where Server A records the caller and
+the agent apart (deploy/split_channels.py: recordings/split/<id>-caller.wav and
+<id>-agent.wav), each side is listened to separately - speech seconds on each
+side, when the caller first spoke, beeping on the caller's side, and whether
+the files hold any audio data at all. voice_results turns that into Sir's
+labels (routing/ai_labels.py). Calls without the split files are checked as
+one mixed recording, as before.
+
 Sir, 4 Nov: "We have audit members who spend lots of time auditing no voice
 calls ... add AI to audit calls - just for us, not for consumer."
 
@@ -66,6 +74,13 @@ CHUNK = 512          # Silero's window at 16 kHz: 32 ms
 CONTEXT = 64         # samples of the previous window the model is given
 THRESHOLD = 0.5      # speech probability per window
 MIN_RUN = 8          # a sound must last 8 windows (~0.25 s) in a row to count as speech
+# CH-540 beeps (Sir: "No Voice | Only Agent and pop-up beeping sound"): a window
+# with no speech whose sound is one clear tone - most of its power in one
+# narrow band between 300 and 3400 Hz, and loud enough to hear. A beep is such
+# a tone lasting 0.1 to 2 s; a longer steady tone (a hum) is not counted.
+BEEP_MIN_RMS = 0.01          # about -40 dBFS
+BEEP_TONAL = 0.6             # share of the window's power in the strongest band
+BEEP_MIN_RUN, BEEP_MAX_RUN = 3, 62      # windows: 0.1 s .. 2 s
 
 
 def log(msg):
@@ -85,24 +100,74 @@ class Vad:
         self.session = ort.InferenceSession(path, sess_options=opts, providers=['CPUExecutionProvider'])
 
     def speech_seconds(self, pcm16):
-        """Seconds of speech in 16 kHz mono int16 audio."""
+        """(seconds of speech, seconds of audio) in 16 kHz mono int16 audio."""
+        speech, audio, _ = self.listen(pcm16)
+        return speech, audio
+
+    def listen(self, pcm16):
+        """(speech s, audio s, beep s) in 16 kHz mono int16 audio (CH-540)."""
+        r = self.side(pcm16)
+        return r['speech'], r['audio'], r['beep']
+
+    def side(self, pcm16):
+        """One side of a call (or the mixed file), CH-543: seconds of speech,
+        of audio and of beeping, when speech first started (s from the start
+        of pcm16, None if never), and whether the file holds no audio data at
+        all (digital silence - a recording fault, not a quiet line)."""
         np = self.np
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
         state = np.zeros((2, 1, 128), dtype=np.float32)
         context = np.zeros((1, CONTEXT), dtype=np.float32)
         sr = np.array(SR, dtype=np.int64)
-        windows, run = 0, 0
-        for start in range(0, len(audio) - CHUNK + 1, CHUNK):
+        windows, run, first = 0, 0, None
+        probs = []
+        for i, start in enumerate(range(0, len(audio) - CHUNK + 1, CHUNK)):
             x = np.concatenate([context, audio[start:start + CHUNK].reshape(1, CHUNK)], axis=1)
             out, state = self.session.run(None, {'input': x, 'state': state, 'sr': sr})
             context = x[:, -CONTEXT:]
+            probs.append(float(out[0][0]))
             if float(out[0][0]) >= THRESHOLD:
                 run += 1
+                if run == MIN_RUN and first is None:
+                    first = round((i - MIN_RUN + 1) * CHUNK / SR, 2)
             else:
                 windows += run if run >= MIN_RUN else 0
                 run = 0
         windows += run if run >= MIN_RUN else 0
-        return round(windows * CHUNK / SR, 2), round(len(audio) / SR, 2)
+        no_data = bool(len(audio) == 0 or float(np.max(np.abs(audio))) < 2.0 / 32768)
+        return {'speech': round(windows * CHUNK / SR, 2), 'audio': round(len(audio) / SR, 2),
+                'beep': beep_seconds(np, audio, probs), 'first': first, 'no_data': no_data}
+
+
+def beep_seconds(np, audio, probs):
+    """Seconds of beeping in float audio (16 kHz), given the speech
+    probability of each CHUNK window: tonal, loud enough, not speech, in runs
+    of 0.1 to 2 s."""
+    if not probs:
+        return 0.0
+    n = len(probs)
+    frames = audio[:n * CHUNK].reshape(n, CHUNK)
+    rms = np.sqrt(np.mean(frames ** 2, axis=1))
+    spec = np.abs(np.fft.rfft(frames * np.hanning(CHUNK), axis=1)) ** 2
+    freqs = np.fft.rfftfreq(CHUNK, 1.0 / SR)
+    band = (freqs >= 300) & (freqs <= 3400)
+    total = spec.sum(axis=1) + 1e-12
+    inband = spec[:, band]
+    peak = inband.argmax(axis=1)
+    # the strongest bin and its two neighbours (a tone spreads over ~3 bins)
+    padded = np.pad(inband, ((0, 0), (1, 1)))
+    rows = np.arange(n)
+    near = padded[rows, peak] + padded[rows, peak + 1] + padded[rows, peak + 2]
+    tonal = (near / total >= BEEP_TONAL) & (rms >= BEEP_MIN_RMS) & (np.asarray(probs) < THRESHOLD)
+    beeps, run = 0, 0
+    for flag in list(tonal) + [False]:
+        if flag:
+            run += 1
+            continue
+        if BEEP_MIN_RUN <= run <= BEEP_MAX_RUN:
+            beeps += run
+        run = 0
+    return round(beeps * CHUNK / SR, 2)
 
 
 def talk_part(pcm16, talk):
@@ -163,6 +228,64 @@ def find_file(item):
     return None, False
 
 
+def fetch(url, call_id, what):
+    """A recording by link into a temporary file, or None."""
+    if not url.startswith(('http://', 'https://')):
+        return None
+    suffix = os.path.splitext(url.split('?')[0])[1] or '.wav'
+    fd, tmp = tempfile.mkstemp(prefix='voice-', suffix=suffix)
+    os.close(fd)
+    try:
+        req = urllib.request.Request(url, headers={'User-Agent': 'avortyx-voice-check'})
+        with urllib.request.urlopen(req, timeout=60) as r, open(tmp, 'wb') as f:
+            while True:
+                block = r.read(1 << 16)
+                if not block:
+                    break
+                f.write(block)
+        return tmp
+    except Exception as e:
+        if '404' not in str(e):              # no split file = older call: not news
+            log(f'{call_id}: {what} download failed: {e}')
+        os.unlink(tmp)
+        return None
+
+
+def split_sides(vad, item):
+    """CH-543: caller and agent apart, from the two files Server A writes
+    (deploy/split_channels.py), or None when they are not there."""
+    split = item.get('split') or {}
+    paths = {}
+    try:
+        for who in ('caller', 'agent'):
+            local = os.path.join(RECORDINGS_DIR, 'split', f"{item['id']}-{who}.wav")
+            paths[who] = (local, False) if os.path.isfile(local) else (fetch(split.get(who) or '', item['id'], who), True)
+            if not paths[who][0]:
+                return None
+        pcm = {who: decode(paths[who][0]) for who in paths}
+        if not pcm['caller'] or not pcm['agent']:
+            return None
+        talk = item.get('talk')
+        caller = vad.side(talk_part(pcm['caller'], talk))
+        agent = vad.side(talk_part(pcm['agent'], talk))
+    finally:
+        for path, temporary in paths.values():
+            if temporary and path:
+                os.unlink(path)
+    # talk_part keeps one second before the answer: first speech from the answer.
+    first = caller['first']
+    if first is not None and talk is not None:
+        first = round(max(0.0, first - 1.0), 2)
+    return {
+        'id': item['id'], 'channels': 2,
+        'speech': round(caller['speech'] + agent['speech'], 2),
+        'audio': round(max(len(pcm['caller']), len(pcm['agent'])) / 2 / SR, 2),
+        'caller_speech': caller['speech'], 'agent_speech': agent['speech'],
+        'caller_first': first, 'beep': caller['beep'],
+        'no_data': caller['no_data'] and agent['no_data'],
+    }
+
+
 def check_files(paths):
     """Local test: voice_check.py --file a.mp3 b.wav"""
     vad = Vad(MODEL)
@@ -171,8 +294,8 @@ def check_files(paths):
         if pcm is None:
             print(f'{path}: could not decode')
             continue
-        speech, audio = vad.speech_seconds(pcm)
-        print(f'{path}: audio {audio:.1f}s, speech {speech:.1f}s')
+        speech, audio, beep = vad.listen(pcm)
+        print(f'{path}: audio {audio:.1f}s, speech {speech:.1f}s, beep {beep:.1f}s')
 
 
 def main():
@@ -231,6 +354,19 @@ def main():
         return True
 
     for item in items:
+        # CH-543: caller and agent apart when Server A recorded them so.
+        result = split_sides(vad, item)
+        if result is not None:
+            done += 1
+            log(f"[{done}/{len(items)}] {item['id']}: caller speech {result['caller_speech']:.1f}s, agent speech "
+                f"{result['agent_speech']:.1f}s, caller beep {result['beep']:.1f}s"
+                + (', NO AUDIO DATA' if result['no_data'] else ''))
+            if not o.dry_run:
+                pending.append(result)
+                if len(pending) >= SAVE_EVERY:
+                    failed = not save(pending) or failed
+                    pending = []
+            continue
         path, temporary = find_file(item)
         try:
             pcm = decode(path) if path else None
@@ -242,9 +378,10 @@ def main():
                 line = 'no readable recording'
             else:
                 audio = round(len(pcm) / 2 / SR, 2)
-                speech, _ = vad.speech_seconds(talk_part(pcm, item.get('talk')))
-                result = {'id': item['id'], 'speech': speech, 'audio': audio}
-                line = f'audio {audio:.1f}s, speech {speech:.1f}s'
+                one = vad.side(talk_part(pcm, item.get('talk')))
+                result = {'id': item['id'], 'speech': one['speech'], 'audio': audio, 'beep': one['beep'],
+                          'channels': 1, 'no_data': one['no_data']}
+                line = f"audio {audio:.1f}s, speech {one['speech']:.1f}s, beep {one['beep']:.1f}s (one channel)"
         finally:
             if temporary and path:
                 os.unlink(path)

@@ -1,4 +1,4 @@
-"""CH-536: an instant Telegram report of every call the voice check found
+"""CH-536 / CH-543: an instant Telegram report of every call the voice check found
 with no voice - for our team only.
 
 Sir, 4 Nov: "AI ... which can listen to call recordings in the background and
@@ -34,11 +34,21 @@ def _line(c) -> str:
     e = html.escape
     publisher = c.publisher.name if c.publisher_id else '-'
     buyer = c.buyer.name if c.buyer_id else '-'
+    from routing.ai_labels import FAULT_NOTE, NAMES
+    if c.voice_channels == 2:
+        heard = (f'caller {float(c.voice_caller_seconds or 0):.1f}s, agent {float(c.voice_agent_seconds or 0):.1f}s'
+                 + (f', beep {float(c.voice_beep_seconds or 0):.1f}s' if (c.voice_beep_seconds or 0) > 0 else ''))
+    else:
+        heard = f'speech {float(c.voice_seconds or 0):.1f}s'
+    label = NAMES.get(c.ai_label, 'No voice')
+    if c.voice_audio_fault:
+        label += f' ({FAULT_NOTE})'
     parts = [
         c.created_at.astimezone(ET).strftime('%I:%M:%S %p EST'),
+        f'<b>{e(label)}</b>',
         e(c.campaign.name if c.campaign_id else '-'),
         f'{e(publisher)} &gt; {e(buyer)} {e(c.destination_number or "")}'.strip(),
-        f'talk {int(c.duration or 0)}s, speech {float(c.voice_seconds or 0):.1f}s',
+        f'talk {int(c.duration or 0)}s, {heard}',
     ]
     url = public_recording_url(c.recording_url or '')
     if url:
@@ -51,7 +61,7 @@ def message(calls) -> str:
     head = f"<b>No voice - {n} call{'s' if n != 1 else ''}</b> (AI voice check)"
     lines = [_line(c) for c in calls[:MAX_LINES]]
     if n > MAX_LINES:
-        lines.append(f'+{n - MAX_LINES} more: Call Logs, Voice column')
+        lines.append(f'+{n - MAX_LINES} more: AI Audit page')
     return '\n'.join([head, *lines])
 
 
@@ -67,7 +77,9 @@ def send_no_voice(call_ids) -> int:
     if not team_report.configured():
         logger.warning('voice alerts: the reports bot is not set up (REPORTS_BOT_TOKEN); %d not sent', len(call_ids))
         return 0
-    calls = (CallLog.objects.filter(id__in=list(call_ids), voice_label='no_voice')
+    from routing.ai_labels import NO_VOICE
+    # CH-543: Sir's three No Voice labels (the agent may have spoken).
+    calls = (CallLog.objects.filter(id__in=list(call_ids), ai_label__in=NO_VOICE)
              .exclude(twilio_call_sid__startswith='tfntest-')
              .select_related('campaign', 'publisher', 'buyer').order_by('created_at'))
     by_org = defaultdict(list)

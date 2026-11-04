@@ -210,6 +210,25 @@ class CallLog(models.Model):
     voice_seconds = models.FloatField(null=True, blank=True)       # seconds of speech heard
     voice_audio_seconds = models.FloatField(null=True, blank=True)  # length of the recording
     voice_checked_at = models.DateTimeField(null=True, blank=True)
+    # CH-543 (Sir, 4 Nov - AI audit upgrade): each side of the call apart,
+    # from the caller / agent files Server A writes, and the label they give
+    # (routing/ai_labels.py). Our team only - never sent to a buyer or publisher.
+    voice_channels = models.PositiveSmallIntegerField(null=True, blank=True)    # 2 = sides apart
+    voice_caller_seconds = models.FloatField(null=True, blank=True)
+    voice_agent_seconds = models.FloatField(null=True, blank=True)
+    voice_caller_first = models.FloatField(null=True, blank=True)    # s after answer
+    voice_beep_seconds = models.FloatField(null=True, blank=True)    # caller side
+    voice_audio_fault = models.BooleanField(default=False)           # no audio data at all
+    ai_label = models.CharField(max_length=16, blank=True, default='')
+    ai_confidence = models.PositiveSmallIntegerField(null=True, blank=True)
+    ai_comment = models.CharField(max_length=300, blank=True, default='')
+    ai_transcript = models.TextField(blank=True, default='')        # snippet (later: AssemblyAI)
+    ai_checked_at = models.DateTimeField(null=True, blank=True)
+    # The audit team's verdict: Correct (same label) or Wrong (the right one).
+    ai_review_label = models.CharField(max_length=16, blank=True, default='')
+    ai_review_note = models.CharField(max_length=300, blank=True, default='')
+    ai_reviewed_by = models.CharField(max_length=150, blank=True, default='')
+    ai_reviewed_at = models.DateTimeField(null=True, blank=True)
     recording_sid = models.CharField(max_length=100, blank=True)
     transcription = models.TextField(blank=True)
 

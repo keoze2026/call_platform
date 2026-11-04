@@ -9644,3 +9644,43 @@ cap, I have to refresh so that it can reflect on my side."
 - Reports' cache is not touched (a cap is not a call). Never raises.
 
 Tests: `routing/test_config_push.py` (4).
+
+## CH-543 - AI audit part 1: caller and agent apart, Sir's four labels, live status, review (BACKEND + Server A)
+
+Sir, 4 Nov - AI audit upgrade: "Record every call in dual channel (caller
+left, agent right). The AI analyses each side separately. Classify every call
+into: No Voice | Dead Caller (+ Possible audio fault if no audio data) / No
+Voice | No Beep or Customer / No Voice | Only Agent + Beeping / Valid Call.
+Store per call: label, confidence, caller speech seconds, agent speech
+seconds, time to first caller speech, beep detected ... Pending AI check until
+analysed ... within 2 minutes of call end ... Correct/Wrong buttons ... AI
+accuracy %." Replaces CH-540 / CH-541 (never deployed): with the sides apart
+no outside AI is needed for these labels.
+
+- **Server A** `deploy/split_channels.py`: in [from-carrier] the recorder
+  also writes recordings/split/<id>-caller.wav (r: what the caller's line
+  sends) and <id>-agent.wav (t: what is sent to the caller), kept in step (n)
+  when this Asterisk has it. The mixed recording, its link, MP3 and B2 are
+  unchanged. Dry run / --apply / --rollback, backup, reload check with
+  auto-restore, live-calls guard, and a check that this Asterisk's MixMonitor
+  documents r()/t() first. A cron deletes split files after 12 hours.
+- **Voice check** (scripts/voice_check): per side - speech seconds (Silero),
+  beeping on the caller's side (CH-540's tone detector), time of first caller
+  speech after the answer, no-audio-data; one mixed file as before when there
+  is no split pair. voice_pending gives the split links.
+- `routing/ai_labels.py`: the label from those numbers (rules in the file and
+  BUSINESS-RULES 3.10), confidence %, comment, audio fault.
+- voice_results stores it all (CallLog: voice_channels, voice_caller_seconds,
+  voice_agent_seconds, voice_caller_first, voice_beep_seconds,
+  voice_audio_fault, ai_label, ai_confidence, ai_comment, ai_checked_at,
+  ai_review_*; CallRecord.ai_label for Part 2's Reports filters), pushes
+  "ai.checked" to open pages (CH-538 live connection) and sends each new No
+  Voice call to Telegram with Sir's label and both sides' seconds.
+- `/api/ai-audit/` (main account only; 403 for buyers and publishers): a
+  day's calls with Pending / label counts and filters, Correct / Wrong review
+  (Wrong needs the right label), accuracy % overall and per label (30 days).
+- Migrations: routing 0022, analytics 0027 - columns only.
+
+Tests: `routing/test_ai_labels.py` (13). The per-side listening was also run
+on generated caller / agent files (valid, agent only, agent + beeps, dead,
+no audio data, no split file).

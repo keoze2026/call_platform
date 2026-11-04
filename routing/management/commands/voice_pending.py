@@ -51,5 +51,11 @@ class Command(BaseCommand):
             name = url.rstrip('/').rsplit('/', 1)[-1]
             talk = int(duration or 0) if status == 'completed' else None
             age = int((now - ended_at).total_seconds() // 60) if ended_at else None
-            self.stdout.write(json.dumps({'id': str(call_id), 'url': public_recording_url(url), 'file': name,
-                                          'talk': talk, 'age': age}))
+            public = public_recording_url(url)
+            item = {'id': str(call_id), 'url': public, 'file': name, 'talk': talk, 'age': age}
+            # CH-543: caller and agent apart, where Server A records them so
+            # (deploy/split_channels.py) - same host, /recordings/split/.
+            if '/recordings/' in public:
+                base = public.split('/recordings/')[0] + '/recordings/split/'
+                item['split'] = {'caller': f'{base}{call_id}-caller.wav', 'agent': f'{base}{call_id}-agent.wav'}
+            self.stdout.write(json.dumps(item))

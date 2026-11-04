@@ -134,6 +134,8 @@ class CallRecord(models.Model):
     # CH-531: the voice check (staff only; see routing.CallLog.voice_label).
     voice_label = models.CharField(max_length=12, blank=True, default='')
     voice_seconds = models.FloatField(null=True, blank=True)
+    # CH-543: the AI audit label (routing/ai_labels.py), for Reports' filters.
+    ai_label = models.CharField(max_length=16, blank=True, default='')
     billable_seconds = models.IntegerField(default=0)
     is_converted    = models.BooleanField(default=False)
     # CH-247: set when the call was billed by its destination's own rule; its

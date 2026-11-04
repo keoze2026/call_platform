@@ -889,3 +889,5 @@ PAID_MISSED_RECORDING = config('PAID_MISSED_RECORDING', default=False, cast=bool
 # check finds with no voice is sent at once, by our reports bot (CH-347), to the
 # team's connected Telegram chat(s), with its recording link. Team only.
 VOICE_TELEGRAM_ALERTS = config('VOICE_TELEGRAM_ALERTS', default=False, cast=bool)
+# CH-543: the caller side counts as "beeping" from this many seconds of tones.
+AI_BEEP_SECONDS = config('AI_BEEP_SECONDS', default=0.3, cast=float)

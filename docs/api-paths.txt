@@ -49,6 +49,9 @@ GET /api/active-bots/
 POST /api/active-bots/{}/copy
 POST /api/active-bots/{}/issue
 POST /api/active-bots/{}/switch-off
+GET /api/ai-audit/calls
+POST /api/ai-audit/calls/{}/review
+GET /api/ai-audit/status
 GET /api/ai/anomalies/
 POST /api/ai/autopilot/
 GET /api/ai/autopilot/config/

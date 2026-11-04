@@ -66,6 +66,9 @@ RULES = [
     _rule(r'^/stats(/.*)?$', 'reporting'),
     # Live Monitor and AI Insights read the same data the reports do.
     _rule(r'^/ai/(recommendations|anomalies)$', 'reporting'),
+    # CH-543 AI Audit: the Reporting tick; marking the AI right or wrong is part
+    # of reading it. Buyers and publishers are refused by the handlers.
+    _rule(r'^/ai-audit(/.*)?$', 'reporting', {'POST': 'view'}),
     _rule(r'^/ai/autopilot(/.*)?$', 'campaigns',
           {'GET': 'view', 'POST': 'edit-advanced', 'PATCH': 'edit-advanced', 'PUT': 'edit-advanced'}),
 

@@ -24,6 +24,7 @@ from billing.api import router as billing_router
 from call_queue.api import router as call_queue_router
 from spam_protection.api import router as spam_router
 from analytics.ai_api import router as ai_router
+from routing.ai_audit_api import router as ai_audit_router   # CH-543
 from accounts.kyc_api import router as kyc_router
 from accounts.access_requests_api import router as access_requests_router
 from accounts.contact_api import router as contact_router
@@ -122,6 +123,7 @@ api.add_router("/spam/", spam_router)
 from security.api import router as security_router
 api.add_router("/security/", security_router)
 api.add_router("/ai/", ai_router)
+api.add_router("/ai-audit/", ai_audit_router)   # CH-543: main account only
 api.add_router("/kyc/", kyc_router)
 api.add_router("/accounts/access-requests/", access_requests_router)
 api.add_router("/contact/", contact_router)
