@@ -876,3 +876,6 @@ LINE_COOLDOWN_MINUTES = config('LINE_COOLDOWN_MINUTES', default=15, cast=int)
 # alert only)". The skip stays off unless this is set; a line missing
 # LINE_COOLDOWN_MISSES in a row raises the "Buyer missing calls" alert instead.
 LINE_COOLDOWN_ENABLED = config('LINE_COOLDOWN_ENABLED', default=False, cast=bool)
+# CH-527 (Sir, 4 Nov): a caller refused "No Destination" again within this many
+# minutes of his last refusal in the same campaign shows as one row.
+REFUSED_REPEAT_MINUTES = config('REFUSED_REPEAT_MINUTES', default=30, cast=int)

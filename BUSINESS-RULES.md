@@ -165,6 +165,16 @@ Last updated: 31 Oct 2026.
   and why stays in the call's routing trace.
 - A line that is off is never dialled, failover included.
 
+### 3.7 A caller refused again and again - CH-527 (Sir, 4 Nov)
+- While no destination can take a caller (all off, paused, full), every call
+  he makes is still refused and kept in the backend, but the portal shows him
+  **once**: a "No Destination" refusal from the same caller in the same
+  campaign within 30 minutes (REFUSED_REPEAT_MINUTES) of his last one is
+  grouped with it (hidden try, never deleted).
+- As soon as a destination is on, his next call is routed as usual - to the
+  active lines with room (live calls under the limit, caps not full), and on
+  no answer to the next one (3.5).
+
 ### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
 - A campaign line takes calls only when its number is on its buyer's
   **Destinations page**. A line marked "Not on Destinations page" takes **no

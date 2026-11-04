@@ -449,6 +449,13 @@ def _route_incoming_call(request):
             'status', 'block_reason', 'ended_at', 'routing_trace', 'updated_at',
             'destination_number', 'buyer',
         ])
+        # CH-527: refused again while no line can take him - one row shown.
+        if call_log.block_reason == NO_DESTINATION_LABEL:
+            try:
+                from routing.retry_group import fold_refused_repeat
+                fold_refused_repeat(call_log)
+            except Exception:
+                logger.exception('could not fold refused repeat %s', call_log.id)
         # The rejected-call fee, off the call path. The refusal is already
         # decided and returned either way; the worker takes the fee.
         try:

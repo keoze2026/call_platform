@@ -155,3 +155,43 @@ def attempts_of(call) -> int:
     root_id = call.retry_root_id or call.pk
     return CallLog.objects.filter(Q(pk=root_id) | Q(retry_root_id=root_id),
                                   created_at__lte=call.created_at).count()
+
+
+# ── CH-527: a caller refused again and again while no line is on ─────────────
+
+def fold_refused_repeat(call):
+    """Fold this "No Destination" refusal into the same caller's previous one.
+
+    Sir, 4 Nov: "When destinations are not active ... on our portal it should
+    only show 1-2 times max, but as soon as destination on it keep trying to
+    all active destination with space CC." 13868645240 (C-10, 4 Nov): after
+    one real call to Q11, five more calls over 8 minutes, to two TFNs of the
+    campaign, each refused because no line could take him - five red rows.
+
+    A refusal no line could take, from a caller whose previous call in the
+    same campaign was also refused that way within REFUSED_REPEAT_MINUTES, is
+    grouped with it: one row is shown, dated from the first refusal; every try
+    stays in the call log (retry_hidden) and keeps its rejected-call fee.
+    Routing is not touched: each new call is routed as usual, and as soon as a
+    line is on it goes to every active line with room, as any call does.
+    Returns the previous refusal it was folded into, or None.
+    """
+    from django.conf import settings
+    from routing.models import CallLog
+    from routing.signals import mirror_call_log
+    if call.retry_root_id or call.destination_number or (call.block_reason or '') != 'No Destination':
+        return None
+    minutes = max(1, int(getattr(settings, 'REFUSED_REPEAT_MINUTES', 30) or 30))
+    prev = (CallLog.objects
+            .filter(organization_id=call.organization_id, caller_number=call.caller_number,
+                    campaign_id=call.campaign_id, retry_hidden=False, destination_number='',
+                    block_reason='No Destination',
+                    created_at__gte=call.created_at - timedelta(minutes=minutes),
+                    created_at__lt=call.created_at)
+            .exclude(pk=call.pk)
+            .order_by('-created_at').first())
+    if prev is None:
+        return None
+    link(call, prev)
+    mirror_call_log(call.pk)
+    return prev

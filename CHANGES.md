@@ -9462,3 +9462,26 @@ again, and every other line was off.
 
 Tests: `routing/test_duplicates_never_same_tfn.py`, `routing/test_fallback.py`.
 BUSINESS-RULES.md 2.2.
+
+## CH-527 - A caller refused again and again while no line is on shows once (BACKEND)
+
+Sir, 4 Nov: "When destinations are not active set rule of trying missed on
+backend and on our portal it should only show 1-2 times max, but as soon as
+destination on it keep trying to all active destination with space cc."
+13868645240 (C-10, 4 Nov): one real call to Q11, then 5 calls over 8 minutes
+to two TFNs of the campaign, each refused - 5 red rows. CH-522 groups only a
+sender's redial to the same TFN within 6 s.
+
+- `routing/retry_group.fold_refused_repeat`, run when a call is refused "No
+  Destination": if the same caller's previous call in the same campaign was
+  refused that way within REFUSED_REPEAT_MINUTES (30, new setting), the two
+  are grouped - one row shown, dated from the first refusal. Every try stays
+  in the call log (retry_hidden) with its rejected-call fee; nothing deleted.
+- Routing is unchanged: each call is still routed; once a line is on, the
+  call goes to the active lines with room and fails over on no answer
+  (CH-514). A call that reaches a line is its own row.
+- `python manage.py fold_refused_repeats --date YYYY-MM-DD [--apply]` does
+  the same for a day already taken (dry run by default).
+- Builds on CH-526 (repeat callers with no line left are "No Destination").
+
+Tests: `routing/test_refused_repeats.py` (4). BUSINESS-RULES.md 3.7.
