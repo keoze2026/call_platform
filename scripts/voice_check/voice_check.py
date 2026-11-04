@@ -245,8 +245,9 @@ def fetch(url, call_id, what):
                 f.write(block)
         return tmp
     except Exception as e:
-        if '404' not in str(e):              # no split file = older call: not news
-            log(f'{call_id}: {what} download failed: {e}')
+        # CH-546: always say why - a split file that cannot be fetched is why
+        # a call falls back to one channel.
+        log(f'{call_id}: {what} download failed: {e}')
         os.unlink(tmp)
         return None
 
@@ -264,6 +265,8 @@ def split_sides(vad, item):
                 return None
         pcm = {who: decode(paths[who][0]) for who in paths}
         if not pcm['caller'] or not pcm['agent']:
+            log(f"{item['id']}: split files could not be decoded (caller "
+                f"{'ok' if pcm['caller'] else 'unreadable'}, agent {'ok' if pcm['agent'] else 'unreadable'})")
             return None
         talk = item.get('talk')
         caller = vad.side(talk_part(pcm['caller'], talk))

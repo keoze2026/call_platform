@@ -178,14 +178,14 @@ MASKED_KEYS = {
         # disputes.
         'ttc', 'avg_ttc',
         # CH-531: the voice check is for our team only (Sir: "not for consumer").
-        'voice_label', 'voice_seconds',
+        'voice_label', 'voice_seconds', 'ai_label',
     ),
     'publisher': (
         'revenue', 'profit', 'total_revenue', 'total_profit',
         'dynamic_revenue', 'dynamic_profit',
         'cost', 'total_cost', 'platform_cost', 'charged_cost',
         'balance',
-        'voice_label', 'voice_seconds',
+        'voice_label', 'voice_seconds', 'ai_label',
     ),
 }
 
@@ -329,6 +329,18 @@ class AnalyticsService:
         if voice and getattr(user, 'role', '') not in ('buyer', 'publisher'):
             qs = qs.filter(voice_label='' if voice == 'unchecked' else voice)
 
+        # CH-546: the AI Label filter (staff only, like the voice filter).
+        ai = (_f(filters, 'ai_label') or '').strip().lower()
+        if ai and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+            from routing.ai_labels import NO_VOICE
+            if ai == 'no_voice':
+                qs = qs.filter(ai_label__in=NO_VOICE)
+            elif ai == 'pending':
+                # Answered, not checked yet. Calls nobody answered are never checked.
+                qs = qs.filter(ai_label='', status=CallRecord.Status.COMPLETED)
+            else:
+                qs = qs.filter(ai_label=ai)
+
         # A buyer or publisher login sees only its own calls. Applied here
         # rather than per endpoint so every report, chart, drill-down and export
         # built on this queryset is narrowed the same way - one place to be
@@ -396,6 +408,9 @@ class AnalyticsService:
         # CH-531: a call still live has no recording to check yet - it is not
         # part of a voice-filtered list.
         if (_f(filters, 'voice') or '').strip() and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+            qs = qs.none()
+        # CH-546: nor of an AI-label-filtered one.
+        if (_f(filters, 'ai_label') or '').strip() and getattr(user, 'role', '') not in ('buyer', 'publisher'):
             qs = qs.none()
         return qs
 
@@ -1654,6 +1669,8 @@ class AnalyticsService:
             # CH-531: staff only - mask_partner_money nulls these for partners.
             'voice_label':      getattr(r, 'voice_label', '') or '',
             'voice_seconds':    getattr(r, 'voice_seconds', None),
+            # CH-546: the AI label ('' = Pending AI check) - staff only.
+            'ai_label':         getattr(r, 'ai_label', '') or '',
             'carrier_name':     r.carrier_name,
             'carrier':          r.carrier or 'Unknown',
             'started_at':       dt_start,

@@ -48,12 +48,14 @@ _KEY_FIELDS = (
     'campaign_id', 'buyer_id', 'publisher_id', 'status', 'destination',
     'search', 'granularity', 'limit', 'offset',
     'is_qualified', 'is_converted', 'is_duplicate', 'is_spam',
+    # CH-546: staff-only filters change the answer too (voice was missing).
+    'voice', 'ai_label',
 )
 # The fields the stamp's querysets read - not limit/offset/search, so the
 # call log and the four summaries of one view find the same stamp.
 _STAMP_FIELDS = (
     'date_from', 'date_to', 'start_date', 'end_date', 'timezone',
-    'campaign_id', 'buyer_id', 'publisher_id', 'status',
+    'campaign_id', 'buyer_id', 'publisher_id', 'status', 'voice', 'ai_label',
 )
 
 

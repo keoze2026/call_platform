@@ -431,6 +431,15 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.status_watch',
         'schedule': 900.0,  # every 15 minutes
     },
+    # CH-546: AI audit - publisher No Voice rate (hourly window), daily summary.
+    'ai-publisher-rate-check': {
+        'task': 'tasks.ai_publisher_rate_check',
+        'schedule': 600.0,  # every 10 minutes
+    },
+    'ai-daily-summary': {
+        'task': 'tasks.ai_daily_summary',
+        'schedule': 900.0,  # checks every 15 minutes, sends once a day
+    },
     # CH-354 Avortyx Guard: charges, calls and Reports compared every hour.
     'guard-check': {
         'task': 'tasks.guard_check',
@@ -891,3 +900,8 @@ PAID_MISSED_RECORDING = config('PAID_MISSED_RECORDING', default=False, cast=bool
 VOICE_TELEGRAM_ALERTS = config('VOICE_TELEGRAM_ALERTS', default=False, cast=bool)
 # CH-543: the caller side counts as "beeping" from this many seconds of tones.
 AI_BEEP_SECONDS = config('AI_BEEP_SECONDS', default=0.3, cast=float)
+# CH-546: Telegram - a publisher over this No Voice % in the last hour (with at
+# least AI_RATE_ALERT_MIN_CALLS checked calls), and the daily summary's hour (EST).
+AI_RATE_ALERT_PERCENT = config('AI_RATE_ALERT_PERCENT', default=15, cast=float)
+AI_RATE_ALERT_MIN_CALLS = config('AI_RATE_ALERT_MIN_CALLS', default=10, cast=int)
+AI_DAILY_SUMMARY_HOUR = config('AI_DAILY_SUMMARY_HOUR', default=9, cast=int)

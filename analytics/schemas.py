@@ -27,6 +27,10 @@ class AnalyticsFilterSchema(Schema):
     is_spam:      Optional[bool] = None
     # CH-531: staff-only voice check filter: no_voice | voice | missing | unchecked.
     voice:        Optional[str] = None
+    # CH-546 (Sir: "AI Label filter: All / Valid / No Voice | Dead Caller / No
+    # Voice | No Beep or Customer / No Voice | Only Agent + Beeping / Pending"):
+    # valid | dead_caller | agent_only | agent_beep | no_voice | pending. Staff only.
+    ai_label:     Optional[str] = None
 
     # Which destination (tracking number's target) to report on. The dashboard's
     # "All destinations" dropdown had nothing behind it - the filter was never
@@ -112,6 +116,8 @@ class CallRecordSchema(Schema):
     # CH-531: the voice check - staff only (None for a buyer / publisher login).
     voice_label:      Optional[str] = None
     voice_seconds:    Optional[float] = None
+    # CH-546: the AI audit label (CH-543) - staff only, None for partners.
+    ai_label:         Optional[str] = None
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────

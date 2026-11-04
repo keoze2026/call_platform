@@ -245,3 +245,33 @@ class SplitChannelsHelpTests(TestCase):
             return 0, 'help we cannot read'
         with mock.patch.object(sc, 'run', side_effect=fake):
             self.assertEqual(sc.mixmonitor_options(), (True, False))
+
+
+@override_settings(ALLOWED_HOSTS=['*'], VOICE_MIN_SECONDS=1.0, AI_BEEP_SECONDS=0.3,
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}},
+                   CHANNEL_LAYERS={'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}})
+class BackfillAndCommentTests(AiAuditFlowTests):
+    """CH-546."""
+
+    def test_calls_checked_before_the_labels_get_one(self):
+        silent = self.call(voice_label='no_voice', voice_seconds=0.0)
+        talk = self.call(voice_label='voice', voice_seconds=12.0)
+        waiting = self.call()                                          # not listened to yet: stays pending
+        out = io.StringIO()
+        call_command('ai_backfill', stdout=out)
+        self.assertIn('would label 2', out.getvalue())
+        self.assertEqual(CallLog.objects.exclude(ai_label='').count(), 0)      # dry run
+        call_command('ai_backfill', '--apply', stdout=io.StringIO())
+        silent.refresh_from_db(); talk.refresh_from_db(); waiting.refresh_from_db()
+        self.assertEqual((silent.ai_label, talk.ai_label, waiting.ai_label), ('dead_caller', 'mixed', ''))
+        self.assertEqual(CallRecord.objects.get(pk=silent.pk).ai_label, 'dead_caller')
+        self.assertIsNone(waiting.ai_checked_at)
+
+    @override_settings(VOICE_TELEGRAM_ALERTS=True, REPORTS_BOT_TOKEN='t')
+    def test_telegram_carries_the_ai_comment(self):
+        from analytics.models import TeamReportChat
+        TeamReportChat.objects.create(organization=self.org, chat_id='-100', title='Team')
+        c = self.call()
+        with mock.patch('analytics.team_report.telegram') as tg:
+            self.results([two(0, 4.0, cid=str(c.id))])
+        self.assertIn('\nComment: <i>Agent speaks, caller silent, no beeping', tg.call_args[0][1]['text'])

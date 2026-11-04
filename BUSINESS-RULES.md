@@ -209,6 +209,13 @@ Last updated: 31 Oct 2026.
   label); the AI accuracy % (last 30 days) is shown on the AI Audit page, and
   the corrections show which threshold to change (VOICE_MIN_SECONDS,
   AI_BEEP_SECONDS).
+- CH-546: Reports and Call Log (main account only): AI label on every call,
+  "AI Label" filter (All / Valid / each No Voice type / Pending), "No Voice"
+  and "No Voice %" on every Call Summary tab (No Voice ÷ calls the AI
+  checked), clickable to those calls. AI Audit page: repeat caller IDs with
+  No Voice calls, evidence file per publisher. Telegram: each No Voice call
+  with the AI's comment; a publisher over 15% No Voice in the last hour (at
+  least 10 checked calls), once per hour; a daily summary at 9 AM EST.
 
 ### 3.9 Recording on paid 0-second calls - CH-535 (Sir, 4 Nov)
 - A call the buyer pays for always has its recording, even when nobody spoke

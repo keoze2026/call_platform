@@ -976,3 +976,17 @@ def send_scheduled_reports():
     done = send_due()
     return f"Scheduled reports: {done['sent']} sent, {done['failed']} failed"
 
+
+
+@app.task(name='tasks.ai_publisher_rate_check')
+def ai_publisher_rate_check():
+    """CH-546: a publisher's No Voice rate over 15% in the last hour -> Telegram."""
+    from routing.ai_reports import rate_alerts
+    return f'AI rate alerts sent: {rate_alerts()}'
+
+
+@app.task(name='tasks.ai_daily_summary')
+def ai_daily_summary():
+    """CH-546: yesterday's AI audit per label and publisher, once a day (9 AM EST)."""
+    from routing.ai_reports import daily_summary
+    return f'AI daily summaries sent: {daily_summary()}'

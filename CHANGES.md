@@ -9709,3 +9709,37 @@ end to end against a stand-in Asterisk with coloured help and Server A's
 dialplan (after CH-535). Nothing was changed on Server A by the stopped runs.
 
 Tests: `routing/test_ai_labels.py` (+1).
+
+## CH-546 - AI audit Parts 2 and 3: Reports, filter, repeat callers, evidence, rate alert, daily summary (BACKEND)
+
+Sir, 4 Nov (AI audit upgrade), the parts after CH-543, and two fixes seen on
+the AI Audit page the same evening.
+
+- Fix: 3,396 calls stayed "Pending AI check" - heard by the voice check before
+  the labels existed, and never listened to twice. `manage.py ai_backfill
+  [--apply] [--days 7]` labels them from what was measured (one mixed file:
+  no speech = No Voice | Dead Caller, speech = Voice (one channel)).
+- Telegram: each No Voice alert carries the AI's comment under the call.
+- Reports / Call Log: the call list carries `ai_label` (staff only - masked
+  for buyers and publishers); filter `ai_label=valid | dead_caller |
+  agent_only | agent_beep | no_voice | pending` (staff only; live calls left
+  out of a filtered list). The report cache key now includes `voice` and
+  `ai_label` (the voice filter was missing from it).
+- `/api/ai-audit/repeat-callers` (caller IDs with 2+ No Voice calls, their
+  total calls, publishers, campaigns, labels) and `/api/ai-audit/evidence`
+  (a publisher's No Voice calls with times, labels, both sides' seconds,
+  comment and recording link) - main account only.
+- `routing/ai_reports.py` (switch VOICE_TELEGRAM_ALERTS): every 10 min a
+  publisher over AI_RATE_ALERT_PERCENT (15) No Voice in the last hour with at
+  least AI_RATE_ALERT_MIN_CALLS (10) checked calls - once per publisher per
+  hour; daily summary of yesterday per label and publisher from
+  AI_DAILY_SUMMARY_HOUR (9 AM EST), once. Celery beat: ai-publisher-rate-check,
+  ai-daily-summary.
+
+- The Reports copy's updated_at moves when a call gets its label, so an open
+  Reports page reloads by itself (its fingerprint reads updated_at).
+- The voice check writes why a call fell back to one channel (split file not
+  fetched - with the error - or not decodable). Seen 4 Nov: Server A wrote
+  the split files, Server B still checked one channel, with nothing logged.
+
+Tests: `routing/test_ai_reports.py` (8), `routing/test_ai_labels.py` (+2).

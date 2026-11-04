@@ -85,8 +85,10 @@ class Command(BaseCommand):
             if not n:
                 counts['skipped'] += 1
                 continue
+            # updated_at too (CH-546): the Reports page reloads when its calls'
+            # fingerprint changes, and .update() leaves auto_now alone.
             CallRecord.objects.filter(id=call_id).update(voice_label=label, voice_seconds=speech,
-                                                         ai_label=extra.get('ai_label', ''))
+                                                         ai_label=extra.get('ai_label', ''), updated_at=now)
             counts[label] += 1
             orgs.add(before[1])
             if extra.get('ai_label') in ai_labels.NO_VOICE and before[0] != extra['ai_label']:

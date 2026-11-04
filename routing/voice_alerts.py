@@ -53,7 +53,11 @@ def _line(c) -> str:
     url = public_recording_url(c.recording_url or '')
     if url:
         parts.append(f'<a href="{html.escape(url, quote=True)}">Listen</a>')
-    return ' | '.join(parts)
+    line = ' | '.join(parts)
+    # CH-546: the AI's comment on the call, under it.
+    if c.ai_comment:
+        line += f'\nComment: <i>{e(c.ai_comment)}</i>'
+    return line
 
 
 def message(calls) -> str:

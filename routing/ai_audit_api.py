@@ -191,3 +191,96 @@ def review(request, call_id: str, body: ReviewIn):
         ai_reviewed_by=(who or user.email or user.username or '')[:150], ai_reviewed_at=timezone.now())
     c = CallLog.objects.select_related('campaign', 'publisher', 'buyer').get(pk=c.pk)
     return 200, _row(c)
+
+
+# ── CH-546: repeat callers and evidence (Sir: "Reports: repeat caller IDs
+#    with no-voice calls"; "Evidence export per publisher: no-voice calls with
+#    recordings, labels and timestamps") ──────────────────────────────────────
+
+MAX_RANGE_DAYS = 93
+
+
+def _range(date_from: Optional[str], date_to: Optional[str]):
+    today = timezone.now().astimezone(ET).date()
+    try:
+        lo = datetime.strptime(date_from, '%Y-%m-%d').date() if date_from else today
+        hi = datetime.strptime(date_to, '%Y-%m-%d').date() if date_to else lo
+    except ValueError:
+        raise HttpError(400, 'dates must be YYYY-MM-DD')
+    if hi < lo:
+        lo, hi = hi, lo
+    if (hi - lo).days > MAX_RANGE_DAYS:
+        raise HttpError(400, f'at most {MAX_RANGE_DAYS} days at a time')
+    start = datetime.combine(lo, time.min, tzinfo=ET)
+    end = datetime.combine(hi, time.min, tzinfo=ET) + timedelta(days=1)
+    return lo, hi, start, end
+
+
+@router.get('/repeat-callers', response={200: dict})
+def repeat_callers(request, date_from: Optional[str] = None, date_to: Optional[str] = None, min_calls: int = 2):
+    """Caller IDs with two or more No Voice calls in the dates (EST)."""
+    from routing.models import CallLog
+    user = _staff(request)
+    lo, hi, start, end = _range(date_from, date_to)
+    qs = (CallLog.objects.filter(organization=user.organization, retry_hidden=False,
+                                 created_at__gte=start, created_at__lt=end, ai_label__in=ai_labels.NO_VOICE)
+          .exclude(twilio_call_sid__startswith='tfntest-'))
+    rows = (qs.values('caller_number').annotate(no_voice=Count('id'))
+            .filter(no_voice__gte=max(2, min_calls)).order_by('-no_voice', 'caller_number')[:300])
+    callers = [r['caller_number'] for r in rows]
+    detail = {}
+    for c in (qs.filter(caller_number__in=callers).select_related('publisher', 'campaign')
+              .order_by('created_at')):
+        d = detail.setdefault(c.caller_number, {'publishers': set(), 'campaigns': set(), 'labels': {}, 'last': None})
+        d['publishers'].add(c.publisher.name if c.publisher_id else '-')
+        d['campaigns'].add(c.campaign.name if c.campaign_id else '-')
+        d['labels'][c.ai_label] = d['labels'].get(c.ai_label, 0) + 1
+        d['last'] = c.created_at.isoformat()
+    totals = dict(CallLog.objects.filter(organization=user.organization, retry_hidden=False,
+                                         created_at__gte=start, created_at__lt=end, caller_number__in=callers)
+                  .values_list('caller_number').annotate(n=Count('id')).values_list('caller_number', 'n'))
+    return 200, {'date_from': lo.isoformat(), 'date_to': hi.isoformat(), 'items': [{
+        'caller': r['caller_number'], 'no_voice': r['no_voice'], 'calls': totals.get(r['caller_number'], 0),
+        'publishers': sorted(detail.get(r['caller_number'], {}).get('publishers', [])),
+        'campaigns': sorted(detail.get(r['caller_number'], {}).get('campaigns', [])),
+        'labels': {ai_labels.NAMES.get(k, k): v for k, v in detail.get(r['caller_number'], {}).get('labels', {}).items()},
+        'last_call': detail.get(r['caller_number'], {}).get('last'),
+    } for r in rows]}
+
+
+@router.get('/evidence', response={200: dict})
+def evidence(request, publisher_id: Optional[str] = None, date_from: Optional[str] = None,
+             date_to: Optional[str] = None):
+    """No Voice calls of one publisher (or all) with recordings, labels and
+    times - the rows of the evidence file."""
+    from routing.models import CallLog
+    from routing.recordings import public_recording_url
+    user = _staff(request)
+    lo, hi, start, end = _range(date_from, date_to)
+    qs = (CallLog.objects.filter(organization=user.organization, retry_hidden=False,
+                                 created_at__gte=start, created_at__lt=end, ai_label__in=ai_labels.NO_VOICE)
+          .exclude(twilio_call_sid__startswith='tfntest-')
+          .select_related('campaign', 'publisher', 'buyer').order_by('created_at'))
+    if publisher_id:
+        qs = qs.filter(publisher_id=publisher_id)
+    items = []
+    for c in qs[:20000]:
+        items.append({
+            'started_at': c.created_at.astimezone(ET).strftime('%Y-%m-%d %I:%M:%S %p'),
+            'caller': c.caller_number,
+            'campaign': c.campaign.name if c.campaign_id else '',
+            'publisher': c.publisher.name if c.publisher_id else '',
+            'buyer': c.buyer.name if c.buyer_id else '',
+            'destination': c.destination_number or '',
+            'talk_seconds': int(c.duration or 0),
+            'label': ai_labels.NAMES.get(c.ai_label, c.ai_label),
+            'audio_fault': bool(c.voice_audio_fault),
+            'confidence': c.ai_confidence,
+            'caller_speech': c.voice_caller_seconds,
+            'agent_speech': c.voice_agent_seconds,
+            'beep_seconds': c.voice_beep_seconds,
+            'comment': c.ai_comment or '',
+            'recording_url': public_recording_url(c.recording_url or ''),
+            'call_id': str(c.id),
+        })
+    return 200, {'date_from': lo.isoformat(), 'date_to': hi.isoformat(), 'count': len(items), 'items': items}
