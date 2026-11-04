@@ -9928,3 +9928,19 @@ on our audio." "Live analysis must not affect call quality on Server A."
 
 Tests: `routing/test_ai_final.py` (13) - stand-in AssemblyAI, Deepgram, Claude
 and GPT servers.
+
+## CH-556 - AI final label: stop at once when a provider refuses our account (Server B host)
+
+4 Nov: the Claude account had no credit ("Your credit balance is too low"),
+yet with the job switched on every new call was still sent to AssemblyAI for a
+transcript and then marked failed.
+
+- Before any call of a run is transcribed, one one-word question to the LLM
+  (max 1 token). If the account is refused, the run stops: nothing is
+  transcribed, no call is marked failed; the next minute's run checks again.
+- A provider answer that is about our account - 401, 402, 403, 429, "credit
+  balance", "insufficient", "quota" - stops the run the same way; that call is
+  left as it was and tried again next run. Other errors still mark only that
+  call (and `--retry-failed` tries those again).
+
+Tests: `routing/test_ai_final.py` (+1).

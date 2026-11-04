@@ -45,6 +45,7 @@ class Fake(BaseHTTPRequestHandler):
     """AssemblyAI, Deepgram, Anthropic and OpenAI on one port, by path."""
     seen = []
     llm_label = 'agent_only'
+    no_credit = False
 
     def log_message(self, *a):
         pass
@@ -72,6 +73,9 @@ class Fake(BaseHTTPRequestHandler):
             return self.reply({'results': {'utterances': [
                 {'channel': 1, 'start': 0.4, 'transcript': 'Thank you for calling, how can I help?'},
                 {'channel': 0, 'start': 3.2, 'transcript': 'Hi, I need a plumber.'}]}})
+        if self.path == '/v1/messages' and Fake.no_credit:
+            return self.reply({'type': 'error', 'error': {'type': 'invalid_request_error', 'message':
+                               'Your credit balance is too low to access the Anthropic API.'}}, 400)
         if self.path == '/v1/messages':
             return self.reply({'content': [{'type': 'text', 'text': json.dumps(
                 {'label': Fake.llm_label, 'confidence': 88, 'summary': 'Agent greeted twice; the caller never spoke.'})}]})
@@ -179,6 +183,23 @@ class PipelineTests(SimpleTestCase):
                 self.af.final_for(self.cfg(), self.item)
         finally:
             Fake.llm_label = 'agent_only'
+
+    def test_no_credit_stops_before_anything_is_transcribed_or_marked(self):
+        Fake.no_credit = True
+        saved = []
+        try:
+            listing = mock.Mock(returncode=0, stdout=json.dumps(self.item) + '\n', stderr='')
+            with mock.patch.object(self.af.vc, 'manage', side_effect=lambda args, stdin=None: (
+                    saved.append(stdin) or mock.Mock(returncode=0, stdout='', stderr='')) if args[0] == 'ai_final_results'
+                    else listing):
+                o = type('O', (), {'limit': 5, 'days': 2, 'retry_failed': False, 'id': None, 'dry_run': False,
+                                   'show_transcript': False})()
+                done, rc = self.af.one_pass(o, self.cfg())
+        finally:
+            Fake.no_credit = False
+        self.assertEqual((done, rc), (0, 2))
+        self.assertEqual(saved, [])                                       # no call marked failed
+        self.assertFalse([p for m, p, *_ in Fake.seen if p.startswith('/v2/')])   # nothing transcribed
 
     def test_encrypted_connections_only(self):
         with mock.patch.dict(os.environ, {'AI_FINAL_TEST': ''}):

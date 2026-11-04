@@ -101,6 +101,17 @@ def encrypted(url):
     return url
 
 
+class AccountError(RuntimeError):
+    """CH-556: the provider refuses OUR ACCOUNT (no credit, bad key, limit) -
+    not this call. The run stops; no call is marked failed and nothing more is
+    sent (4 Nov: Claude had no credit, and every call was still transcribed)."""
+
+
+def _account_problem(code, detail):
+    d = detail.lower()
+    return code in (401, 402, 403, 429) or 'credit balance' in d or 'insufficient' in d or 'quota' in d
+
+
 def http(method, url, headers, body=None, timeout=120):
     req = urllib.request.Request(encrypted(url), data=body, method=method, headers=headers)
     try:
@@ -108,7 +119,8 @@ def http(method, url, headers, body=None, timeout=120):
             raw = r.read()
     except urllib.error.HTTPError as e:
         detail = e.read()[:200].decode('utf-8', 'replace')
-        raise RuntimeError(f'{e.code} from {url.split("//")[1].split("/")[0]}: {detail}')
+        msg = f'{e.code} from {url.split("//")[1].split("/")[0]}: {detail}'
+        raise (AccountError if _account_problem(e.code, detail) else RuntimeError)(msg)
     return json.loads(raw) if raw else {}
 
 
@@ -281,6 +293,23 @@ def ask_llm(cfg, text):
 
 # ── one call, the run ────────────────────────────────────────────────────────
 
+def llm_ready(cfg):
+    """CH-556: a one-word question to the LLM before any call is transcribed:
+    a refused account (no credit, bad key) stops the run before anything is
+    spent on transcripts."""
+    if cfg.llm == 'anthropic':
+        http('POST', ANTHROPIC_URL,
+             {'x-api-key': cfg.keys['ANTHROPIC_API_KEY'], 'anthropic-version': '2023-06-01',
+              'content-type': 'application/json'},
+             json.dumps({'model': cfg.model, 'max_tokens': 1,
+                         'messages': [{'role': 'user', 'content': 'ok'}]}).encode(), timeout=30)
+    else:
+        http('POST', OPENAI_URL,
+             {'Authorization': f"Bearer {cfg.keys['OPENAI_API_KEY']}", 'Content-Type': 'application/json'},
+             json.dumps({'model': cfg.model, 'max_completion_tokens': 1,
+                         'messages': [{'role': 'user', 'content': 'ok'}]}).encode(), timeout=30)
+
+
 def final_for(cfg, item):
     audio, stereo = call_audio(item, cfg.max_seconds)
     if audio is None:
@@ -304,9 +333,19 @@ def one_pass(o, cfg):
         return 0, 1
     items = [json.loads(line) for line in p.stdout.splitlines() if line.strip().startswith('{')]
     failed = 0
+    if items:
+        try:
+            llm_ready(cfg)
+        except Exception as e:
+            vc.log(f'STOPPED before any call - the {cfg.llm} account is not ready: {str(e)[:200]}')
+            return 0, 2
     for n, item in enumerate(items, 1):
         try:
             r = final_for(cfg, item)
+        except AccountError as e:
+            vc.log(f'STOPPED at call {n}/{len(items)} - a provider refused our account: {str(e)[:200]} '
+                   '(this call is left as it was, tried again next run)')
+            return n - 1, 2
         except Exception as e:
             r = {'id': item['id'], 'error': str(e)[:150]}
         if 'error' in r:
@@ -355,6 +394,8 @@ def main(argv=None):
     deadline, failed = time.time() + o.loop, 0
     while time.time() < deadline:
         done, rc = one_pass(o, cfg)
+        if rc == 2:                        # an account problem: wait for the next minute's run
+            return 2
         failed = failed or rc
         if not done:
             time.sleep(LOOP_PAUSE)
