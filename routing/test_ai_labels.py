@@ -227,3 +227,21 @@ class SplitChannelsHelpTests(TestCase):
             self.assertEqual(sc.mixmonitor_options(), (True, False))
         with mock.patch.object(sc, 'run', return_value=(0, '    b: Only save audio while bridged.\n')):
             self.assertEqual(sc.mixmonitor_options(), (False, False))
+
+    def test_colour_codes_in_the_help_and_the_version_fallback(self):
+        # CH-545: Server A, Asterisk 20.6 - the help read by a program carries
+        # colour codes around the marked words.
+        sc = SplitChannelsScriptTests.load(self)
+        e = '\x1b[1;36m'
+        coloured = (f'    r(file): Use the specified file to record the {e}*receive*\x1b[0m audio feed. Like\n'
+                    f'    t(file): Use the specified file to record the {e}*transmit*\x1b[0m audio feed. Like\n'
+                    f'    n: When the {e}<r>\x1b[0m or {e}<t>\x1b[0m option is used, MixMonitor will insert silence into\n')
+        with mock.patch.object(sc, 'run', return_value=(0, coloured)):
+            self.assertEqual(sc.mixmonitor_options(), (True, True))
+
+        def fake(*args):
+            if args[0] == 'core show version':
+                return 0, 'Asterisk 20.6.0~dfsg+~cs6.13.40431414-2build5 built by nobody'
+            return 0, 'help we cannot read'
+        with mock.patch.object(sc, 'run', side_effect=fake):
+            self.assertEqual(sc.mixmonitor_options(), (True, False))

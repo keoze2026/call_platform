@@ -76,16 +76,32 @@ def active_calls():
     return int(m.group(1))
 
 
+ANSI = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def words(text):
+    """Plain lower-case words: Asterisk's help carries colour codes and marks
+    around words ("*receive*", "<r>") when a program reads it (CH-545)."""
+    return " " + re.sub(r"[^a-z0-9]+", " ", ANSI.sub("", text).lower()) + " "
+
+
+def asterisk_major():
+    rc, out = run("core show version")
+    m = re.search(r"Asterisk\s+(\d+)\.", ANSI.sub("", out))
+    return int(m.group(1)) if rc == 0 and m else 0
+
+
 def mixmonitor_options():
-    """(has r()/t(), has n) from this Asterisk's own MixMonitor help."""
+    """(has r()/t(), has n) from this Asterisk's own MixMonitor help; r()/t()
+    also when the version has had them for years (13 and later)."""
     rc, out = run("core show application MixMonitor")
     if rc != 0:
         raise Stop("Could not read MixMonitor's help from Asterisk:\n" + out)
-    # The help writes the words with markup ("record the *receive* audio
-    # feed"), so the check allows any marks between the words (CH-544).
-    low = out.lower()
-    has_rt = bool(re.search(r"receive\W+audio\s+feed", low) and re.search(r"transmit\W+audio\s+feed", low))
-    has_n = bool(re.search(r"insert\s+silence", low))
+    w = words(out)
+    has_rt = " receive audio feed " in w and " transmit audio feed " in w
+    has_n = " insert silence " in w
+    if not has_rt and asterisk_major() >= 13:
+        has_rt = True
     return has_rt, has_n
 
 

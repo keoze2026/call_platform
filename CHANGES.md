@@ -9695,3 +9695,17 @@ words; it still stops if the options are really not documented. Nothing was
 changed on Server A by the stopped run.
 
 Tests: `routing/test_ai_labels.py` (+1).
+
+## CH-545 - split_channels.py: colour codes in Asterisk's help, version fallback (Server A script)
+
+Server A, 4 Nov, after CH-544: the dry run still stopped with "no r()/t()
+options", while `core show application MixMonitor | grep` showed them
+(Asterisk 20.6.0). Read by a program, the help carries colour codes around
+the marked words ("*receive*"), which a person on screen does not see. The
+check now removes colour codes and marks and compares plain words; if the
+help still cannot be read, Asterisk 13 or later counts as having r()/t()
+(they have been there for years). Dry run, apply, repeat and rollback run
+end to end against a stand-in Asterisk with coloured help and Server A's
+dialplan (after CH-535). Nothing was changed on Server A by the stopped runs.
+
+Tests: `routing/test_ai_labels.py` (+1).
