@@ -9979,3 +9979,34 @@ SOS tfns."
   than one destination at a time.
 
 Tests: `campaigns/test_groups.py` (+4, OnlyTopTests).
+
+## CH-564 - A deleted destination leaves no line behind in any campaign
+
+Sir, 5 Nov: "Under Destination why deleted destination also showing fix this
+glitch ... When you open campaign - under campaign ... If destination is
+deleted it should remove from everywhere."
+
+Deleting a destination removed its Destinations-page row only; its number
+stayed as a line in every campaign (and Campaign Group) it was in, shown at
+the bottom as "Not on Destinations page" (CH-493). Routing already refused
+those lines (CH-502) - they only kept showing. 5 Nov: 366 such lines.
+
+- When a destination is deleted (any path: portal, API, admin, script - a
+  model signal, `routing/orphan_lines.py`), every campaign line of that buyer
+  with that number is removed, unless the buyer still has another
+  Destinations row for the number. Another buyer's line on the same number is
+  not touched.
+- Nothing disappears: each removed line is written in full (campaign, number,
+  buyer, priority, weight, revenue, convert-on) into its activity-log entry,
+  with who and when (`removed_line`). Calls keep their number, buyer and money;
+  only their link to the removed line is cleared.
+- `python manage.py orphan_lines` lists the lines left behind, each with why:
+  "destination deleted" (with when and by whom, from the activity log),
+  "buyer deleted", or "never on Destinations page". `--remove --by EMAIL`
+  removes the first two kinds; `--include-never-listed` also the third
+  (CH-503 wanted those added to the Destinations page instead - Sir decides).
+  Run it any time: after CH-564 it should stay at 0 deleted.
+- The activity-log delete entry carries a reason when the platform removes
+  a record (`accounts/activity_signals.py`).
+
+Tests: `routing/test_orphan_lines.py` (8).

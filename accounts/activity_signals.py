@@ -245,7 +245,8 @@ def on_save(sender, instance, created, **kwargs):
 def on_delete(sender, instance, **kwargs):
     from .models import ActivityLog
 
-    _write(instance, ActivityLog.Action.RECORD_DELETED)
+    # CH-564: a removal made by the platform says why, and keeps the record.
+    _write(instance, ActivityLog.Action.RECORD_DELETED, getattr(instance, '_activity_extra', None))
 
 
 def on_log_save(sender, instance, **kwargs):
