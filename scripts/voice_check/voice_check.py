@@ -21,14 +21,21 @@ touch Asterisk, the containers or the calls.
 
 Install: scripts/voice_check/install.sh (once, as root). Then:
     /opt/avx-voice/venv/bin/python /opt/call_platform/scripts/voice_check/voice_check.py --dry-run
-    cron: */5 * * * * /opt/avx-voice/venv/bin/python /opt/call_platform/scripts/voice_check/voice_check.py >> /var/log/voice_check.log 2>&1
+    cron: * * * * * cd /opt/call_platform && /opt/avx-voice/venv/bin/python scripts/voice_check/voice_check.py >> /var/log/voice_check.log 2>&1
 
 Settings (environment): RECORDINGS_DIR (/var/spool/asterisk/recordings),
 APP_DIR (/opt/call_platform), VOICE_MODEL (/opt/avx-voice/silero_vad.onnx),
-BATCH (200 calls a run), MIN_AGE_MIN (10), DAYS (2), SAVE_EVERY (10).
+BATCH (200 calls a run), MIN_AGE_MIN (1), DAYS (2), SAVE_EVERY (10),
+RETRY_MINUTES (15).
 
 Prints one line per call ("[12/200] <call id>: audio 42.0s, speech 18.3s")
 and saves the results every SAVE_EVERY calls (CH-534).
+
+CH-536: runs every minute and checks a call 1 minute after it ends, so the
+portal shows Voice / No voice about 2 minutes after the call, not 10-15.
+For an answered call it listens only to the last <talk time + 1 s> of the
+recording - the conversation - so the ringing recorded before the answer
+(CH-535) can never count as someone speaking.
 """
 import argparse
 import fcntl
@@ -46,9 +53,13 @@ APP_DIR = os.environ.get('APP_DIR', '/opt/call_platform')
 MODEL = os.environ.get('VOICE_MODEL', '/opt/avx-voice/silero_vad.onnx')
 MANAGE = os.environ.get('MANAGE', 'docker compose exec -T web python manage.py')
 BATCH = int(os.environ.get('BATCH', '200'))
-MIN_AGE_MIN = int(os.environ.get('MIN_AGE_MIN', '10'))
+MIN_AGE_MIN = int(os.environ.get('MIN_AGE_MIN', '1'))
 DAYS = int(os.environ.get('DAYS', '2'))
 SAVE_EVERY = int(os.environ.get('SAVE_EVERY', '10'))
+# CH-536: a call checked a minute after it ends whose file cannot be read yet is
+# left unchecked and tried again each run; only after this many minutes is it
+# saved as "missing" (No file).
+RETRY_MINUTES = int(os.environ.get('RETRY_MINUTES', '15'))
 
 SR = 16000
 CHUNK = 512          # Silero's window at 16 kHz: 32 ms
@@ -92,6 +103,22 @@ class Vad:
                 run = 0
         windows += run if run >= MIN_RUN else 0
         return round(windows * CHUNK / SR, 2), round(len(audio) / SR, 2)
+
+
+def talk_part(pcm16, talk):
+    """CH-536: the conversation only - the last talk+1 seconds of an answered
+    call's recording. Anything before it is the ringing (CH-535)."""
+    if talk is None:
+        return pcm16
+    keep = (int(talk) + 1) * SR * 2          # int16 = 2 bytes a sample
+    return pcm16[-keep:] if len(pcm16) > keep else pcm16
+
+
+def missing_for_good(item):
+    """CH-536: no readable file. Saved as "missing" only once the call ended
+    RETRY_MINUTES ago (or its age is unknown); before that it is tried again."""
+    age = item.get('age')
+    return age is None or int(age) >= RETRY_MINUTES
 
 
 def decode(path):
@@ -207,11 +234,15 @@ def main():
         path, temporary = find_file(item)
         try:
             pcm = decode(path) if path else None
-            if pcm is None:
+            if pcm is None and not missing_for_good(item):
+                result = None
+                line = 'file not readable yet - tried again next run'
+            elif pcm is None:
                 result = {'id': item['id'], 'missing': True}
                 line = 'no readable recording'
             else:
-                speech, audio = vad.speech_seconds(pcm)
+                audio = round(len(pcm) / 2 / SR, 2)
+                speech, _ = vad.speech_seconds(talk_part(pcm, item.get('talk')))
                 result = {'id': item['id'], 'speech': speech, 'audio': audio}
                 line = f'audio {audio:.1f}s, speech {speech:.1f}s'
         finally:
@@ -220,7 +251,7 @@ def main():
         done += 1
         # One line per call: you can see it working, call by call.
         log(f"[{done}/{len(items)}] {item['id']}: {line}")
-        if o.dry_run:
+        if o.dry_run or result is None:
             continue
         pending.append(result)
         if len(pending) >= SAVE_EVERY:

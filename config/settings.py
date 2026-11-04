@@ -885,3 +885,7 @@ VOICE_MIN_SECONDS = config('VOICE_MIN_SECONDS', default=1.0, cast=float)
 # keeps its recording link. Switch on ONLY after Server A records from the
 # moment the buyer is dialled (deploy/record_from_dial.py --apply + test call).
 PAID_MISSED_RECORDING = config('PAID_MISSED_RECORDING', default=False, cast=bool)
+# CH-536 (Sir, 4 Nov: "it can send us instant reports"): each call the voice
+# check finds with no voice is sent at once, by our reports bot (CH-347), to the
+# team's connected Telegram chat(s), with its recording link. Team only.
+VOICE_TELEGRAM_ALERTS = config('VOICE_TELEGRAM_ALERTS', default=False, cast=bool)

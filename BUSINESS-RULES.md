@@ -184,6 +184,11 @@ Last updated: 31 Oct 2026.
   filter or file.
 - One mixed recording per call today, so it cannot yet say WHICH side was
   silent; that needs the two sides recorded separately on Server A.
+- CH-536: checked about 2 minutes after each call ends (only the talk time
+  is listened to, never the ringing). Every "no voice" call is sent at once to
+  the team's Telegram chat by our reports bot, with its recording link
+  (VOICE_TELEGRAM_ALERTS). Audit members listen to those calls only; a call
+  they find was labelled wrong is reported to us to tune VOICE_MIN_SECONDS.
 
 ### 3.9 Recording on paid 0-second calls - CH-535 (Sir, 4 Nov)
 - A call the buyer pays for always has its recording, even when nobody spoke

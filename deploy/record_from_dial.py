@@ -25,7 +25,8 @@ USAGE  (on Server A, as root, from the folder holding this file)
   python3 record_from_dial.py --rollback   put the newest backup back and reload
 
 SAFETY
-  - Refuses while calls are active (override: --even-if-busy).
+  - --apply / --rollback refuse while calls are active (override:
+    --even-if-busy). The dry run works any time.
   - Stops, changing nothing, unless [from-carrier] has exactly one
     MixMonitor(${RECFILE},b).
   - Backs up to /root/extensions.conf.bak-recdial-<timestamp>; restores it by
@@ -135,17 +136,19 @@ def main():
             print("Rolled back: recording starts at the answer again. Make one test call.")
             return 0
 
-        busy = active_calls()
-        if busy and not args.even_if_busy:
-            raise Stop("%d call(s) active. Wait for 0 active calls, then run again (or --even-if-busy)." % busy)
         with open(CONF, encoding="utf-8", newline="") as fh:
             old = fh.read()
         new = transform(old)
         print("".join(difflib.unified_diff(old.splitlines(keepends=True), new.splitlines(keepends=True),
                                            "extensions.conf (now)", "extensions.conf (after)", n=1)))
         if not args.apply:
-            print("\nDry run only. Nothing was changed. Add --apply to do it.")
+            print("\nDry run only. Nothing was changed. Add --apply to do it (with 0 active calls).")
             return 0
+        # CH-536: only the real change waits for 0 active calls; the dry run
+        # (reads the file, changes nothing) runs any time.
+        busy = active_calls()
+        if busy and not args.even_if_busy:
+            raise Stop("%d call(s) active. Wait for 0 active calls, then run again (or --even-if-busy)." % busy)
         stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
         backup = os.path.join(BACKUP_DIR, "extensions.conf.bak-recdial-" + stamp)
         shutil.copy2(CONF, backup)

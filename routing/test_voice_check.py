@@ -37,7 +37,7 @@ class VoiceCheckTests(TestCase):
         ended = timezone.now() - timedelta(minutes=ended_min_ago)
         c = CallLog.objects.create(organization=self.org, campaign=self.campaign, buyer=self.buyer,
                                    caller_number=f'+1555{self.n:07d}', called_number='+18443754175',
-                                   twilio_call_sid=f's{self.n}', status='completed', duration=40,
+                                   twilio_call_sid=f's{self.n}', status=kw.pop('status', 'completed'), duration=40,
                                    destination_number='+18334094605', ended_at=ended, **kw)
         if url:
             CallLog.objects.filter(pk=c.pk).update(recording_url=url.format(id=c.id))
@@ -57,13 +57,33 @@ class VoiceCheckTests(TestCase):
 
     def test_pending_lists_only_finished_recorded_unchecked_calls(self):
         ready = self.call()
-        self.call(ended_min_ago=2)                 # just ended: its file may still be written
+        self.call(ended_min_ago=0)                 # just ended: its file may still be written
         self.call(url='')                           # no recording (never answered)
         self.call(voice_label='voice')              # already checked
         self.call(retry_hidden=True)                # a grouped try
         items = self.pending()
         self.assertEqual([i['id'] for i in items], [str(ready.id)])
         self.assertEqual(items[0]['file'], f'{ready.id}.mp3')
+        self.assertEqual(items[0]['talk'], 40)     # CH-536: only the conversation is listened to
+
+    def test_pending_is_ready_a_minute_after_the_call(self):
+        # CH-536: checked ~1-2 minutes after the call, not 10-15.
+        two = self.call(ended_min_ago=2)
+        self.assertEqual([i['id'] for i in self.pending()], [str(two.id)])
+        missed = self.call(ended_min_ago=5, status='no_answer')
+        self.assertIsNone(next(i for i in self.pending() if i['id'] == str(missed.id))['talk'])
+
+    def test_listens_only_to_the_conversation(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('voice_check', 'scripts/voice_check/voice_check.py')
+        vc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vc)
+        ring, talk = b'\x01\x00' * vc.SR * 20, b'\x02\x00' * vc.SR * 30    # 20 s ringing, 30 s talk
+        part = vc.talk_part(ring + talk, 30)
+        self.assertEqual(len(part), 31 * vc.SR * 2)
+        self.assertEqual(part[-len(talk):], talk)
+        self.assertEqual(vc.talk_part(talk, None), talk)          # missed call: the whole file
+        self.assertEqual(vc.talk_part(talk, 90), talk)            # recording shorter than the talk
 
     def test_results_label_and_reach_the_report_copy(self):
         talk, silent, gone = self.call(), self.call(), self.call()
@@ -117,3 +137,68 @@ class VoiceCheckTests(TestCase):
         call_command('voice_report', '--date', f'{day:%Y-%m-%d}', stdout=out)
         self.assertIn('voice 1 | no voice 1 | missing 0 | not checked yet 1', out.getvalue())
         self.assertIn(str(silent.id), out.getvalue())
+
+    # ── CH-536 ──────────────────────────────────────────────────────────────
+
+    def load_script(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location('voice_check', 'scripts/voice_check/voice_check.py')
+        vc = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(vc)
+        return vc
+
+    def test_a_file_not_ready_yet_is_tried_again_not_called_missing(self):
+        two = self.call(ended_min_ago=2)
+        item = next(i for i in self.pending() if i['id'] == str(two.id))
+        self.assertEqual(item['age'], 2)
+        vc = self.load_script()
+        self.assertFalse(vc.missing_for_good(item))                    # 2 min: try again next run
+        self.assertTrue(vc.missing_for_good({**item, 'age': 15}))       # 15 min: "No file"
+        self.assertTrue(vc.missing_for_good({'id': 'x'}))               # older app: as before
+
+    def connect_team_chat(self):
+        from analytics.models import TeamReportChat
+        return TeamReportChat.objects.create(organization=self.org, chat_id='-1001', title='Team')
+
+    @override_settings(VOICE_TELEGRAM_ALERTS=True, REPORTS_BOT_TOKEN='t')
+    def test_no_voice_calls_are_sent_to_the_team_chat_at_once(self):
+        self.connect_team_chat()
+        talk, silent = self.call(), self.call()
+        with mock.patch('analytics.team_report.telegram') as tg:
+            out = self.results([{'id': str(talk.id), 'speech': 9, 'audio': 40},
+                                {'id': str(silent.id), 'speech': 0.2, 'audio': 40}])
+        self.assertIn('telegram 1', out)
+        self.assertEqual(tg.call_count, 1)
+        method, data = tg.call_args[0]
+        self.assertEqual((method, data['chat_id'], data['parse_mode']), ('sendMessage', '-1001', 'HTML'))
+        self.assertIn('No voice - 1 call', data['text'])
+        self.assertIn('C-10 | - &gt; Q11 +18334094605 | talk 40s, speech 0.2s', data['text'])
+        self.assertIn(f'recordings/{silent.id}.mp3">Listen</a>', data['text'])
+        self.assertNotIn(str(talk.id), data['text'])
+        # Saved again (e.g. a re-check): not sent twice.
+        with mock.patch('analytics.team_report.telegram') as tg:
+            self.results([{'id': str(silent.id), 'speech': 0.0, 'audio': 40}])
+        tg.assert_not_called()
+
+    @override_settings(VOICE_TELEGRAM_ALERTS=True, REPORTS_BOT_TOKEN='t')
+    def test_tfn_tests_and_a_failed_send_never_stop_the_results(self):
+        self.connect_team_chat()
+        silent = self.call()
+        CallLog.objects.filter(pk=silent.pk).update(twilio_call_sid='tfntest-9')
+        with mock.patch('analytics.team_report.telegram') as tg:
+            self.results([{'id': str(silent.id), 'speech': 0, 'audio': 40}])
+        tg.assert_not_called()                                          # a TFN test is not reported
+        other = self.call()
+        with mock.patch('analytics.team_report.telegram', side_effect=RuntimeError('down')):
+            out = self.results([{'id': str(other.id), 'speech': 0, 'audio': 40}])
+        self.assertIn('no_voice 1', out)
+        other.refresh_from_db()
+        self.assertEqual(other.voice_label, 'no_voice')                # saved all the same
+
+    @override_settings(VOICE_TELEGRAM_ALERTS=False, REPORTS_BOT_TOKEN='t')
+    def test_switch_off_sends_nothing(self):
+        self.connect_team_chat()
+        silent = self.call()
+        with mock.patch('analytics.team_report.telegram') as tg:
+            self.results([{'id': str(silent.id), 'speech': 0, 'audio': 40}])
+        tg.assert_not_called()

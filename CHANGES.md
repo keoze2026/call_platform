@@ -9566,3 +9566,34 @@ link. No made-up audio: the fix records what really happened.
   `PAID_MISSED_RECORDING=True` - so no link is ever shown to an empty file.
 
 Tests: `routing/test_paid_missed_recording.py` (7). BUSINESS-RULES.md 3.9.
+
+## CH-536 - Voice check within ~2 minutes of the call, talk only, instant Telegram report (BACKEND + Server B host)
+
+4 Nov, portal: answered calls showed "Not checked yet" for 10-15 minutes -
+the check waited 10 minutes after a call ended and ran every 5 minutes.
+
+- `voice_pending --min-age` default 10 -> 1 minute; `voice_check.py`
+  MIN_AGE_MIN 10 -> 1; cron every minute (`* * * * *`). The run lock already
+  stops two runs overlapping. A call shows Voice / No voice about 2 minutes
+  after it ends.
+- Each answered call is listened to only over its talk time (+1 s), the end
+  of the recording. Once Server A records from the moment the buyer is dialled
+  (CH-535), the ringing before the answer can never be taken for speech. A
+  call nobody answered is listened to whole. Old and new script / command
+  work with each other (the extra "talk" field is optional).
+
+- A file that cannot be read yet (the call ended a minute ago) is left
+  unchecked and tried again each run; only after RETRY_MINUTES (15) is it
+  saved as "missing" (No file).
+- **Instant report** (Sir: "it can send us instant reports"): every call the
+  check labels "no voice" is sent at once by our reports bot (CH-347) to the
+  team chat(s) connected on the Automated Report page - one message per run:
+  time (EST), campaign, publisher > buyer and line, talk and speech seconds,
+  and a Listen link. Never to a buyer or publisher; TFN tests left out; a
+  call is sent once; a failed send is logged and never stops the results
+  being saved. Switch `VOICE_TELEGRAM_ALERTS` (default False).
+
+Tests: `routing/test_voice_check.py` (+6, 10).
+- `deploy/record_from_dial.py` (CH-535): the dry run no longer waits for 0
+  active calls (it changes nothing); only `--apply` / `--rollback` do. Seen on
+  Server A, 4 Nov: the dry run stopped at "48 call(s) active".
