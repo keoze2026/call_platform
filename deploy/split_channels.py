@@ -81,9 +81,11 @@ def mixmonitor_options():
     rc, out = run("core show application MixMonitor")
     if rc != 0:
         raise Stop("Could not read MixMonitor's help from Asterisk:\n" + out)
+    # The help writes the words with markup ("record the *receive* audio
+    # feed"), so the check allows any marks between the words (CH-544).
     low = out.lower()
-    has_rt = "receive audio feed" in low and "transmit audio feed" in low
-    has_n = "insert silence" in low
+    has_rt = bool(re.search(r"receive\W+audio\s+feed", low) and re.search(r"transmit\W+audio\s+feed", low))
+    has_n = bool(re.search(r"insert\s+silence", low))
     return has_rt, has_n
 
 

@@ -210,3 +210,20 @@ class SplitChannelsScriptTests(TestCase):
         sc = self.load()
         with self.assertRaises(sc.Stop):
             sc.transform('[from-carrier]\nexten => _X.,1,Dial(PJSIP/x)\n')
+
+
+class SplitChannelsHelpTests(TestCase):
+    """CH-544: Asterisk's own help marks the words up: *receive* audio feed."""
+
+    def test_reads_the_options_from_asterisk_help(self):
+        sc = SplitChannelsScriptTests.load(self)
+        help_text = ('    r(file): Use the specified file to record the *receive* audio feed. Like with\n'
+                     '    t(file): Use the specified file to record the *transmit* audio feed. Like\n'
+                     '    n: When the *r* or *t* option is used, MixMonitor will insert silence into the\n')
+        with mock.patch.object(sc, 'run', return_value=(0, help_text)):
+            self.assertEqual(sc.mixmonitor_options(), (True, True))
+        with mock.patch.object(sc, 'run', return_value=(0, help_text.replace('    n: When', '    x: When')
+                                                         .replace('insert silence', 'add nothing'))):
+            self.assertEqual(sc.mixmonitor_options(), (True, False))
+        with mock.patch.object(sc, 'run', return_value=(0, '    b: Only save audio while bridged.\n')):
+            self.assertEqual(sc.mixmonitor_options(), (False, False))

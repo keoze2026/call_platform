@@ -9684,3 +9684,14 @@ no outside AI is needed for these labels.
 Tests: `routing/test_ai_labels.py` (13). The per-side listening was also run
 on generated caller / agent files (valid, agent only, agent + beeps, dead,
 no audio data, no split file).
+
+## CH-544 - split_channels.py reads Asterisk's marked-up help (Server A script)
+
+On Server A (4 Nov) the dry run of deploy/split_channels.py (CH-543) stopped
+with "This Asterisk's MixMonitor has no r()/t() options": Asterisk's help
+writes "record the *receive* audio feed" (marks around the word) and the
+check looked for the plain words. It now allows any marks between the
+words; it still stops if the options are really not documented. Nothing was
+changed on Server A by the stopped run.
+
+Tests: `routing/test_ai_labels.py` (+1).
