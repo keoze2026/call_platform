@@ -9518,3 +9518,18 @@ flag, on our own server.
   transcript, and the Voice column on the Reports page (FRONTEND, next).
 
 Tests: `routing/test_voice_check.py` (4). BUSINESS-RULES.md 3.8.
+
+## CH-534 - Voice check shows its progress and saves as it goes (Server B host script)
+
+The first real run on Server B (4 Nov) printed nothing for minutes: it
+checked up to 200 calls (some 49 minutes long) and printed one line and
+saved everything only at the very end - it looked as if it did not run.
+
+- One line per call: `[12/200] <call id>: audio 42.0s, speech 18.3s` (or
+  `no readable recording`), a first line with how many calls it will check,
+  and a last line with the total time.
+- Results are saved every SAVE_EVERY calls (10): they show in the portal
+  while a long run is still going, and a run stopped half way keeps what it
+  checked.
+- Tested here end to end with stand-ins for the two app commands: 8 calls,
+  saved in 3 batches, the missing file reported, exit 0.

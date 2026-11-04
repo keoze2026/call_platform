@@ -25,7 +25,10 @@ Install: scripts/voice_check/install.sh (once, as root). Then:
 
 Settings (environment): RECORDINGS_DIR (/var/spool/asterisk/recordings),
 APP_DIR (/opt/call_platform), VOICE_MODEL (/opt/avx-voice/silero_vad.onnx),
-BATCH (200 calls a run), MIN_AGE_MIN (10), DAYS (2).
+BATCH (200 calls a run), MIN_AGE_MIN (10), DAYS (2), SAVE_EVERY (10).
+
+Prints one line per call ("[12/200] <call id>: audio 42.0s, speech 18.3s")
+and saves the results every SAVE_EVERY calls (CH-534).
 """
 import argparse
 import fcntl
@@ -45,6 +48,7 @@ MANAGE = os.environ.get('MANAGE', 'docker compose exec -T web python manage.py')
 BATCH = int(os.environ.get('BATCH', '200'))
 MIN_AGE_MIN = int(os.environ.get('MIN_AGE_MIN', '10'))
 DAYS = int(os.environ.get('DAYS', '2'))
+SAVE_EVERY = int(os.environ.get('SAVE_EVERY', '10'))
 
 SR = 16000
 CHUNK = 512          # Silero's window at 16 kHz: 32 ms
@@ -186,30 +190,46 @@ def main():
         return 0
 
     vad = Vad(MODEL)
-    results, started = [], time.time()
+    log(f'{len(items)} calls to check' + (' (dry run, nothing saved)' if o.dry_run else ''))
+    pending, done, started, failed = [], 0, time.time(), False
+
+    def save(batch):
+        # CH-534: saved every SAVE_EVERY calls, so results appear while a
+        # long first run is still going and a stopped run keeps its work.
+        p = manage(['voice_results'], stdin='\n'.join(json.dumps(r) for r in batch) + '\n')
+        if p.returncode != 0:
+            log(f'voice_results failed: {p.stderr.strip()[-300:]}')
+            return False
+        log(f'saved {len(batch)}: {p.stdout.strip()}')
+        return True
+
     for item in items:
         path, temporary = find_file(item)
         try:
             pcm = decode(path) if path else None
             if pcm is None:
-                results.append({'id': item['id'], 'missing': True})
-                continue
-            speech, audio = vad.speech_seconds(pcm)
-            results.append({'id': item['id'], 'speech': speech, 'audio': audio})
-            if o.dry_run:
-                log(f"{item['id']}: audio {audio:.1f}s, speech {speech:.1f}s")
+                result = {'id': item['id'], 'missing': True}
+                line = 'no readable recording'
+            else:
+                speech, audio = vad.speech_seconds(pcm)
+                result = {'id': item['id'], 'speech': speech, 'audio': audio}
+                line = f'audio {audio:.1f}s, speech {speech:.1f}s'
         finally:
             if temporary and path:
                 os.unlink(path)
-    if o.dry_run:
-        log(f'dry run: {len(results)} calls checked, nothing saved')
-        return 0
-    p = manage(['voice_results'], stdin='\n'.join(json.dumps(r) for r in results) + '\n')
-    if p.returncode != 0:
-        log(f'voice_results failed: {p.stderr.strip()[-300:]}')
-        return 1
-    log(f'{len(results)} calls in {time.time() - started:.0f}s: {p.stdout.strip()}')
-    return 0
+        done += 1
+        # One line per call: you can see it working, call by call.
+        log(f"[{done}/{len(items)}] {item['id']}: {line}")
+        if o.dry_run:
+            continue
+        pending.append(result)
+        if len(pending) >= SAVE_EVERY:
+            failed = not save(pending) or failed
+            pending = []
+    if not o.dry_run and pending:
+        failed = not save(pending) or failed
+    log(f'{done} calls in {time.time() - started:.0f}s' + (' - dry run, nothing saved' if o.dry_run else ''))
+    return 1 if failed else 0
 
 
 if __name__ == '__main__':
