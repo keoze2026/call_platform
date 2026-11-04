@@ -9944,3 +9944,18 @@ transcript and then marked failed.
   call (and `--retry-failed` tries those again).
 
 Tests: `routing/test_ai_final.py` (+1).
+
+## CH-557 - AI Audit: No Voice per publisher / campaign / buyer (BACKEND)
+
+Sir, 5 Nov: "Could you remove this from the front dashboard, this is killing
+the front view style. Put this under AI audit report." The AI columns leave
+Reports (frontend CH-557); the No Voice / No Voice % they showed per
+publisher moves to the AI Audit page:
+
+- `GET /api/ai-audit/breakdown?date_from=&date_to=&by=publisher|campaign|buyer`:
+  per row - calls the AI checked, No Voice, No Voice % (No Voice / checked),
+  Dead Caller, No Beep or Customer, Only Agent + Beeping, Voicemail / IVR,
+  Valid (with Caller spoke, no issue). Highest No Voice % first. One-channel
+  "Voice Found" calls are not counted. AI Audit logins only (CH-548).
+
+Tests: `routing/test_ai_reports.py` (+1).

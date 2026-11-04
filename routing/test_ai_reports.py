@@ -182,3 +182,24 @@ class ReportsSeeTheLabelArriveTests(AiReportsTests):
             with mock.patch('analytics.team_report.telegram'):
                 call_command('voice_results', stdout=io.StringIO())
         self.assertNotEqual(report_stamp(user, f)['stamp'], before)
+
+
+class BreakdownTests(AiReportsTests):
+    """CH-557: No Voice per publisher / campaign / buyer on the AI Audit page."""
+
+    def test_no_voice_percent_per_publisher_and_audit_team_only(self):
+        for _ in range(3):
+            self.call('dead_caller', publisher=self.ads)
+        self.call('valid', publisher=self.ads)
+        self.call('valid')                                   # PDSO 1: no No Voice
+        self.call('mixed')                                   # one channel: not counted
+        day = self.today()
+        r = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&date_to={day}').json()
+        top = r['items'][0]
+        self.assertEqual((top['name'], top['checked'], top['no_voice'], top['no_voice_pct'], top['dead_caller']),
+                         ('ADS-3', 4, 3, 75.0, 3))
+        self.assertEqual([i['name'] for i in r['items']], ['ADS-3', 'PDSO 1'])
+        camp = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&by=campaign').json()['items']
+        self.assertEqual((camp[0]['name'], camp[0]['checked']), ('C-07', 5))
+        self.assertEqual(self.api('admin').get('/api/ai-audit/breakdown?by=x').status_code, 400)
+        self.assertEqual(self.api('buyer', buyer=self.buyer).get('/api/ai-audit/breakdown').status_code, 403)

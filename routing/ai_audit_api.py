@@ -232,6 +232,41 @@ def _range(date_from: Optional[str], date_to: Optional[str]):
     return lo, hi, start, end
 
 
+BREAKDOWN_BY = {'publisher': 'publisher__name', 'campaign': 'campaign__name', 'buyer': 'buyer__name'}
+
+
+@router.get('/breakdown', response={200: dict})
+def breakdown(request, date_from: Optional[str] = None, date_to: Optional[str] = None, by: str = 'publisher'):
+    """CH-557 (Sir, 5 Nov: "remove this from the front dashboard ... put this
+    under AI audit report"): the No Voice / No Voice % that were columns in
+    Reports' Call Summary, here per publisher, campaign or buyer. Checked
+    calls only (No Voice % = No Voice / calls the AI checked)."""
+    from routing.models import CallLog
+    user = _staff(request)
+    field = BREAKDOWN_BY.get(by)
+    if field is None:
+        raise HttpError(400, 'by must be publisher, campaign or buyer')
+    lo, hi, start, end = _range(date_from, date_to)
+    qs = (CallLog.objects.filter(organization=user.organization, status='completed', retry_hidden=False,
+                                 created_at__gte=start, created_at__lt=end)
+          .exclude(ai_label='').exclude(ai_label=ai_labels.MIXED)
+          .exclude(twilio_call_sid__startswith='tfntest-'))
+    rows = (qs.values(field)
+            .annotate(checked=Count('id'),
+                      no_voice=Count('id', filter=Q(ai_label__in=ai_labels.NO_VOICE)),
+                      dead_caller=Count('id', filter=Q(ai_label=ai_labels.DEAD)),
+                      agent_only=Count('id', filter=Q(ai_label=ai_labels.AGENT_ONLY)),
+                      agent_beep=Count('id', filter=Q(ai_label=ai_labels.AGENT_BEEP)),
+                      ivr=Count('id', filter=Q(ai_label=ai_labels.IVR)),
+                      valid=Count('id', filter=Q(ai_label__in=(ai_labels.VALID, ai_labels.CALLER_OK)))))
+    items = [{'name': r[field] or '-', 'checked': r['checked'], 'no_voice': r['no_voice'],
+              'no_voice_pct': round(100.0 * r['no_voice'] / r['checked'], 1) if r['checked'] else None,
+              'dead_caller': r['dead_caller'], 'agent_only': r['agent_only'], 'agent_beep': r['agent_beep'],
+              'ivr': r['ivr'], 'valid': r['valid']} for r in rows]
+    items.sort(key=lambda x: (-(x['no_voice_pct'] or 0), -x['checked'], x['name']))
+    return 200, {'date_from': lo.isoformat(), 'date_to': hi.isoformat(), 'by': by, 'items': items}
+
+
 @router.get('/repeat-callers', response={200: dict})
 def repeat_callers(request, date_from: Optional[str] = None, date_to: Optional[str] = None, min_calls: int = 2):
     """Caller IDs with two or more No Voice calls in the dates (EST)."""
