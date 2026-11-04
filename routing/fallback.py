@@ -473,9 +473,9 @@ def record_call(entry):
         elif reason == RoutingEngine.BLOCKED_CALLER_LABEL and not entry.get('auto_block'):
             row.status = CallLog.Status.NO_ANSWER
         elif reason.startswith('Destination missed'):
+            # CH-519: no line got the call - no line or buyer on it (Not
+            # forwarded), the same as Server B writes it.
             row.status = CallLog.Status.NO_ANSWER
-            row.destination_number = str(entry.get('refused_destination') or '')[:20]
-            row.buyer = _buyer(entry.get('refused_buyer_id'))
         else:
             row.status = CallLog.Status.FAILED
         row.block_reason = (NO_DESTINATION_LABEL if reason.startswith('Destination missed') else reason)[:100]

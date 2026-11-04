@@ -16,6 +16,7 @@ minutes would otherwise repeat the same warning all day.
 import logging
 from datetime import timedelta
 
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
@@ -311,6 +312,51 @@ def check_buyer_missed(organization, window_minutes=60, min_calls=3, miss_rate=0
     return events
 
 
+def check_line_misses(organization, window_minutes=60):
+    """CH-519 (Sir, 4 Nov): "failover plus alert only". A destination line
+    whose last LINE_COOLDOWN_MISSES calls (failover tries included) were all
+    missed raises the "Buyer missing calls" alert. The line is not skipped -
+    failover moves every missed call on to the next buyer. Once a day per line.
+    """
+    from routing import failover
+    from routing.models import CallLog
+
+    if not failover.enabled():
+        return []
+    misses = max(1, int(getattr(settings, 'LINE_COOLDOWN_MISSES', 5) or 5))
+    since = timezone.now() - timedelta(minutes=window_minutes)
+    lines = (
+        CallLog.objects
+        .filter(organization=organization, created_at__gte=since, buyer__isnull=False,
+                status='no_answer', block_reason__in=failover.MISS_REASONS)
+        .exclude(destination_number='')
+        .values_list('buyer_id', 'buyer__name', 'destination_number')
+        .distinct()
+    )
+    events, seen = [], set()
+    for buyer_id, name, number in lines:
+        d10 = ''.join(c for c in number if c.isdigit())[-10:]
+        if (buyer_id, d10) in seen:
+            continue
+        seen.add((buyer_id, d10))
+        if failover.missed_in_a_row(buyer_id, number) is None:
+            continue
+        if _already_sent(f'line_missed:{buyer_id}:{d10}'):
+            continue
+        events.append(('buyer.missed', {
+            'type': 'destination',
+            'name': f'{name} line {number}',
+            'buyer_id': str(buyer_id),
+            'destination_number': number,
+            'missed': misses,
+            'total': misses,
+            'percent': 100.0,
+            'window_minutes': window_minutes,
+            'in_a_row': True,
+        }))
+    return events
+
+
 # ── average handle time dropping ─────────────────────────────────────────────
 
 def check_low_aht(organization, window_minutes=60, min_calls=5, drop_ratio=0.6):
@@ -380,6 +426,7 @@ DETECTORS = (
     check_buyer_caps,
     check_destination_caps,
     check_buyer_missed,
+    check_line_misses,
     check_low_aht,
 )
 

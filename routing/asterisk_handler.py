@@ -428,15 +428,13 @@ def _route_incoming_call(request):
             # refusal, so the rejected-call fee below is taken as before.
             call_log.status = CallLog.Status.NO_ANSWER
         elif reason.startswith('Destination missed'):
-            # The owner's rule: the buyer's line could not take the call, so
-            # it is MISSED on that line - status missed, TFN and buyer stamped
-            # so the mirror and every report count it against them, not shown
-            # as an anonymous platform drop.
+            # CH-519 (Sir, 4 Nov): the call is MISSED, but no line got it, so
+            # no line and no buyer is written on it - it shows "Not forwarded".
+            # The line that refused it (and why) stays in the routing trace.
+            # Before, the first refused line's TFN and buyer were stamped here,
+            # so 77 test calls made with every destination off showed under
+            # Q04, YNA, PDSO and BUB.
             call_log.status = CallLog.Status.NO_ANSWER
-            call_log.destination_number = decision.get('refused_destination') or ''
-            refused_buyer = decision.get('refused_buyer')
-            if refused_buyer is not None:
-                call_log.buyer = refused_buyer
         else:
             call_log.status = CallLog.Status.FAILED
         # Sir's wording for any call the destination side could not take:

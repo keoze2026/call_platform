@@ -420,8 +420,9 @@ class SyncToBTests(FallbackBase):
         self.a_routes(caller='+15557778888')
         sync.push_calls(fb.Journal())
         missed = CallLog.objects.get(caller_number__startswith='+1555000')
+        # CH-519: no line got it - Not forwarded, no line or buyer on it.
         self.assertEqual((missed.status, missed.block_reason, missed.destination_number, missed.buyer),
-                         ('no_answer', 'No Destination', A, self.buyers['Q04']))
+                         ('no_answer', 'No Destination', '', None))
         blocked = CallLog.objects.get(caller_number='+15557778888')
         self.assertEqual((blocked.status, blocked.block_reason), ('failed', 'CallerId Blocked'))
 

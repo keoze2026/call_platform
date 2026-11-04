@@ -81,14 +81,16 @@ class DestinationCapTests(TestCase):
         self.assertIn('daily cap 2/2', json.dumps(third.routing_trace))
         self.assertEqual(destination_cap_hit(self.line_a), 'daily cap 2/2')
 
-    def test_the_only_line_full_is_a_missed_call_on_it_and_the_count_stays_at_the_cap(self):
+    def test_the_only_line_full_is_not_forwarded_and_the_count_stays_at_the_cap(self):
         Destination.objects.filter(pk=self.line_b.pk).update(enabled=False)
         self.dial()
         self.dial()
         third = self.dial()
         self.assertEqual(third.block_reason, 'No Destination')
-        self.assertEqual(third.destination_number.lstrip('+'), A.lstrip('+'))  # missed on that line
-        # The refusal stamped on the line does not count: the page reads 2 / 2.
+        # CH-519: the full line never got the call - Not forwarded, no line on it.
+        self.assertEqual((third.destination_number, third.buyer_id), ('', None))
+        self.assertIn('daily cap 2/2', json.dumps(third.routing_trace))
+        # The page reads 2 / 2.
         from buyers.destinations_api import format_destination
         self.line_a.refresh_from_db()
         self.assertEqual(format_destination(self.line_a)['daily_calls'], 2)

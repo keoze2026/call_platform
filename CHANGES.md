@@ -9298,3 +9298,39 @@ fault.
   about the workspace is in it. The login page uses it from CH-518 FRONTEND.
 
 Tests: `config/test_health.py`.
+
+## CH-519 - Only the line that got the call is written on it; no 15-minute skip (BACKEND)
+
+Sir, 4 Nov: test calls at 4 AM EST with every destination off - 77 of 103
+showed under Q04|5984|, YNA, PDSO and BUB|2828| instead of "Not forwarded".
+
+Root cause (proof: Server B, 0-6 AM EST: 103 calls, 0 sent to a line; Server
+A CDR: 0 outbound legs). Nothing was dialled. A destination-side refusal
+("No Destination": line off, buyer paused, cap full, CC full, not on the
+Destinations page) was written with the **first refused line's TFN and buyer**
+(an older "missed on that line" rule in routing/asterisk_handler.py, and the
+same in routing/fallback.py for calls Server A routed itself). So each refused
+call counted under that buyer and destination. Failover was not involved; no
+call went to an off line.
+
+- Refused calls keep no line and no buyer: they show "Not forwarded". Which
+  line refused the call and why stays in the routing trace.
+- The 15-minute destination skip is off (Sir: "failover plus alert only"):
+  new setting LINE_COOLDOWN_ENABLED, default False. A line missing 5 in a row
+  (LINE_COOLDOWN_MISSES) raises the existing "Buyer missing calls" alert
+  (notifications.detectors.check_line_misses), once a day per line, and keeps
+  its calls; failover moves each missed call on.
+- `python manage.py clear_refused_lines --start .. --end .. [--apply]` (Eastern
+  times): takes the refused line and buyer off past "No Destination" calls
+  that were never dialled (no talk time, no ring time, no revenue or payout),
+  rewrites their report copy, and keeps the old line and buyer on the row in
+  routing_trace["ch519_cleared"]. Nothing is deleted. Dry run by default.
+
+Deploy: Server B only (no Server A change, no .env change). Restart web
+web_calls - only new calls pause for a few seconds.
+
+Tests: `routing/test_not_forwarded.py` (all lines off -> 100% Not forwarded;
+one line on -> only that line; failover never dials an off line; no skip;
+alert once; the correction command), `routing/test_failover.py`,
+`routing/test_fallback.py`, `buyers/test_destination_caps.py` updated.
+BUSINESS-RULES.md 2.2, 3.5, 3.6.

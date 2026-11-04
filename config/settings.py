@@ -872,3 +872,7 @@ FAILOVER_RING_SECONDS = config('FAILOVER_RING_SECONDS', default=0, cast=int)
 FAILOVER_MAX_TRIES = config('FAILOVER_MAX_TRIES', default=10, cast=int)
 LINE_COOLDOWN_MISSES = config('LINE_COOLDOWN_MISSES', default=5, cast=int)
 LINE_COOLDOWN_MINUTES = config('LINE_COOLDOWN_MINUTES', default=15, cast=int)
+# CH-519 (Sir, 4 Nov): "remove the 15-minute destination skip (failover plus
+# alert only)". The skip stays off unless this is set; a line missing
+# LINE_COOLDOWN_MISSES in a row raises the "Buyer missing calls" alert instead.
+LINE_COOLDOWN_ENABLED = config('LINE_COOLDOWN_ENABLED', default=False, cast=bool)

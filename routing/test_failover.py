@@ -117,6 +117,7 @@ class FailoverTests(TestCase):
                                        block_reason='No Answer', ended_at=when)
             CallLog.objects.filter(pk=c.pk).update(created_at=when - timedelta(seconds=20))
 
+    @override_settings(LINE_COOLDOWN_ENABLED=True)     # CH-519: the skip is off by default
     def test_five_misses_in_a_row_rest_the_destination(self):
         self.miss_on_a(4)
         self.assertEqual(self.dial()['buyer_number'], A)         # 4 misses: still tried
@@ -127,6 +128,7 @@ class FailoverTests(TestCase):
         trace = CallLog.objects.get(id=out['call_log_id']).routing_trace
         self.assertTrue(any('resting' in (d.get('reason') or '') for d in trace['rejected_destinations']))
 
+    @override_settings(LINE_COOLDOWN_ENABLED=True)     # CH-519: the skip is off by default
     def test_after_the_rest_one_call_then_back_to_normal_if_answered(self):
         self.miss_on_a(5, minutes_ago=16)
         probe = self.dial()
@@ -135,6 +137,7 @@ class FailoverTests(TestCase):
         CallLog.objects.filter(id=probe['call_log_id']).update(status='completed', ended_at=timezone.now())
         self.assertEqual(self.dial()['buyer_number'], A)        # answered: normal again
 
+    @override_settings(LINE_COOLDOWN_ENABLED=True)     # CH-519: the skip is off by default
     def test_after_the_rest_a_missed_test_call_rests_it_again(self):
         self.miss_on_a(5, minutes_ago=16)
         probe = self.dial()
@@ -142,6 +145,7 @@ class FailoverTests(TestCase):
             status='no_answer', block_reason='No Answer', ended_at=timezone.now())
         self.assertEqual(self.dial()['buyer_number'], B)
 
+    @override_settings(LINE_COOLDOWN_ENABLED=True)     # CH-519: the skip is off by default
     def test_caller_hanging_up_does_not_count_as_a_miss(self):
         self.miss_on_a(4)
         c = CallLog.objects.create(organization=self.org, campaign=self.campaign, buyer=self.buyers['Q06'],

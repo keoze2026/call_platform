@@ -101,7 +101,7 @@ Last updated: 31 Oct 2026.
 |---|---|
 | Missed but converted (destination on Incoming) | Status **"Missed With Conversion"** (CH-250; Sir may pick other words) |
 | Fail Reason | Only for calls that did **not** convert; converted calls show "—" (CH-250) |
-| Destination side could not take the call | **"No Destination"** (CH-151) |
+| Destination side could not take the call | **"No Destination"** (CH-151); no line or buyer on it - **"Not forwarded"** (CH-519) |
 | Caller on Blocked Numbers | Missed, **"Callerid Blocked"** |
 | Cap reached | **"Overflow Missed"** |
 | Switch never reported the end | **"Not Connected"** (CH-229) |
@@ -148,12 +148,22 @@ Last updated: 31 Oct 2026.
   refused, unavailable) passes the call to the **next buyer** at once, in
   priority / weight order, never one already tried on that call. The caller is
   never lost while a buyer is left.
-- After **5 missed in a row** a destination **rests 15 minutes** (skipped);
-  then it gets **one** call: answered - back to normal; missed - another 15
-  minutes. A caller hanging up is not a miss.
+- **No skip** (CH-519, Sir 4 Nov: "failover plus alert only"): after **5
+  missed in a row** a destination raises the **"Buyer missing calls"** alert
+  (once a day per line) and keeps getting calls - failover moves each missed
+  call on. The old 15-minute rest stays in the code behind
+  LINE_COOLDOWN_ENABLED (off). A caller hanging up is not a miss.
 - The call stays one row; the destinations it missed are kept hidden (never
-  shown or counted) and only feed the rest rule.
+  shown or counted) and only feed the alert.
 - Switch: FAILOVER_RING_SECONDS in Server B's .env (15 = on, 0 = off).
+
+### 3.6 Only the line that got the call - CH-519 (Sir, 4 Nov)
+- The Call Log, reports, Destinations page, bot and caps show a call under a
+  destination and buyer **only when that line was actually dialled**. A call
+  no line took (every line off, paused, full, not on the Destinations page)
+  is **"Not forwarded"**, Fail Reason "No Destination"; which line refused it
+  and why stays in the call's routing trace.
+- A line that is off is never dialled, failover included.
 
 ### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
 - A campaign line takes calls only when its number is on its buyer's

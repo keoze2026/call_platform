@@ -26,6 +26,8 @@ How it works:
   - A destination already tried on this call is not tried again.
   - Off (FAILOVER_RING_SECONDS = 0): no ring limit is sent, Server A dials as
     before, `route-next` answers "hangup", and no destination is cooled down.
+  - CH-519 (Sir, 4 Nov): the 15-minute skip is off unless
+    LINE_COOLDOWN_ENABLED is set - failover plus an alert only.
 """
 import logging
 from datetime import timedelta
@@ -66,40 +68,59 @@ def route_extras() -> dict:
     return {'ring_timeout': ring_seconds(), 'next_on_fail': 1}
 
 
-def cooling(buyer, number, now=None):
-    """None, or why this destination is resting.
+def cooldown_on() -> bool:
+    """CH-519 (Sir, 4 Nov): "remove the 15-minute destination skip (failover
+    plus alert only)". Off unless LINE_COOLDOWN_ENABLED is set; a line that
+    keeps missing raises an alert (notifications.detectors.check_line_misses)
+    and still gets its calls - failover moves each missed call on."""
+    return enabled() and bool(getattr(settings, 'LINE_COOLDOWN_ENABLED', False))
 
-    The last LINE_COOLDOWN_MISSES finished calls on the line (the buyer and its
-    TFN), tried-and-missed ones included: all missed -> rest
-    LINE_COOLDOWN_MINUTES from the newest miss. After that one call goes
-    through; while it is still ringing or talking the line rests. Answered, the
-    run of misses is broken and the line is back to normal; missed, it is the
-    newest miss and the rest starts again.
-    """
-    if not enabled() or buyer is None:
+
+def _line(buyer, number, now):
+    from routing.models import CallLog
+    return CallLog.objects.filter(buyer=buyer, destination_number__endswith=_d10(number),
+                                  created_at__gte=now - timedelta(days=2))
+
+
+def missed_in_a_row(buyer, number, now=None):
+    """The newest miss time when the last LINE_COOLDOWN_MISSES finished calls
+    on the line (the buyer and its TFN), tried-and-missed ones included, were
+    all missed; otherwise None."""
+    if buyer is None or len(_d10(number)) < 10:
         return None
     misses = max(1, int(getattr(settings, 'LINE_COOLDOWN_MISSES', 5) or 5))
-    rest = timedelta(minutes=max(1, int(getattr(settings, 'LINE_COOLDOWN_MINUTES', 15) or 15)))
-    d10 = _d10(number)
-    if len(d10) < 10:
-        return None
-    from routing.models import CallLog
     now = now or timezone.now()
-    line = CallLog.objects.filter(buyer=buyer, destination_number__endswith=d10,
-                                  created_at__gte=now - timedelta(days=2))
     last = list(
-        line.filter(ended_at__isnull=False)
+        _line(buyer, number, now).filter(ended_at__isnull=False)
         .filter(Q(status='completed') | Q(status='no_answer', block_reason__in=MISS_REASONS))
         .order_by('-ended_at').values_list('status', 'ended_at')[:misses]
     )
     if len(last) < misses or any(s != 'no_answer' for s, _ in last):
         return None
-    newest = last[0][1]
+    return last[0][1]
+
+
+def cooling(buyer, number, now=None):
+    """None, or why this destination is resting (only with LINE_COOLDOWN_ENABLED).
+
+    LINE_COOLDOWN_MISSES missed in a row -> rest LINE_COOLDOWN_MINUTES from the
+    newest miss. After that one call goes through; while it is still ringing or
+    talking the line rests. Answered, the run of misses is broken and the line
+    is back to normal; missed, it is the newest miss and the rest starts again.
+    """
+    if not cooldown_on():
+        return None
+    now = now or timezone.now()
+    newest = missed_in_a_row(buyer, number, now)
+    if newest is None:
+        return None
+    misses = max(1, int(getattr(settings, 'LINE_COOLDOWN_MISSES', 5) or 5))
+    rest = timedelta(minutes=max(1, int(getattr(settings, 'LINE_COOLDOWN_MINUTES', 15) or 15)))
     if now - newest < rest:
         left = int((rest - (now - newest)).total_seconds() // 60) + 1
         return f'resting {left} min after {misses} missed in a row'
     # The rest is over: one call may go through. While it is on, the line rests.
-    if line.filter(status__in=['ringing', 'in_progress'], created_at__gte=newest).exists():
+    if _line(buyer, number, now).filter(status__in=['ringing', 'in_progress'], created_at__gte=newest).exists():
         return 'one test call already on after the rest'
     return None
 
