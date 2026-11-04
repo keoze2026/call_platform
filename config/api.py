@@ -61,6 +61,22 @@ api = NinjaAPI(
 )
 
 
+@api.get("/health", auth=None, response={200: dict, 503: dict}, tags=["Health"])
+def health(request):
+    """CH-517: is the API up, and does the database answer. Public, nothing in
+    it. The login page's status dot asked /api/white-label/config instead and
+    took its 404 as "up" - every check was a red 404 in the browser console."""
+    from django.db import connection
+    try:
+        with connection.cursor() as c:
+            c.execute('SELECT 1')
+            c.fetchone()
+    except Exception:
+        logger.exception('health check: database did not answer')
+        return 503, {"ok": False}
+    return 200, {"ok": True}
+
+
 @api.exception_handler(Exception)
 def global_exception_handler(request, exc):
     # The exception text used to be returned to the caller, which handed out

@@ -9284,3 +9284,17 @@ pre-dial handler adds headers - and the script only knew `@carrier`.
   docs/asterisk/server-a-from-carrier-2026-11-04.conf and tested.
 
 Tests: `routing/test_failover.py` (12).
+
+## CH-517 - Public health check: GET /api/health (BACKEND)
+
+The login page's status dot checked the API by asking
+`/api/white-label/config`, which answers 404 when the domain has no white
+label - and took the 404 as "up". It worked, but every check printed a red
+"404" in the browser console, and people reading the console took it for a
+fault.
+
+- `GET /api/health` (no sign-in): `{"ok": true}` when the API and its
+  database answer, 503 `{"ok": false}` when the database does not. Nothing
+  about the workspace is in it. The login page uses it from CH-518 FRONTEND.
+
+Tests: `config/test_health.py`.
