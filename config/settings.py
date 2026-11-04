@@ -879,3 +879,5 @@ LINE_COOLDOWN_ENABLED = config('LINE_COOLDOWN_ENABLED', default=False, cast=bool
 # CH-527 (Sir, 4 Nov): a caller refused "No Destination" again within this many
 # minutes of his last refusal in the same campaign shows as one row.
 REFUSED_REPEAT_MINUTES = config('REFUSED_REPEAT_MINUTES', default=30, cast=int)
+# CH-531: a recording with less than this many seconds of speech is "no voice".
+VOICE_MIN_SECONDS = config('VOICE_MIN_SECONDS', default=1.0, cast=float)

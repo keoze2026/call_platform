@@ -25,6 +25,8 @@ class AnalyticsFilterSchema(Schema):
     is_converted: Optional[bool] = None
     is_duplicate: Optional[bool] = None
     is_spam:      Optional[bool] = None
+    # CH-531: staff-only voice check filter: no_voice | voice | missing | unchecked.
+    voice:        Optional[str] = None
 
     # Which destination (tracking number's target) to report on. The dashboard's
     # "All destinations" dropdown had nothing behind it - the filter was never
@@ -107,6 +109,9 @@ class CallRecordSchema(Schema):
     ended_at:         Optional[datetime]
     created_at:       datetime
     ipqs_line_type:   Optional[str] = None
+    # CH-531: the voice check - staff only (None for a buyer / publisher login).
+    voice_label:      Optional[str] = None
+    voice_seconds:    Optional[float] = None
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────

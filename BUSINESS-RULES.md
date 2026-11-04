@@ -175,6 +175,16 @@ Last updated: 31 Oct 2026.
   active lines with room (live calls under the limit, caps not full), and on
   no answer to the next one (3.5).
 
+### 3.8 Voice check on recordings - CH-531 (Sir, 4 Nov)
+- Every answered call's recording is checked on our own server (Silero VAD,
+  no outside service): "voice", "no voice" (under 1 second of speech -
+  nobody spoke, or nothing could be heard) or "missing" (no readable file).
+  Calls nobody answered have no recording and are not checked.
+- **For our team only**: buyers and publishers never see it, in any list,
+  filter or file.
+- One mixed recording per call today, so it cannot yet say WHICH side was
+  silent; that needs the two sides recorded separately on Server A.
+
 ### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
 - A campaign line takes calls only when its number is on its buyer's
   **Destinations page**. A line marked "Not on Destinations page" takes **no

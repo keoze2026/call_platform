@@ -201,6 +201,15 @@ class CallLog(models.Model):
 
     # Recording
     recording_url = models.URLField(blank=True)
+    # CH-531 (Sir, 4 Nov: "add AI to audit calls - just for us, not for
+    # consumer"): what the recording holds, from scripts/voice_check (Silero
+    # VAD on our own server). '' = not checked yet; 'voice' / 'no_voice';
+    # 'missing' = the recording file could not be read. Staff only - never
+    # sent to a buyer or publisher login.
+    voice_label = models.CharField(max_length=12, blank=True, default='')
+    voice_seconds = models.FloatField(null=True, blank=True)       # seconds of speech heard
+    voice_audio_seconds = models.FloatField(null=True, blank=True)  # length of the recording
+    voice_checked_at = models.DateTimeField(null=True, blank=True)
     recording_sid = models.CharField(max_length=100, blank=True)
     transcription = models.TextField(blank=True)
 

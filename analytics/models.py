@@ -131,6 +131,9 @@ class CallRecord(models.Model):
     duration_seconds = models.IntegerField(default=0)
     # Switch-measured ring of the outbound leg (CH-120); null = unknown.
     ring_seconds = models.IntegerField(null=True, blank=True)
+    # CH-531: the voice check (staff only; see routing.CallLog.voice_label).
+    voice_label = models.CharField(max_length=12, blank=True, default='')
+    voice_seconds = models.FloatField(null=True, blank=True)
     billable_seconds = models.IntegerField(default=0)
     is_converted    = models.BooleanField(default=False)
     # CH-247: set when the call was billed by its destination's own rule; its

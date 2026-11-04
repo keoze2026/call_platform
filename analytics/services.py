@@ -177,12 +177,15 @@ MASKED_KEYS = {
         # by 2-5 s - the time the call takes to connect - so showing it invites
         # disputes.
         'ttc', 'avg_ttc',
+        # CH-531: the voice check is for our team only (Sir: "not for consumer").
+        'voice_label', 'voice_seconds',
     ),
     'publisher': (
         'revenue', 'profit', 'total_revenue', 'total_profit',
         'dynamic_revenue', 'dynamic_profit',
         'cost', 'total_cost', 'platform_cost', 'charged_cost',
         'balance',
+        'voice_label', 'voice_seconds',
     ),
 }
 
@@ -320,6 +323,12 @@ class AnalyticsService:
             if value is not None:
                 qs = qs.filter(**{flag: value})
 
+        # CH-531: the staff-only voice filter (no_voice / voice / unchecked).
+        # A partner login's value is ignored - the check is not theirs to see.
+        voice = (_f(filters, 'voice') or '').strip().lower()
+        if voice and getattr(user, 'role', '') not in ('buyer', 'publisher'):
+            qs = qs.filter(voice_label='' if voice == 'unchecked' else voice)
+
         # A buyer or publisher login sees only its own calls. Applied here
         # rather than per endpoint so every report, chart, drill-down and export
         # built on this queryset is narrowed the same way - one place to be
@@ -381,6 +390,10 @@ class AnalyticsService:
         qs = AnalyticsService._calllog_range_qs(user, filters).filter(
             status__in=['in_progress', 'ringing', 'initiated'])
         if getattr(filters, 'status', None) and filters.status not in ['in_progress', 'ringing', 'initiated']:
+            qs = qs.none()
+        # CH-531: a call still live has no recording to check yet - it is not
+        # part of a voice-filtered list.
+        if (_f(filters, 'voice') or '').strip() and getattr(user, 'role', '') not in ('buyer', 'publisher'):
             qs = qs.none()
         return qs
 
@@ -1636,6 +1649,9 @@ class AnalyticsService:
             'cost':             AnalyticsService._call_cost(r, rate, markup),
             'winning_bid':      r.winning_bid,
             'recording_url':    public_recording_url(r.recording_url),
+            # CH-531: staff only - mask_partner_money nulls these for partners.
+            'voice_label':      getattr(r, 'voice_label', '') or '',
+            'voice_seconds':    getattr(r, 'voice_seconds', None),
             'carrier_name':     r.carrier_name,
             'carrier':          r.carrier or 'Unknown',
             'started_at':       dt_start,

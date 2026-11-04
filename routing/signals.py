@@ -177,6 +177,9 @@ def mirror_call_log(call_log_id) -> bool:
             'billable_seconds': call.duration or 0,
             'is_duplicate': call.is_duplicate,
             'recording_url': call.recording_url or '',
+            # CH-531: the voice check, for the staff-only Voice column.
+            'voice_label': call.voice_label or '',
+            'voice_seconds': call.voice_seconds,
             'carrier_name': call.carrier_name or '',
             'carrier': call.carrier or '',
             'ipqs_line_type': call.ipqs_line_type or '',

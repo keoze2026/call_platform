@@ -9485,3 +9485,36 @@ sender's redial to the same TFN within 6 s.
 - Builds on CH-526 (repeat callers with no line left are "No Destination").
 
 Tests: `routing/test_refused_repeats.py` (4). BUSINESS-RULES.md 3.7.
+
+## CH-531 - Voice check on every answered call, for our team only (BACKEND + Server B host)
+
+Sir, 4 Nov: "We have audit members who spend lots of time auditing no voice
+calls - we need to use them in different work - so add AI to audit calls -
+just for us, not for consumer." Step 1 of the plan: a free voice / no-voice
+flag, on our own server.
+
+- `scripts/voice_check/voice_check.py` (host, cron every 5 min, low
+  priority): for each answered call not checked yet, reads its recording
+  (the file in /var/spool/asterisk/recordings, else its link), decodes it
+  with ffmpeg and runs **Silero VAD** (open-source neural voice detector,
+  ONNX, 2.3 MB, MIT licence) over every 32 ms: seconds of speech.
+  `scripts/voice_check/install.sh` installs it into /opt/avx-voice only
+  (own Python environment, model pinned to v5.1.2 and checked by SHA-256).
+- New fields: CallLog voice_label / voice_seconds / voice_audio_seconds /
+  voice_checked_at; CallRecord voice_label / voice_seconds (mirrored).
+  Migrations add columns only - no index, no table rewrite (Postgres 16).
+- `voice_pending` (what to check), `voice_results` (labels: under
+  VOICE_MIN_SECONDS = 1.0 s of speech -> "no_voice", else "voice";
+  unreadable -> "missing"), `voice_report --date` (the audit list).
+- API: the call log carries voice_label / voice_seconds for staff; for a
+  buyer or publisher login they are null (MASKED_KEYS). Filter
+  `voice=no_voice|voice|missing|unchecked`, staff only (a partner's value is
+  ignored). Export files unchanged.
+- Measured here on phone-quality audio (8 kHz, MP3 24k as stored): silence,
+  line hiss, loud static and ringback -> 0.0 s speech; an 11 s speech clip
+  -> 5.9 s; the same speech inside 51 s of silence -> 5.6 s, found at
+  25.3 s; under line hiss -> 4.1 s. 51 s of audio checked in under 1 s.
+- Not yet: which side was silent (recordings are one mixed channel), a
+  transcript, and the Voice column on the Reports page (FRONTEND, next).
+
+Tests: `routing/test_voice_check.py` (4). BUSINESS-RULES.md 3.8.
