@@ -9334,3 +9334,52 @@ one line on -> only that line; failover never dials an off line; no skip;
 alert once; the correction command), `routing/test_failover.py`,
 `routing/test_fallback.py`, `buyers/test_destination_caps.py` updated.
 BUSINESS-RULES.md 2.2, 3.5, 3.6.
+
+### CH-519 deployed - record and proof (4 Nov, EST)
+
+- 5:35 AM EST, Server B: `git pull`, `docker compose restart web web_calls`,
+  then `celery_worker celery_beat` (the services are named celery_worker and
+  celery_beat; "celery" does not exist and stops the whole restart command).
+- 77 test calls corrected with `clear_refused_lines --start
+  2026-11-04T00:00 --end 2026-11-04T06:00 --apply`. Before: 77 on a line
+  (Q04 40, YNA 16, PDSO 14, BUB 7), 26 Not forwarded. After: 0 on a line, 103
+  Not forwarded; CallRecord copies 103, 0 with a buyer, 0 with a line; 77
+  keep the old line in routing_trace["ch519_cleared"].
+- Live check after deploy: FAILOVER_RING_SECONDS 15, LINE_COOLDOWN_ENABLED
+  False; no "No Destination" call today on a line, in CallLog or CallRecord.
+
+Proof that nothing was dialled 12-6 AM EST:
+- Server B: 103 calls, 0 sent to a line.
+- Server A routing journal (`/var/lib/avortyx/fallback/journal.sqlite3`,
+  every number B tells A to dial and every call A routes alone): 0 rows in
+  the window; 2,790 rows on 3 Nov, newest 3 Nov 4:29 PM EST.
+- Server A CDR (`/var/log/asterisk/cdr-csv/Master.csv`, times in UTC):
+  0 rows today. **It logs answered calls only** (`cdr.conf` `unanswered`
+  is commented out = no), so it cannot show a dial that was not answered. An
+  earlier grep reporting "0 outbound legs" was not proof - the file had no
+  rows for the window. Turning on `unanswered = yes` is recommended to Sir,
+  not done.
+
+YNA and PDSO (Sir asked if a wrong field was written): both are buyers and
+the names of their own Destinations rows (YNA +18667405262, PDSO
++18667404516), named without the "|last 4|" the others use. All four lines
+were off.
+
+Origin of the old rule: CH-117 (13 Oct) - "a missed call names its line".
+It was right for one full line, wrong when every line is off; CH-511/CH-513
+fixed the counting but not the label.
+
+Open after CH-519:
+- Re-test by the camp team (all lines off -> 100% Not forwarded; one line on
+  -> only that line), proof by query. No calls had come in since the deploy.
+- Pre-deploy checklist items not run for CH-519: buyer filter on
+  Destinations, header Balance/Total, Reports totals vs Call Log.
+- Redials shown as Repeated instead of hidden (Sir, pending since 3 Nov).
+- Server A CDR `unanswered = yes` - waiting for an OK.
+- Earlier days (since 13 Oct) still show refused calls under the refused
+  line; `clear_refused_lines` can correct any range if Sir asks.
+- Six lines on Group A / Nov 3 with no Destinations row (CRM 3936, 2923,
+  0775, 4217, 3829; RXB 9026) - activity check sent, no answer; the camp
+  team decides, nothing switched by us.
+- `RoutingEngine.is_duplicate` counts the call's own row when a campaign has
+  duplicate_call_block on (reported, not fixed).
