@@ -9628,3 +9628,19 @@ and the worker a call was in neither half and vanished (CDM 9:36:08 AM).
 
 Tests: `routing/test_realtime_reports.py` (6); test_user_billing adjusted to
 the copy now made in the request (same race, same checks).
+
+## CH-542 - Caps and lines pushed to every open portal tab (BACKEND)
+
+Camp team (Sergio), 4 Nov: "when you set a buyer's cap I don't have to
+refresh Destinations for it to reflect ... when one member sets a buyer's
+cap, I have to refresh so that it can reflect on my side."
+
+- When a Buyer, BuyerCap, Destination, RuleDestination (campaign routed
+  line), CampaignCap or PublisherCap is saved or deleted, after commit every
+  portal tab of that workspace gets "report.changed" with event
+  "config.changed" on /ws/live-calls/ (the reports_org_<id> group of CH-538)
+  - no details. The tab reloads those figures through the API (frontend
+  CH-542). Another workspace hears nothing.
+- Reports' cache is not touched (a cap is not a call). Never raises.
+
+Tests: `routing/test_config_push.py` (4).

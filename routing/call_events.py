@@ -81,3 +81,59 @@ def event_name(status: str, created: bool) -> str:
     if status in ('completed', 'no_answer', 'busy', 'failed', 'canceled'):
         return 'call.ended'
     return 'call.updated'
+
+
+# ── CH-542: settings changed (caps, lines, buyers) ───────────────────────────
+#
+# Camp team, 4 Nov: "when you set a buyer's cap I don't have to refresh
+# Destinations for it to reflect ... when one member sets a buyer's cap, I
+# have to refresh so that it can reflect on my side." When a buyer, a buyer
+# cap, a destination line, a campaign's routed line, a campaign cap or a
+# publisher cap is saved or deleted, every portal tab of the workspace gets
+# "report.changed" with event "config.changed" - nothing else - and reloads
+# those figures through the same API (lib/report-events.ts). Reports' cache
+# is not touched: a cap is not a call.
+
+CONFIG_EVENT = 'config.changed'
+
+
+def publish_config(organization_id) -> None:
+    if organization_id:
+        _push(organization_id, CONFIG_EVENT)
+
+
+def _org_of(instance):
+    """The workspace of a saved settings row, or None."""
+    for path in ('organization_id', 'buyer.organization_id', 'rule.organization_id',
+                 'campaign.organization_id', 'publisher.organization_id'):
+        obj = instance
+        try:
+            for part in path.split('.'):
+                obj = getattr(obj, part)
+        except Exception:
+            continue
+        if obj:
+            return obj
+    return None
+
+
+def _on_settings_change(sender, instance, **kwargs):
+    from django.db import transaction
+    try:
+        org_id = _org_of(instance)
+    except Exception:
+        return
+    if org_id:
+        transaction.on_commit(lambda: publish_config(org_id))
+
+
+def connect_settings_signals() -> None:
+    from django.db.models.signals import post_delete, post_save
+    from buyers.destination import Destination
+    from buyers.models import Buyer, BuyerCap
+    from campaigns.models import CampaignCap
+    from publishers.models import PublisherCap
+    from routing.models import RuleDestination
+    for model in (Buyer, BuyerCap, Destination, RuleDestination, CampaignCap, PublisherCap):
+        post_save.connect(_on_settings_change, sender=model, dispatch_uid=f'ch542-save-{model.__name__}')
+        post_delete.connect(_on_settings_change, sender=model, dispatch_uid=f'ch542-del-{model.__name__}')
