@@ -82,3 +82,64 @@ class RefusedBurstTests(Base):
         arrived = prev.ended_at + timedelta(seconds=0.9)
         found = find_retry_of(self.org.id, prev.caller_number, prev.called_number, arrived)
         self.assertEqual(found.pk, prev.pk)
+
+
+class OurRefusalBurstTests(Base):
+    """CH-522: a call we refused before any line rang, redialled by the sender
+    within seconds, is one row - 4 Nov test, 18622022793: 7 rows in 11 s."""
+    def setUp(self):
+        Base.setUp(self)
+        p = mock.patch('tasks.retire_used_number')
+        p.start()
+        self.addCleanup(p.stop)
+        self.t0 = timezone.now() - timedelta(minutes=30)
+
+    try_at = RefusedBurstTests.try_at
+    group = RefusedBurstTests.group
+    shown = RefusedBurstTests.shown
+
+    def test_the_4_nov_duplicate_burst_is_one_row(self):
+        # 04:09:25, :26, :30, :31, :32, :35, :36 AM - each refused at once.
+        rows = [self.try_at(f'd{i}', s, 0.2, 'Duplicate call', caller='+18622022793')
+                for i, s in enumerate((0, 1, 5, 6, 7, 10, 11))]
+        self.group()
+        shown = self.shown()
+        self.assertEqual([r.pk for r in shown], [rows[-1].pk])
+        self.assertEqual(CallLog.objects.filter(retry_hidden=True).count(), 6)
+
+    def test_the_5_second_pause_in_a_burst_stays_in_it(self):
+        # 16162137946, 4 Nov: 04:09:03, :05, :10, :12, :13.
+        for i, s in enumerate((0, 2, 7, 9, 10)):
+            self.try_at(f'p{i}', s, 0.2, 'Duplicate call', caller='+16162137946')
+        self.group()
+        self.assertEqual(len(self.shown()), 1)
+
+    def test_a_no_answer_try_keeps_the_4_second_gap(self):
+        self.try_at('a', 0, 0.5, 'No Answer')
+        self.try_at('b', 5.5, 0.5, 'No Answer')
+        self.group()
+        self.assertEqual(len(self.shown()), 2)
+
+    def test_all_lines_off_burst_is_one_row(self):
+        for i, s in enumerate((0, 2, 5, 7, 8, 10)):
+            self.try_at(f'n{i}', s, 0.2, 'No Destination', caller='+19362080964')
+        self.group()
+        self.assertEqual(len(self.shown()), 1)
+
+    def test_a_refused_caller_calling_back_later_is_two_calls(self):
+        self.try_at('x', 0, 0.2, 'No Destination')
+        self.try_at('y', 30, 0.2, 'No Destination')
+        self.group()
+        self.assertEqual(len(self.shown()), 2)
+
+    def test_a_new_call_links_live_after_our_refusal(self):
+        prev = self.try_at('p', 0, 0.2, 'Duplicate call')
+        found = find_retry_of(prev.organization_id, prev.caller_number, prev.called_number,
+                              arrived_at=prev.ended_at + timedelta(seconds=1))
+        self.assertEqual(found.pk, prev.pk)
+
+    def test_nothing_is_deleted(self):
+        for i in range(5):
+            self.try_at(f'k{i}', i, 0.2, 'No Destination')
+        self.group()
+        self.assertEqual(CallLog.objects.count(), 5)

@@ -25,7 +25,9 @@ same number:
      caller, not by Revo).
 Rules 3 and 4 do not apply when the buyer's line itself refused the previous
 try (fail reason "No Answer"): then the redial is the sender's whatever the
-length (CH-227).
+length (CH-227). Nor when we refused it before any line rang ("No
+Destination", "Duplicate call", "Insufficient Funds", "CallerId Blocked" -
+CH-522).
 
 The grouped call is shown once: its latest try (so its result is the final
 one), dated from the first try, with the waiting time counted from the first
@@ -47,6 +49,17 @@ LOOKBACK_MINUTES = 15
 # The fail reason a try gets when the buyer's line refused or rang out it
 # (routing.asterisk_handler.NO_ANSWER_LABEL), as opposed to the caller hanging up.
 REFUSED_LABEL = 'No Answer'
+# CH-522 (Sir, 4 Nov: "why on portal still shows more calls for no Answers yet
+# it was same caller???"): a call WE refused before any line rang - every line
+# off, a Different-mode duplicate, out of balance, a blocked caller - is
+# redialled by the sender within a second or two just the same. 4 Nov test:
+# one call showed as 5-7 rows (18622022793: 7 rows in 11 s), because these
+# tries last 0 s and only "No Answer" was exempt from MIN_TRY_SECONDS.
+OUR_REFUSALS = ('No Destination', 'Duplicate call', 'Insufficient Funds', 'CallerId Blocked')
+# After our refusal the sender's redials came 1-2 s apart with a pause of 4-5 s
+# every few tries (4 Nov: 16162137946 at 04:09:05 then 04:09:10), so the gap
+# allowed after one of our refusals is a little wider than RETRY_GAP_SECONDS.
+OUR_REFUSAL_GAP_SECONDS = 6
 
 
 def try_length(call) -> float:
@@ -63,9 +76,10 @@ def is_retry(prev, before, arrived_at) -> bool:
     if prev is None or prev.status != CallLog.Status.NO_ANSWER or not prev.ended_at:
         return False
     gap = (arrived_at - prev.ended_at).total_seconds()
+    ours = prev.block_reason in OUR_REFUSALS
     # A little slack below zero: the new call can be written a moment before
     # the previous try's end is.
-    if gap < -1 or gap > RETRY_GAP_SECONDS:
+    if gap < -1 or gap > (OUR_REFUSAL_GAP_SECONDS if ours else RETRY_GAP_SECONDS):
         return False
     length = try_length(prev)
     # CH-227: the buyer's line itself refused or rang out the previous try
@@ -74,7 +88,7 @@ def is_retry(prev, before, arrived_at) -> bool:
     # tries in a row within a second each, the sender redialled every 1.5 s,
     # and each became its own red row because each was shorter than
     # MIN_TRY_SECONDS.
-    refused = prev.block_reason == REFUSED_LABEL
+    refused = prev.block_reason == REFUSED_LABEL or ours
     if length < MIN_TRY_SECONDS and not refused:
         return False
     if before is not None and not refused and length < SAME_LIMIT_RATIO * try_length(before):

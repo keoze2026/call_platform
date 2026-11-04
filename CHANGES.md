@@ -9409,3 +9409,28 @@ the code (network / connection). Two were slow in the code:
 Tests: `buyers/test_page_query_counts.py` - query count does not grow with
 lines / buyers (old code: 11 -> 23 and 12 -> 36), a buyer on its own zone is
 still counted on its own day, the values match.
+
+## CH-522 - A sender's redials after OUR refusal show as one call (BACKEND)
+
+Sir, 4 Nov: "why on portal still shows more calls for no Answers yet it was
+same caller???" In the 4 AM test every call was refused by us before any line
+rang (all lines off -> "No Destination"; Different-mode duplicate ->
+"Duplicate call"), and the sending platform redialled each one within 1-5
+seconds. 18622022793: 7 rows in 11 s; 16162137946: 5 rows; 19092139947: 5;
+19362080964: 6. The grouping rule (CH-215 / CH-227) was not removed - it
+grouped 28 on Nov 2 and 410 on Nov 3 - but it only waived the "rang at least
+4 s" condition when the buyer's line refused ("No Answer"). Our own refusals
+last 0 s, so every redial was its own row.
+
+- `routing/retry_group.is_retry`: a try we refused before any line rang
+  ("No Destination", "Duplicate call", "Insufficient Funds", "CallerId
+  Blocked") is grouped with the sender's next try like a "No Answer" one,
+  with a gap of up to 6 s (the sender paused 4-5 s every few redials:
+  16162137946 at 04:09:05 then 04:09:10). Every other case keeps 4 s.
+- The grouped call is one row with the latest try's result, dated from the
+  first try, Repeated as the first try was. Earlier tries are kept in the
+  call log (retry_hidden), as for every grouped call - nothing is deleted.
+- A caller refused and calling back later (more than 6 s) is still a new call.
+- Past days: `group_call_retries --date YYYY-MM-DD` (dry run), then `--apply`.
+
+Tests: `routing/test_retry_refused.py` OurRefusalBurstTests (7).
