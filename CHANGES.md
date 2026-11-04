@@ -9383,3 +9383,29 @@ Open after CH-519:
   team decides, nothing switched by us.
 - `RoutingEngine.is_duplicate` counts the call's own row when a campaign has
   duplicate_call_block on (reported, not fixed).
+
+## CH-521 - Destinations and Buyers pages: no query per row (BACKEND)
+
+Asked: "API calls taking 600-900 ms awaiting the server". Measured inside
+Server B first (4 Nov, admin of the main workspace, today's range): 13 of the
+main portal calls answer in 4-11 ms, so most of the 600-900 ms is outside
+the code (network / connection). Two were slow in the code:
+
+| Endpoint | Before | Cause |
+|---|---|---|
+| /api/destinations/ (189 lines) | 212 ms, 197 queries | 189 x "SELECT organizations" - each line re-read its workspace (`d.organization`) |
+| /api/buyers/ (49 buyers) | 175 ms, 104 queries | 98 x "SELECT COUNT(*) FROM call_logs" - cap used today/month counted per buyer, the same numbers as calls_today / calls_month |
+
+- `format_destination` uses `d.organization_id`; the numbers are the same.
+  The bot API's destination lists (analytics/stats_api.py) and the campaign
+  group destinations use it too and lose the same per-row query.
+- `buyer_usage`: on the Eastern day, cap used today/month ARE calls_today /
+  calls_month (same rows, cap_q); only a buyer with a time zone of its own is
+  counted again on its own day (none on Server B on 4 Nov: 65 blank, 4
+  America/New_York).
+- `/api/accounts/me` 1,265 ms was the first request of a fresh process after
+  a restart (then 4 ms) - not changed.
+
+Tests: `buyers/test_page_query_counts.py` - query count does not grow with
+lines / buyers (old code: 11 -> 23 and 12 -> 36), a buyer on its own zone is
+still counted on its own day, the values match.

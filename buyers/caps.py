@@ -153,7 +153,6 @@ def buyer_usage(organization, buyer_ids, now=None) -> dict:
     # With every ring it read Q06 158 against 15 calls in Reports.
     sent = CallLog.objects.filter(organization=organization, buyer_id__in=buyer_ids) \
         .exclude(destination_number='').filter(cap_q())
-    capped = sent
     for r in sent.values('buyer_id').annotate(
             calls_hourly=Count('id', filter=Q(created_at__gte=hour_ago)),
             calls_today=Count('id', filter=Q(created_at__gte=day_start)),
@@ -170,20 +169,25 @@ def buyer_usage(organization, buyer_ids, now=None) -> dict:
     # The buyer's own caps, and how far it is into them - on its own day, the
     # one routing checks (buyer_cap_hit).
     caps = {c.buyer_id: c for c in BuyerCap.objects.filter(buyer_id__in=buyer_ids)}
-    for b in Buyer.objects.filter(id__in=caps).only('id', 'timezone'):
-        cap, row = caps[b.id], out[b.id]
-        row['daily_cap'] = cap.max_calls_daily or 0
-        row['monthly_cap'] = cap.max_calls_monthly or 0
-        # CH-511: how far into its cap, counted as the cap counts (cap_q).
-        _, d0, m0 = windows(b.timezone or DEFAULT_TZ, now)
-        mine = capped.filter(buyer_id=b.id)
+    for b, cap in caps.items():
+        if b in out:
+            out[b]['daily_cap'] = cap.max_calls_daily or 0
+            out[b]['monthly_cap'] = cap.max_calls_monthly or 0
+    # CH-511: how far into its cap, counted as the cap counts (cap_q) - the
+    # same rows as calls_today / calls_month above. On the Eastern day those
+    # ARE the numbers; only a buyer with a zone of its own is counted again.
+    # CH-521: this was two COUNT queries for every buyer (98 of the 104
+    # queries on the Buyers page), each returning the number already here.
+    zones = dict(Buyer.objects.filter(id__in=buyer_ids).values_list('id', 'timezone'))
+    for b, row in out.items():
+        zone = zones.get(b) or DEFAULT_TZ
+        if zone == DEFAULT_TZ:
+            row['cap_used_today'], row['cap_used_month'] = row['calls_today'], row['calls_month']
+            continue
+        _, d0, m0 = windows(zone, now)
+        mine = sent.filter(buyer_id=b)
         row['cap_used_today'] = mine.filter(created_at__gte=d0).count()
         row['cap_used_month'] = mine.filter(created_at__gte=m0).count()
-    for b, row in out.items():
-        if b not in caps:
-            mine = capped.filter(buyer_id=b)
-            row['cap_used_today'] = mine.filter(created_at__gte=day_start).count()
-            row['cap_used_month'] = mine.filter(created_at__gte=month_start).count()
 
     # Its live TFNs and their daily caps, for the cap breakdown.
     for r in Destination.objects.filter(organization=organization, buyer_id__in=buyer_ids, enabled=True) \

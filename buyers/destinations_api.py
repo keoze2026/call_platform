@@ -191,7 +191,10 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
     from decimal import Decimal
     from zoneinfo import ZoneInfo
 
-    org = d.organization
+    # CH-521: the id, not the object. Reading d.organization cost one query
+    # per line - 189 of the 197 queries on a 189-line Destinations page, and the
+    # same on the bot API's destination lists.
+    org_id = d.organization_id
     try:
         tz = ZoneInfo(tz_name or d.timezone or 'America/New_York')
     except Exception:
@@ -222,7 +225,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
         row = counts_for(counts, d)
         live_count = row.get('live', 0)
     else:
-        live_count = CallLog.objects.filter(organization=org).filter(live_q).count()
+        live_count = CallLog.objects.filter(organization_id=org_id).filter(live_q).count()
 
     # 2. Which calls belong to this destination, with no date filter on it.
     # Kept separate from the date range below: the month and all-time counts
@@ -232,7 +235,7 @@ def format_destination(d, start_date=None, end_date=None, tz_name=None, counts=N
     # was really today's number under four different labels.
     from django.utils.dateparse import parse_datetime
 
-    dest_q = Q(organization=org)
+    dest_q = Q(organization_id=org_id)
     if d.tfn:
         # Calls sent to the line (CH-396), as its caps count them.
         from buyers.caps import counted_q
