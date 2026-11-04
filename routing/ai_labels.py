@@ -48,7 +48,10 @@ AGENT_ONLY = 'agent_only'
 AGENT_BEEP = 'agent_beep'
 MIXED = 'mixed'
 IVR = 'ivr'
-LABELS = (VALID, DEAD, AGENT_ONLY, AGENT_BEEP, IVR)     # what a reviewer can pick
+# CH-555: two more the LLM can give (Sir, 4 Nov).
+ROBOCALL = 'robocall'
+CALLER_OK = 'caller_ok'
+LABELS = (VALID, DEAD, AGENT_ONLY, AGENT_BEEP, IVR, ROBOCALL, CALLER_OK)   # what a reviewer can pick
 NO_VOICE = (DEAD, AGENT_ONLY, AGENT_BEEP)
 NAMES = {
     VALID: 'Valid Call',
@@ -57,6 +60,8 @@ NAMES = {
     AGENT_BEEP: 'No Voice | Only Agent + Beeping',
     MIXED: 'Voice Found',          # Sir, 4 Nov: one word for it
     IVR: 'Voicemail / IVR',        # CH-553: music or a machine, no person
+    ROBOCALL: 'Robocall',          # CH-555: a recorded / automated caller
+    CALLER_OK: 'Caller spoke, no issue',
 }
 FAULT_NOTE = 'Possible audio fault'
 

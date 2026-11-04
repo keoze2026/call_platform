@@ -12,7 +12,7 @@ API refuses or blanks them, and the portal hides them.
 """
 from django.conf import settings
 
-AI_FIELDS = ('ai_label', 'voice_label', 'voice_seconds')
+AI_FIELDS = ('ai_label', 'voice_label', 'voice_seconds', 'ai_confidence', 'ai_summary', 'ai_review_label')
 
 
 def allowed_emails() -> set:

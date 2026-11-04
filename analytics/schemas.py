@@ -118,6 +118,10 @@ class CallRecordSchema(Schema):
     voice_seconds:    Optional[float] = None
     # CH-546: the AI audit label (CH-543) - staff only, None for partners.
     ai_label:         Optional[str] = None
+    # CH-555: confidence, the LLM's one-line summary, the audit team's verdict.
+    ai_confidence:    Optional[int] = None
+    ai_summary:       Optional[str] = None
+    ai_review_label:  Optional[str] = None
 
 
 # ─── Dashboard ───────────────────────────────────────────────────────────────

@@ -76,7 +76,15 @@ class Command(BaseCommand):
                 }
             try:
                 before = (CallLog.objects.filter(id=call_id)
-                          .values_list('ai_label', 'organization_id').first()) or ('', None)
+                          .values_list('ai_label', 'organization_id', 'ai_final_at', 'ai_final_by').first()
+                          or ('', None, None, ''))
+                # CH-555: the rule label is kept apart; once the LLM has set
+                # the final label, a re-check updates only the rule label.
+                if extra:
+                    extra['ai_rule_label'] = extra['ai_label']
+                    if before[2] and not (before[3] or '').startswith('error'):
+                        extra.pop('ai_label')
+                        extra.pop('ai_confidence')
                 n = CallLog.objects.filter(id=call_id).update(
                     voice_label=label, voice_seconds=speech, voice_audio_seconds=audio, voice_checked_at=now,
                     **extra)
@@ -87,8 +95,12 @@ class Command(BaseCommand):
                 continue
             # updated_at too (CH-546): the Reports page reloads when its calls'
             # fingerprint changes, and .update() leaves auto_now alone.
-            CallRecord.objects.filter(id=call_id).update(voice_label=label, voice_seconds=speech,
-                                                         ai_label=extra.get('ai_label', ''), updated_at=now)
+            mirror = {'voice_label': label, 'voice_seconds': speech, 'updated_at': now}
+            if 'ai_label' in extra:
+                mirror.update(ai_label=extra['ai_label'], ai_confidence=extra['ai_confidence'])
+            elif not extra:
+                mirror['ai_label'] = ''
+            CallRecord.objects.filter(id=call_id).update(**mirror)
             counts[label] += 1
             orgs.add(before[1])
             if extra.get('ai_label') in ai_labels.NO_VOICE and before[0] != extra['ai_label']:

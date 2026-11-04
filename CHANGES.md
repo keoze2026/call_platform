@@ -9889,3 +9889,42 @@ still checked as one mixed recording: each split file was a 404.
   `scripts/b2_nginx.sh` writes the same location, so a re-install keeps it.
 
 Tests: `routing/test_ai_ivr.py` (10).
+
+## CH-555 - AI audit: final label by an LLM - transcript, confidence, one-line summary (BACKEND + Server B host)
+
+Sir, 4 Nov: "After each call, an LLM (Claude or GPT) reads the transcript plus
+the Silero and PANNs results and sets the final label: Valid, the three No
+Voice types, Voicemail/IVR, Robocall, or 'Caller spoke, no issue'. It also
+writes a one-line summary. Show the label, confidence and summary in the Call
+Log and Reports, with Correct/Wrong buttons for the audit team." "Call audio
+sent to outside APIs must be encrypted, and providers must not keep or train
+on our audio." "Live analysis must not affect call quality on Server A."
+
+- `scripts/ai_final/ai_final.py` (Server B host, cron `--loop 55`): after
+  the voice check, for each answered call: the talk part (caller left /
+  agent right when the split files are there, else the mixed file; at most
+  AI_FINAL_MAX_SECONDS, 300) -> transcript by AI_STT_PROVIDER (assemblyai:
+  pre-recorded, transcript and audio DELETED at AssemblyAI right after;
+  deepgram: Nova-3, mip_opt_out=true) -> AI_LLM_PROVIDER (anthropic: Claude,
+  default claude-haiku-5-5; openai: GPT, AI_LLM_MODEL required) answers
+  label, confidence and a one-line summary as JSON. https only (refuses
+  anything else). `--dry-run [--show-transcript]` prints and saves nothing.
+  Not started by anything: it runs once its cron line is added.
+- Labels: `robocall` (Robocall) and `caller_ok` (Caller spoke, no issue)
+  join the list; the audit team can pick them under Wrong.
+- `ai_final_pending` (read-only) / `ai_final_results` (save): the final
+  label replaces `ai_label`; the Silero / PANNs one is kept in
+  `ai_rule_label`; `ai_summary`, `ai_transcript`, `ai_final_at`,
+  `ai_final_by` (which transcription + model, or "error: ..."). A call the
+  LLM newly puts in a No Voice type goes to the team's Telegram. A failed try
+  keeps the rule label; `--retry-failed` tries those again. A later voice
+  re-check updates only the rule label.
+- Call Log / Reports rows: `ai_confidence`, `ai_summary`, `ai_review_label`
+  (Report copy fields, migration analytics 0028); blanked for every login
+  without AI access (CH-548). A Correct / Wrong verdict shows there at once.
+- AI Audit page rows: summary, full transcript (2,000 characters), rule label,
+  which transcription + model. Filters and counts for the two new labels.
+- Migrations: routing 0023, analytics 0028 (new columns only).
+
+Tests: `routing/test_ai_final.py` (13) - stand-in AssemblyAI, Deepgram, Claude
+and GPT servers.

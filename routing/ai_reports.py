@@ -128,8 +128,8 @@ def daily_summary(now=None, force=False) -> int:
         lines = [f'<b>AI audit - {day:%a %d %b %Y} (EST)</b>',
                  f'{total} calls checked · No Voice {no_voice} ({100.0 * no_voice / total:.1f}%)' if total
                  else 'No calls checked.']
-        for k in (ai_labels.VALID, ai_labels.DEAD, ai_labels.AGENT_ONLY, ai_labels.AGENT_BEEP, ai_labels.IVR,
-                  ai_labels.MIXED):
+        for k in (ai_labels.VALID, ai_labels.CALLER_OK, ai_labels.DEAD, ai_labels.AGENT_ONLY, ai_labels.AGENT_BEEP,
+                  ai_labels.IVR, ai_labels.ROBOCALL, ai_labels.MIXED):
             if labels.get(k):
                 lines.append(f'{e(ai_labels.NAMES[k])}: {labels[k]}')
         pubs = sorted(_by_publisher(mine), key=lambda r: (-r[3], r[1]))

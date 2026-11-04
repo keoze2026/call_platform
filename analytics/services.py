@@ -1675,6 +1675,10 @@ class AnalyticsService:
             'voice_seconds':    getattr(r, 'voice_seconds', None),
             # CH-546: the AI label ('' = Pending AI check) - staff only.
             'ai_label':         getattr(r, 'ai_label', '') or '',
+            # CH-555: with the label - confidence, one-line summary, verdict.
+            'ai_confidence':    getattr(r, 'ai_confidence', None),
+            'ai_summary':       getattr(r, 'ai_summary', '') or '',
+            'ai_review_label':  getattr(r, 'ai_review_label', '') or '',
             'carrier_name':     r.carrier_name,
             'carrier':          r.carrier or 'Unknown',
             'started_at':       dt_start,

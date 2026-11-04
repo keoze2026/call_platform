@@ -185,6 +185,10 @@ def mirror_call_log(call_log_id) -> bool:
             'voice_seconds': call.voice_seconds,
             # CH-543: the AI audit label, for Reports' filters (Part 2).
             'ai_label': call.ai_label or '',
+            # CH-555: confidence, the LLM's summary, the audit team's verdict.
+            'ai_confidence': call.ai_confidence,
+            'ai_summary': call.ai_summary or '',
+            'ai_review_label': call.ai_review_label or '',
             'carrier_name': call.carrier_name or '',
             'carrier': call.carrier or '',
             'ipqs_line_type': call.ipqs_line_type or '',

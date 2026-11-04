@@ -27,7 +27,8 @@ from routing import ai_labels
 
 router = Router(tags=['AI Audit'], auth=JWTAuth())
 ET = ZoneInfo('America/New_York')
-FILTERS = ('', 'no_voice', 'dead_caller', 'agent_only', 'agent_beep', 'valid', 'mixed', 'ivr', 'pending', 'fault',
+FILTERS = ('', 'no_voice', 'dead_caller', 'agent_only', 'agent_beep', 'valid', 'mixed', 'ivr', 'robocall',
+           'caller_ok', 'pending', 'fault',
            'reviewed', 'wrong')
 ACCURACY_DAYS = 30
 
@@ -79,7 +80,11 @@ def _row(c) -> dict:
         'caller_first': c.voice_caller_first,
         'beep_seconds': c.voice_beep_seconds,
         'speech': c.voice_seconds,
-        'transcript': (c.ai_transcript or '')[:300],
+        'transcript': (c.ai_transcript or '')[:2000],
+        # CH-555: the LLM's line, and what Silero / PANNs said before it.
+        'summary': c.ai_summary or '',
+        'rule_label': c.ai_rule_label or '',
+        'final_by': c.ai_final_by or '',
         'review_label': c.ai_review_label or '',
         'review_correct': (c.ai_review_label == label) if c.ai_review_label else None,
         'review_note': c.ai_review_note or '',
@@ -141,6 +146,8 @@ def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, p
         valid=Count('id', filter=Q(ai_label='valid')),
         mixed=Count('id', filter=Q(ai_label='mixed')),
         ivr=Count('id', filter=Q(ai_label='ivr')),
+        robocall=Count('id', filter=Q(ai_label='robocall')),
+        caller_ok=Count('id', filter=Q(ai_label='caller_ok')),
         fault=Count('id', filter=Q(voice_audio_fault=True)),
         reviewed=Count('id', filter=~Q(ai_review_label='')),
         wrong=Count('id', filter=~Q(ai_review_label='') & ~Q(ai_review_label=F('ai_label'))),
@@ -193,6 +200,11 @@ def review(request, call_id: str, body: ReviewIn):
     CallLog.objects.filter(pk=c.pk).update(
         ai_review_label=label, ai_review_note=(body.note or '').strip()[:300],
         ai_reviewed_by=(who or user.email or user.username or '')[:150], ai_reviewed_at=timezone.now())
+    # CH-555: the verdict shows in the Call Log / Reports too.
+    from analytics.models import CallRecord
+    from routing.call_events import publish
+    CallRecord.objects.filter(pk=c.pk).update(ai_review_label=label, updated_at=timezone.now())
+    publish(c.organization_id, 'ai.checked')
     c = CallLog.objects.select_related('campaign', 'publisher', 'buyer').get(pk=c.pk)
     return 200, _row(c)
 

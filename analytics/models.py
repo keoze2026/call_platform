@@ -136,6 +136,11 @@ class CallRecord(models.Model):
     voice_seconds = models.FloatField(null=True, blank=True)
     # CH-543: the AI audit label (routing/ai_labels.py), for Reports' filters.
     ai_label = models.CharField(max_length=16, blank=True, default='')
+    # CH-555: confidence, the LLM's one-line summary and the audit team's
+    # verdict, for the Call Log / Reports (staff with AI access only).
+    ai_confidence = models.PositiveSmallIntegerField(null=True, blank=True)
+    ai_summary = models.CharField(max_length=300, blank=True, default='')
+    ai_review_label = models.CharField(max_length=16, blank=True, default='')
     billable_seconds = models.IntegerField(default=0)
     is_converted    = models.BooleanField(default=False)
     # CH-247: set when the call was billed by its destination's own rule; its

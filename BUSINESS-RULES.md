@@ -203,6 +203,13 @@ Last updated: 31 Oct 2026.
     tones / machine sound (0.3 s or more of beeping).
   Calls recorded before the split: no speech = Dead Caller, speech = "Voice
   Found" (CH-548).
+- CH-555: **final label by an LLM** after each answered call: the transcript
+  (caller and agent apart) plus the Silero / PANNs measurements -> Valid,
+  Caller spoke - no issue, the three No Voice types, Voicemail / IVR, or
+  Robocall, with a confidence % and a one-line summary, in the Call Log and
+  Reports with Correct / Wrong for the audit team. What Silero / PANNs said is
+  kept. Audio sent out encrypted; AssemblyAI transcripts deleted right after;
+  Deepgram opted out of training; at most 5 minutes of a call is sent.
 - CH-553: **Voicemail / IVR** - no human speech and mostly music (PANNs, on
   Server B): music for at least 4 s and 40% of what was heard
   (AI_MUSIC_SECONDS, AI_MUSIC_SHARE). Not one of the three No Voice types: no

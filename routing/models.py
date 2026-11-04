@@ -225,6 +225,13 @@ class CallLog(models.Model):
     ai_transcript = models.TextField(blank=True, default='')        # snippet (later: AssemblyAI)
     ai_checked_at = models.DateTimeField(null=True, blank=True)
     # The audit team's verdict: Correct (same label) or Wrong (the right one).
+    # CH-555: the LLM's final label. ai_label is replaced by it; what Silero
+    # and PANNs decided is kept here. ai_summary: the LLM's one line;
+    # ai_final_by: which transcription and model (or "error: ...").
+    ai_rule_label = models.CharField(max_length=16, blank=True, default='')
+    ai_summary = models.CharField(max_length=300, blank=True, default='')
+    ai_final_at = models.DateTimeField(null=True, blank=True)
+    ai_final_by = models.CharField(max_length=120, blank=True, default='')
     ai_review_label = models.CharField(max_length=16, blank=True, default='')
     ai_review_note = models.CharField(max_length=300, blank=True, default='')
     ai_reviewed_by = models.CharField(max_length=150, blank=True, default='')
