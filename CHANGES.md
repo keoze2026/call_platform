@@ -9533,3 +9533,36 @@ saved everything only at the very end - it looked as if it did not run.
   checked.
 - Tested here end to end with stand-ins for the two app commands: 8 calls,
   saved in 3 batches, the missing file reported, exit 0.
+
+## CH-535 - Paid 0-second calls keep a real recording (BACKEND + Server A dialplan)
+
+Sir, 4 Nov: "when anyone gets 0 sec connected calls we missed recording link,
+so buyer does not agree to pay without recording ... to avoid dispute with
+clients."
+
+Checked on Server A first: these calls' files exist but are 44 bytes (a WAV
+header, no audio). `[from-carrier]` starts the recorder with
+`MixMonitor(${RECFILE},b)` - "b" records only once caller and buyer are
+bridged, and a call the buyer did not answer (Missed With Conversion) or
+answered as the caller left (late answer, Completed 1 s) is never bridged.
+4 Nov: 8 Missed With Conversion (5 paid) and 2 paid Completed 1 s calls had no
+link. No made-up audio: the fix records what really happened.
+
+- **Server A** `deploy/record_from_dial.py`: one line in `[from-carrier]`,
+  `MixMonitor(${RECFILE},b)` -> `MixMonitor(${RECFILE})`, so recording starts
+  when the call reaches the Dial to the buyer (ringing, the pick-up, then the
+  conversation as before). Same file name, same link. Dry run by default;
+  `--apply` backs up to /root/extensions.conf.bak-recdial-<time>, reloads and
+  checks the loaded dialplan, and restores the backup by itself if that
+  fails; `--rollback`; refuses while calls are active. Answered calls'
+  recordings now start with a few seconds of ringing.
+- **Backend** (switch `PAID_MISSED_RECORDING`, default False): a call nobody
+  answered that is still PAID (the line converts on Incoming Call) keeps the
+  link the dialplan sent (or the one rebuilt from the call id); a late answer
+  (`late_answer.mark`, Completed 1 s) gets its link too. A plain missed call
+  still gets no link (Sir, 20 Oct). A campaign with recording off gets none.
+- Order: deploy, apply on Server A outside calling hours, one test call (the
+  file must be bigger than 44 bytes and play), THEN set
+  `PAID_MISSED_RECORDING=True` - so no link is ever shown to an empty file.
+
+Tests: `routing/test_paid_missed_recording.py` (7). BUSINESS-RULES.md 3.9.

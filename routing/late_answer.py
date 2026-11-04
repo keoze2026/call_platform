@@ -69,6 +69,14 @@ def mark(call: CallLog, event: dict) -> bool:
     # Saves the row (and so mirrors it into Reports), with revenue, payout and
     # the balance charge exactly as for an answer reported at hang-up.
     settle_call_money(call, True, 1)
+    # CH-535: the recording of the ring and the pick-up, once Server A records
+    # from the moment the buyer is dialled (PAID_MISSED_RECORDING).
+    if not call.recording_url:
+        from routing.asterisk_handler import _keep_paid_missed_recording
+        try:
+            _keep_paid_missed_recording(call)
+        except Exception:
+            logger.exception('could not add the recording link to late answer %s', call.id)
     try:
         from tasks import retire_used_number
         retire_used_number.delay(call.called_number, str(call.id))

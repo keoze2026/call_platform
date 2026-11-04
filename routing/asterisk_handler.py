@@ -773,6 +773,27 @@ def _rule_destination_for(rule, number, chosen_id):
     return chosen_id
 
 
+def _keep_paid_missed_recording(call_log, offered_url: str = '') -> bool:
+    """CH-535 (Sir, 4 Nov: buyers will not pay a 0-second call without its
+    recording): put the recording link on a paid call nobody answered, or
+    answered as the caller hung up (late answer). Only with
+    PAID_MISSED_RECORDING on - switched on after Server A records from the
+    moment the buyer is dialled, since before that change these files are
+    empty (44-byte WAV, 4 Nov). Never on an unpaid missed call (Sir, 20 Oct)."""
+    if not getattr(settings, 'PAID_MISSED_RECORDING', False):
+        return False
+    campaign = getattr(call_log, 'campaign', None)
+    if campaign is not None and not getattr(campaign, 'recording_enabled', True):
+        return False
+    from routing.recordings import is_recording_link, rebuilt_recording_url
+    link = offered_url if is_recording_link(offered_url or '') else rebuilt_recording_url(call_log.id)
+    if not link:
+        return False
+    call_log.recording_url = link
+    call_log.save(update_fields=['recording_url', 'updated_at'])
+    return True
+
+
 def settle_call_money(call_log, answered: bool, duration: int) -> bool:
     """Revenue, payout and the balance charge for an ended call, then save it.
 
@@ -1204,6 +1225,12 @@ def call_ended(request):
     # the call id, so a call nobody answered was stored with a link to a file
     # that was never made, and the log showed it a play button (Sir, 20 Oct:
     # "if the call is missed, how does a recording URL generate?").
+    # CH-535: a PAID call nobody answered (Missed With Conversion - the line
+    # converts on Incoming Call) keeps the link the dialplan sent, once Server
+    # A records from the moment the buyer is dialled (deploy/record_from_dial.py)
+    # - so buyers have the call's own recording before paying for it. Decided
+    # after the money is settled, below. A plain missed call still gets none.
+    offered_recording = recording_url
     if not answered:
         recording_url = ''
 
@@ -1235,6 +1262,9 @@ def call_ended(request):
                 )
 
     converted = settle_call_money(call_log, answered, duration)
+
+    if not answered and converted and offered_recording and call_log.destination_number:
+        _keep_paid_missed_recording(call_log, offered_recording)
 
     # A number is "used" when a buyer ANSWERED a call on it, and only then.
     # It was every ended call: five KMQ numbers called once each to check the

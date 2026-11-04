@@ -881,3 +881,7 @@ LINE_COOLDOWN_ENABLED = config('LINE_COOLDOWN_ENABLED', default=False, cast=bool
 REFUSED_REPEAT_MINUTES = config('REFUSED_REPEAT_MINUTES', default=30, cast=int)
 # CH-531: a recording with less than this many seconds of speech is "no voice".
 VOICE_MIN_SECONDS = config('VOICE_MIN_SECONDS', default=1.0, cast=float)
+# CH-535: a paid call nobody answered (Missed With Conversion) or a late answer
+# keeps its recording link. Switch on ONLY after Server A records from the
+# moment the buyer is dialled (deploy/record_from_dial.py --apply + test call).
+PAID_MISSED_RECORDING = config('PAID_MISSED_RECORDING', default=False, cast=bool)

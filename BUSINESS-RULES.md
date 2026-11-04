@@ -179,11 +179,21 @@ Last updated: 31 Oct 2026.
 - Every answered call's recording is checked on our own server (Silero VAD,
   no outside service): "voice", "no voice" (under 1 second of speech -
   nobody spoke, or nothing could be heard) or "missing" (no readable file).
-  Calls nobody answered have no recording and are not checked.
+  Calls nobody answered are not checked.
 - **For our team only**: buyers and publishers never see it, in any list,
   filter or file.
 - One mixed recording per call today, so it cannot yet say WHICH side was
   silent; that needs the two sides recorded separately on Server A.
+
+### 3.9 Recording on paid 0-second calls - CH-535 (Sir, 4 Nov)
+- A call the buyer pays for always has its recording, even when nobody spoke
+  for a second: **Missed With Conversion** (paid on Incoming Call) and a late
+  answer (Completed 1 s). Server A records from the moment the buyer is
+  dialled, so the file holds the ringing and the pick-up.
+- A plain missed call (not paid) still shows **no** recording link (Sir, 20
+  Oct). Nothing is made up: the file is the call's own audio.
+- Switch: `PAID_MISSED_RECORDING=True` in Server B .env, set only after the
+  Server A test call passed.
 
 ### 3.4 Lines not on the Destinations page — CH-502 (Sir, 3 Nov)
 - A campaign line takes calls only when its number is on its buyer's
