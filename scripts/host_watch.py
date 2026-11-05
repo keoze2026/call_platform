@@ -885,18 +885,19 @@ def telegram(text, thread=None) -> bool:
             answer = resp.read()
     except Exception:  # noqa: BLE001
         return False
-    _remember(chat, answer)
+    _remember(chat, answer, 'nonpriority' if thread else 'server')
     return ok
 
 
-def _remember(chat, answer):
-    """CH-332: noted so it is deleted from the chat after a week."""
+def _remember(chat, answer, kind='server'):
+    """CH-332: noted so it is deleted from the chat after a week (CH-604:
+    the Non Priority topic's after 47 hours)."""
     try:
         import sys
         if APP not in sys.path:
             sys.path.insert(0, APP)
         from support.telegram_autodelete import remember
-        remember(chat, answer, 'server')
+        remember(chat, answer, kind)
     except Exception:  # noqa: BLE001
         pass
 

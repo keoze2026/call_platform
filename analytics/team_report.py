@@ -322,6 +322,12 @@ def build(organization, start, end) -> dict:
 
 def workbook(data: dict, title: str) -> bytes:
     from buyers.xlsx import write_xlsx_sheets
+    return write_xlsx_sheets(sheets(data, title))
+
+
+def sheets(data: dict, title: str) -> list:
+    """The report's sheets, [(name, header, rows)] - also in the 15-minute
+    call backup (support/nonpriority.py, CH-604)."""
     t = data['total']
     summary = [
         ['Period', title],
@@ -335,12 +341,12 @@ def workbook(data: dict, title: str) -> bytes:
         ['Profit', float(t['profit'])],
         ['Avg Duration (connected)', _mmss(t['avg_duration'])],
     ]
-    return write_xlsx_sheets([
+    return [
         ('Summary', ['Item', 'Value'], summary),
         ('By Campaign', ['Campaign'] + HEADER[1:], [_row(r) for r in data['campaigns']]),
         ('By Publisher', ['Publisher'] + HEADER[1:], [_row(r) for r in data['publishers']]),
         ('By Buyer', ['Buyer'] + HEADER[1:], [_row(r) for r in data['buyers']]),
-    ])
+    ]
 
 
 def message(organization, data: dict, title: str, test=False) -> str:

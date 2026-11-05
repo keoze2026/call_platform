@@ -1205,7 +1205,7 @@ def status_chat():
     return str(chat), str(thread)
 
 
-def post(text, chat=None, thread=None):
+def post(text, chat=None, thread=None, kind='status'):
     import requests
     from support.telegram_autodelete import remember
     token = getattr(settings, 'TELEGRAM_BOT_TOKEN', '')
@@ -1225,7 +1225,7 @@ def post(text, chat=None, thread=None):
             return False
         ok = r.ok and ok
         if r.ok:
-            remember(chat, r.content, 'status')   # CH-332: deleted after a week
+            remember(chat, r.content, kind)   # CH-332: deleted after a week (CH-604: Non Priority 47 h)
     return ok
 
 

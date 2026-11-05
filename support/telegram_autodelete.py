@@ -43,7 +43,12 @@ LOG = os.path.join(ROOT, 'run', 'telegram_sent.jsonl')
 ENV_FILE = os.path.join(ROOT, '.env')
 DAY = 86400
 GIVE_UP_DAYS = 30
-KINDS = ('server', 'status', 'eod', 'watchdog', 'command')
+KINDS = ('server', 'status', 'eod', 'watchdog', 'command', 'nonpriority')
+# CH-604 (Sir, 5 Nov: "set non priority auto delete within 48 hours"): what
+# goes to the Non Priority topic is deleted after this many hours (other kinds
+# keep TELEGRAM_AUTODELETE_DAYS). 47: Telegram lets a bot delete its own group
+# messages for 48 hours without admin rights, and the cleaner runs hourly.
+NONPRIORITY_HOURS_DEFAULT = '47'
 
 
 def _setting(name, default=''):
@@ -64,6 +69,18 @@ def days() -> int:
         return int(_setting('TELEGRAM_AUTODELETE_DAYS', '7'))
     except ValueError:
         return 7
+
+
+def max_age(kind) -> float:
+    """Seconds a noted message of this kind stays (CH-604)."""
+    if kind == 'nonpriority':
+        try:
+            hours = float(_setting('TELEGRAM_NONPRIORITY_DELETE_HOURS', NONPRIORITY_HOURS_DEFAULT))
+        except ValueError:
+            hours = float(NONPRIORITY_HOURS_DEFAULT)
+        if hours > 0:
+            return hours * 3600
+    return days() * DAY
 
 
 def kept_kinds() -> set:
@@ -165,7 +182,7 @@ def prune(token, now=None, delete=None) -> dict:
     keep, done = [], {'deleted': 0, 'gone': 0, 'refused': 0, 'errors': 0}
     for e in _parse(raw):
         age = now - e.get('at', now)
-        if age < keep_days * DAY or e.get('retry_at', 0) > now:
+        if age < max_age(e.get('kind')) or e.get('retry_at', 0) > now:
             keep.append(e)
             continue
         res = delete(token, e['chat'], e['id'])

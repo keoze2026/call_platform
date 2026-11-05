@@ -965,8 +965,11 @@ def telegram_autodelete():
 def portal_change_alerts():
     """CH-327: routing / priority, user and role, carrier changes made in the
     portal, sent to the status chat within a minute (Sir, 28 Oct)."""
+    from support import nonpriority
     from support import system_status as S
-    return f'portal changes sent: {S.portal_changes(S.post)}'
+    # CH-604 (Sir, 5 Nov: "shift these details in non priority group"): to the
+    # Non Priority topic; the Notifications topic keeps server matters only.
+    return f'portal changes sent: {S.portal_changes(nonpriority.post)}'
 
 
 @app.task(name='tasks.send_scheduled_reports')
@@ -990,3 +993,12 @@ def ai_daily_summary():
     """CH-546: yesterday's AI audit per label and publisher, once a day (9 AM EST)."""
     from routing.ai_reports import daily_summary
     return f'AI daily summaries sent: {daily_summary()}'
+
+
+@app.task(name='tasks.nonpriority_call_backup')
+def nonpriority_call_backup():
+    """CH-604 (Sir, 5 Nov: "export raw xlsx file every 15 min and send in non
+    priority group, so in case anything happens to the portal we have our
+    Excel data"): today's calls as an Excel file to the Non Priority topic."""
+    from support.nonpriority import send_call_backup
+    return f'call backup: {send_call_backup()}'

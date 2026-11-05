@@ -455,6 +455,11 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'tasks.telegram_autodelete',
         'schedule': 3600.0,  # every hour
     },
+    # CH-604: today's calls as an Excel file to the Non Priority topic.
+    'nonpriority-call-backup': {
+        'task': 'tasks.nonpriority_call_backup',
+        'schedule': 900.0,  # every 15 minutes
+    },
     # Buyers' own daily reports on Telegram, each at its own time (CH-258).
     'send-buyer-reports': {
         'task': 'tasks.send_buyer_reports',

@@ -269,13 +269,24 @@ class Command(BaseCommand):
                and str(chat) == str(getattr(settings, 'TELEGRAM_SUPPORT_CHAT_ID', ''))
                else {}),
         }
+        # CH-604 (Sir, 5 Nov: "under Notification we just need important server
+        # details"): the EOD report goes to the Non Priority topic and is
+        # deleted with it (EOD_TO_NONPRIORITY=off keeps it in Notifications).
+        kind = 'eod'
+        try:
+            from support.nonpriority import eod_thread
+            moved = eod_thread(chat)
+        except Exception:  # noqa: BLE001
+            moved = None
+        if moved:
+            base['message_thread_id'], kind = moved
         url = f'https://api.telegram.org/bot{token}/sendMessage'
         from support.telegram_autodelete import remember
 
         try:
             r = requests.post(url, data={**base, 'text': text, 'parse_mode': 'HTML'}, timeout=15)
             if r.status_code == 200:
-                remember(chat, r.content, 'eod')   # CH-332: deleted after a week
+                remember(chat, r.content, kind)   # CH-332: deleted after a week
                 return True
             # Telegram could not read the formatting. The figures matter more
             # than the styling, so send them plain rather than not at all.
@@ -283,7 +294,7 @@ class Command(BaseCommand):
                 self.stderr.write(f'Telegram refused the formatting, sending plain: {r.text[:200]}')
                 r = requests.post(url, data={**base, 'text': self._plain(text)}, timeout=15)
                 if r.status_code == 200:
-                    remember(chat, r.content, 'eod')
+                    remember(chat, r.content, kind)
                     return True
             # Logged with Telegram's own reason: "chat not found" and "bot was
             # blocked" need different people to fix them.
