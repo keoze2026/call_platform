@@ -10249,3 +10249,10 @@ frontend CH-607. Code only, no migration.
 Not changed: the buyer Telegram report's optional Repeated column (and its
 Called Number, Campaign and Publisher columns), which our admin ticks per
 report; removing them would break saved reports. Sir to decide.
+
+## CH-608 - Customer accounts plan in the repository
+
+`docs/CUSTOMER-ACCOUNTS-PLAN.md`: Sir's approved isolation plan (5 Nov), the
+order 1, 5, 3, 11, then 2, 4, 6-10, how every step runs, and the status as of
+5 Nov 2:40 PM EST (Point 1 in progress, Point 5 live, Point 3 drafted). Docs
+only; nothing to deploy.
