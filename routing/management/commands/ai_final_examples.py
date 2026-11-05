@@ -21,6 +21,7 @@ from django.core.management.base import BaseCommand
 from django.db.models import F
 from django.utils import timezone
 
+from routing import ai_labels
 from routing.models import CallLog
 
 TRANSCRIPT_CHARS = 700
@@ -38,8 +39,10 @@ class Command(BaseCommand):
         if not limit:
             return
         since = timezone.now() - timedelta(days=max(1, o['days']))
-        base = (CallLog.objects.filter(ai_reviewed_at__gte=since)
-                .exclude(ai_review_label='').exclude(ai_label='')
+        # CH-616 (Sir, 6 Nov): "For now train it for NV, rest we will check
+        # and train later" - only verdicts on calls the AI called No Voice.
+        base = (CallLog.objects.filter(ai_reviewed_at__gte=since, ai_label__in=ai_labels.NO_VOICE)
+                .exclude(ai_review_label='')
                 .order_by('-ai_reviewed_at'))
         # The mistakes teach the most: up to two thirds of the examples.
         wrong = list(base.exclude(ai_review_label=F('ai_label'))[:max(1, (limit * 2) // 3)])

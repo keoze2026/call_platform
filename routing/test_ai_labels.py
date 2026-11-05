@@ -175,6 +175,45 @@ class AiAuditFlowTests(TestCase):
         self.assertEqual((acc['reviewed'], acc['correct'], acc['percent']), (2, 1, 50.0))
         self.assertEqual(acc['per_label']['agent_only'], {'reviewed': 2, 'correct': 1, 'percent': 50.0})
 
+    def test_audit_is_on_no_voice_calls_only(self):
+        # CH-616 (Sir, 6 Nov): "Only put audit under no voice calls, rest leave
+        # it. For now train it for NV, rest we will check and train later."
+        now = timezone.now()
+        nv = {lab: self.call(ai_label=lab, ai_checked_at=now) for lab in ai_labels.NO_VOICE}
+        other = {lab: self.call(ai_label=lab, ai_checked_at=now)
+                 for lab in ('valid', 'caller_ok', 'ivr', 'robocall', 'mixed')}
+        # A verdict given on a Valid call before this change: kept, not counted.
+        old = self.call(ai_label='valid', ai_checked_at=now, ai_review_label='agent_only', ai_reviewed_at=now)
+        admin = self.api('admin')
+        post = lambda cid, body: admin.post(f'/api/ai-audit/calls/{cid}/review', data=json.dumps(body),
+                                            content_type='application/json')
+        # 1. the buttons: only No Voice rows are auditable
+        day = timezone.now().astimezone(ai_labels_et()).date().isoformat()
+        rows = {r['id']: r for r in admin.get(f'/api/ai-audit/calls?date={day}&page_size=200').json()['items']}
+        self.assertEqual({rows[str(c.id)]['auditable'] for c in nv.values()}, {True})
+        self.assertEqual({rows[str(c.id)]['auditable'] for c in other.values()}, {False})
+        # 2. a verdict on anything else is refused and nothing is saved
+        for lab, c in other.items():
+            for body in ({'correct': True}, {'correct': False, 'label': 'dead_caller'}):
+                r = post(c.id, body)
+                self.assertEqual(r.status_code, 400, lab)
+                self.assertIn('No Voice calls only', r.json()['detail'])
+            c.refresh_from_db()
+            self.assertEqual((c.ai_review_label, c.ai_reviewed_at), ('', None))
+        # 3. No Voice calls: Correct, and Wrong with any right label (Valid too)
+        self.assertEqual(post(nv['dead_caller'].id, {'correct': True}).json()['review_correct'], True)
+        r = post(nv['agent_only'].id, {'correct': False, 'label': 'valid', 'note': 'caller spoke quietly'})
+        self.assertEqual((r.status_code, r.json()['review_label'], r.json()['review_correct']),
+                         (200, 'valid', False))
+        self.assertEqual(post(nv['agent_beep'].id, {'correct': True}).status_code, 200)
+        # 4. accuracy: the three No Voice verdicts only (the old Valid one is not counted)
+        acc = admin.get('/api/ai-audit/status').json()['accuracy']
+        self.assertEqual((acc['reviewed'], acc['correct'], acc['percent']), (3, 2, 66.7))
+        self.assertEqual(set(acc['per_label']), set(ai_labels.NO_VOICE))
+        self.assertEqual(acc['labels'], list(ai_labels.NO_VOICE))
+        old.refresh_from_db()
+        self.assertEqual(old.ai_review_label, 'agent_only')                     # nothing removed
+
 
 def ai_labels_et():
     from zoneinfo import ZoneInfo

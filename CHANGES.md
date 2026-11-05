@@ -10343,3 +10343,31 @@ Tests: `accounts/test_partner_guard.py` (6), including the exposure check
 itself on a test database: 0 exposures. Full suite unchanged. Deploy: restart
 web (code only, no migration); then rerun the exposure check on live - it
 must print "TOTAL exposures: 0".
+
+## CH-616 - AI Audit: Correct / Wrong on No Voice calls only; accuracy and training from No Voice only
+
+Sir, 6 Nov: "Only put audit under no voice calls, rest leave it." "For now
+train it for NV, rest we will check and train later."
+
+- Review (POST /api/ai-audit/calls/{id}/review): only on a call the AI
+  labelled No Voice (Dead Caller, No Beep or Customer, Only Agent + Beeping).
+  Any other call: 400 "Audit is on No Voice calls only.", nothing saved. On a
+  No Voice call, Wrong can still pick any right label (Valid too).
+- Each call row of the AI Audit page carries `auditable` (true on No Voice),
+  for the buttons (frontend CH-616).
+- AI accuracy % (GET /api/ai-audit/status): No Voice calls' verdicts only;
+  `labels` names them.
+- Training (`manage.py ai_final_examples`, the worked examples the LLM reads
+  every run): No Voice calls' verdicts only.
+- Verdicts given earlier on other calls stay saved on the call and still show
+  (Reviewed / Wrong tiles, Call Log, Excel); they are only left out of the
+  accuracy % and the examples. Nothing is deleted.
+
+Tests: `routing.test_ai_labels` (new: audit is on No Voice calls only - the
+flag, the refusals, Wrong to Valid, accuracy 3 reviewed / 2 correct, the old
+verdict kept), `routing.test_ai_accuracy` (examples: No Voice only, wrong
+first; a verdict on Valid / IVR / Robocall / Caller OK / Mixed is never an
+example), `routing.test_ai_final` (the Call Log verdict test now reviews a
+No Voice call). Deploy: code only, no migration, no call path touched -
+restart web (it serves the AI Audit page's API). The examples command is a
+new process each run, so it uses the new code from the pull.

@@ -348,17 +348,35 @@ class BackendTests(TestCase):
 
     # -- the team's corrections ----------------------------------------------
     def test_examples_wrong_first(self):
+        # CH-616: No Voice calls only (Sir: "for now train it for NV").
         now = timezone.now()
-        self.call('valid', ai_review_label='valid', ai_reviewed_at=now, ai_transcript='Caller: I need help')
-        self.call('valid', ai_review_label='agent_only', ai_review_note='echo', ai_reviewed_at=now - timedelta(hours=1),
-                  ai_transcript='Agent: Thank you for calling')
-        self.call('dead_caller')                                                   # not reviewed
+        self.call('dead_caller', ai_review_label='dead_caller', ai_reviewed_at=now, ai_transcript='')
+        self.call('agent_only', ai_review_label='valid', ai_review_note='caller spoke low',
+                  ai_reviewed_at=now - timedelta(hours=1), ai_transcript='Agent: Thank you for calling')
+        self.call('agent_beep')                                                    # not reviewed
         out = io.StringIO()
         call_command('ai_final_examples', '--limit', '3', stdout=out)
         rows = [json.loads(line) for line in out.getvalue().splitlines()]
-        self.assertEqual([(r['label'], r['wrong']) for r in rows], [('agent_only', True), ('valid', False)])
-        self.assertEqual(rows[0]['ai_said'], 'valid')
-        self.assertEqual(rows[0]['note'], 'echo')
+        self.assertEqual([(r['label'], r['wrong']) for r in rows], [('valid', True), ('dead_caller', False)])
+        self.assertEqual(rows[0]['ai_said'], 'agent_only')
+        self.assertEqual(rows[0]['note'], 'caller spoke low')
+
+    def test_examples_are_no_voice_calls_only(self):
+        # CH-616 (Sir, 6 Nov): "For now train it for NV, rest we will check and
+        # train later." A verdict on a Valid / IVR / Robocall / Caller OK call is
+        # kept on the call but never shown to the LLM.
+        now = timezone.now()
+        for label, said in (('valid', 'agent_only'), ('ivr', 'valid'), ('robocall', 'robocall'),
+                            ('caller_ok', 'caller_ok'), ('mixed', 'mixed')):
+            self.call(said, ai_review_label=label, ai_reviewed_at=now)
+        nv = self.call('agent_beep', ai_review_label='agent_beep', ai_reviewed_at=now - timedelta(hours=2))
+        out = io.StringIO()
+        call_command('ai_final_examples', '--limit', '12', stdout=out)
+        rows = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual([r['ai_said'] for r in rows], ['agent_only', 'agent_beep'])
+        self.assertTrue(all(r['ai_said'] in ai_labels.NO_VOICE for r in rows))
+        nv.refresh_from_db()
+        self.assertEqual(CallLog.objects.exclude(ai_review_label='').count(), 6)    # nothing removed
 
     # -- the alert waits for the final label ---------------------------------
     def test_without_the_switch_the_rule_label_alerts_at_once(self):

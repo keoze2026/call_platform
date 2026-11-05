@@ -317,7 +317,8 @@ class SaveTests(TestCase):
         from accounts.models import User
         from django.test import Client
         c = self.call('valid')
-        self.save({'id': str(c.id), 'label': 'caller_ok', 'confidence': 70, 'summary': 'Wrong number.',
+        # CH-616: the verdict is given on a No Voice call (audit is on No Voice only).
+        self.save({'id': str(c.id), 'label': 'agent_only', 'confidence': 70, 'summary': 'Wrong number.',
                    'transcript': '', 'by': 'x'})
         audit = User.objects.create(username='a', email='audit@x.io', organization=self.org, role='admin')
         ops = User.objects.create(username='o', email='ops@x.io', organization=self.org, role='admin')
@@ -330,7 +331,7 @@ class SaveTests(TestCase):
                 f'/api/analytics/calls?date_from={day}&date_to={day}&timezone=UTC').json()['items'][0]
             mine = row(audit)
             self.assertEqual((mine['ai_label'], mine['ai_confidence'], mine['ai_summary'], mine['ai_review_label']),
-                             ('caller_ok', 70, 'Wrong number.', 'caller_ok'))
+                             ('agent_only', 70, 'Wrong number.', 'agent_only'))
             theirs = row(ops)
             self.assertEqual((theirs['ai_label'], theirs['ai_confidence'], theirs['ai_summary'],
                               theirs['ai_review_label']), (None, None, None, None))

@@ -85,6 +85,9 @@ def _row(c) -> dict:
         'summary': c.ai_summary or '',
         'rule_label': c.ai_rule_label or '',
         'final_by': c.ai_final_by or '',
+        # CH-616 (Sir, 6 Nov): "Only put audit under no voice calls, rest leave
+        # it." Correct / Wrong is given on the three No Voice labels only.
+        'auditable': label in ai_labels.NO_VOICE,
         'review_label': c.ai_review_label or '',
         'review_correct': (c.ai_review_label == label) if c.ai_review_label else None,
         'review_note': c.ai_review_note or '',
@@ -94,11 +97,16 @@ def _row(c) -> dict:
 
 def accuracy(user) -> dict:
     """The AI's accuracy on the calls the audit team reviewed (last 30 days),
-    overall and per label the AI gave."""
+    overall and per label the AI gave.
+
+    CH-616 (Sir, 6 Nov): "Only put audit under no voice calls ... For now
+    train it for NV, rest we will check and train later." Only calls the AI
+    called No Voice (Dead Caller, Agent Only, Agent + Beep) count. Verdicts
+    given earlier on other labels stay saved on the call; they are not counted."""
     from routing.models import CallLog
-    qs = (CallLog.objects.filter(organization=user.organization,
+    qs = (CallLog.objects.filter(organization=user.organization, ai_label__in=ai_labels.NO_VOICE,
                                  ai_reviewed_at__gte=timezone.now() - timedelta(days=ACCURACY_DAYS))
-          .exclude(ai_review_label='').exclude(ai_label=''))
+          .exclude(ai_review_label=''))
     total = qs.count()
     right = qs.filter(ai_review_label=F('ai_label')).count()
     per = {}
@@ -106,7 +114,7 @@ def accuracy(user) -> dict:
         per[row['ai_label']] = {'reviewed': row['n'], 'correct': row['ok'],
                                 'percent': round(100 * row['ok'] / row['n'], 1) if row['n'] else None}
     return {'reviewed': total, 'correct': right, 'percent': round(100 * right / total, 1) if total else None,
-            'days': ACCURACY_DAYS, 'per_label': per}
+            'days': ACCURACY_DAYS, 'per_label': per, 'labels': list(ai_labels.NO_VOICE)}
 
 
 @router.get('/status', response={200: dict})
@@ -182,7 +190,8 @@ class ReviewIn(Schema):
 @router.post('/calls/{call_id}/review', response={200: dict})
 def review(request, call_id: str, body: ReviewIn):
     """Correct: the AI's label stands. Wrong: the right label (required).
-    Each verdict counts in the accuracy % and in the threshold report."""
+    Each verdict counts in the accuracy % and in the threshold report.
+    CH-616: only on a call the AI called No Voice (400 otherwise)."""
     from routing.models import CallLog
     user = _staff(request)
     c = CallLog.objects.filter(organization=user.organization, pk=call_id).first()
@@ -190,6 +199,9 @@ def review(request, call_id: str, body: ReviewIn):
         raise HttpError(404, 'Call not found')
     if not c.ai_label:
         raise HttpError(400, 'The AI has not checked this call yet.')
+    if c.ai_label not in ai_labels.NO_VOICE:
+        # CH-616: audit is on No Voice calls only, for now.
+        raise HttpError(400, 'Audit is on No Voice calls only.')
     if body.correct:
         label = c.ai_label
     else:
