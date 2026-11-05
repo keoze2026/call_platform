@@ -204,8 +204,43 @@ class PromptTests(SimpleTestCase):
             return {'content': [{'type': 'text', 'text': '{}'}]}
         with mock.patch.object(self.af, 'http', fake_http):
             self.af.llm_ready(self.cfg)
-        self.assertEqual(set(sent[0]), {'model', 'max_tokens', 'system', 'messages'})
+        self.assertEqual(set(sent[0]), {'model', 'max_tokens', 'system', 'messages', 'output_config'})
+        self.assertEqual(sent[0]['output_config']['format']['schema'], self.af.ANSWER_SCHEMA)
         self.assertTrue(sent[0]['system'].startswith('You audit pay-per-call'))
+
+    def test_room_to_think_low_effort_and_the_answer_in_our_schema(self):
+        """CH-601: 5 Nov, Claude answered '' - its thinking used up 300 tokens."""
+        sent = {}
+
+        def fake_http(method, url, headers, body=None, timeout=120):
+            sent.update(json.loads(body))
+            return {'stop_reason': 'end_turn', 'content': [
+                {'type': 'thinking', 'thinking': '', 'signature': 'x'},
+                {'type': 'text', 'text': '{"label": "AGENT_ONLY", "confidence": 140, "summary": "s"}'}]}
+        with mock.patch.object(self.af, 'http', fake_http):
+            a = self.af.ask_llm(self.cfg, 'call')
+        self.assertEqual((a['label'], a['confidence']), ('agent_only', 100))     # any case; clamped
+        self.assertGreaterEqual(sent['max_tokens'], 4000)
+        self.assertEqual(sent['output_config']['effort'], 'low')
+        schema = sent['output_config']['format']['schema']
+        self.assertEqual(set(schema['properties']['label']['enum']), set(self.af.LABELS))
+        self.assertFalse(schema['additionalProperties'])
+        self.cfg.effort = ''
+        with mock.patch.object(self.af, 'http', fake_http):
+            self.af.ask_llm(self.cfg, 'call')
+        self.assertNotIn('effort', sent['output_config'])                          # AI_LLM_EFFORT=""
+        self.cfg.structured = False
+        sent.clear()
+        with mock.patch.object(self.af, 'http', fake_http):
+            self.assertEqual(self.af.ask_llm(self.cfg, 'call')['label'], 'agent_only')
+        self.assertNotIn('output_config', sent)              # AI_LLM_STRUCTURED=off and AI_LLM_EFFORT=""
+
+    def test_an_empty_answer_says_why(self):
+        empty = lambda *a, **k: {'stop_reason': 'max_tokens', 'content': [{'type': 'thinking', 'thinking': ''}]}
+        with mock.patch.object(self.af, 'http', empty):
+            with self.assertRaisesRegex(RuntimeError, r'no answer \(stop_reason: max_tokens\)'):
+                self.af.ask_llm(self.cfg, 'call')
+            self.af.llm_ready(self.cfg)                       # a cut-short test answer is not a refusal
 
     def test_an_llm_failure_keeps_the_transcript_and_a_retry_reuses_it(self):
         with mock.patch.object(self.af, 'call_audio', return_value=(b'wav', True)), \

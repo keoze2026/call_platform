@@ -91,6 +91,12 @@ class Config:
         # CH-594: the audit team's verdicts shown to the LLM (0 = none).
         self.example_count = int(float(get('AI_FINAL_EXAMPLES', '12')))
         self.examples = ''
+        # CH-601: how hard Claude thinks before answering (it thinks by
+        # default, and that counts against max_tokens). "" = not sent.
+        self.effort = get('AI_LLM_EFFORT', 'low').strip().lower()
+        # CH-601: "off" if the model ever refuses structured outputs; the
+        # instructions still ask for JSON and ask_llm still checks it.
+        self.structured = get('AI_LLM_STRUCTURED', 'on').strip().lower() not in ('off', '0', 'false', 'no')
 
     def problems(self):
         p = []
@@ -326,6 +332,22 @@ def prompt(item, transcript, stereo):
             + ':\n' + (transcript[:6000] or '(no words heard)'))
 
 
+# CH-601: Claude answers in exactly this shape (structured outputs) - always
+# JSON, the label always one of ours. No minimum / maximum on confidence: the
+# API refuses numeric limits in a schema; ask_llm clamps it to 0-100.
+ANSWER_SCHEMA = {
+    'type': 'object',
+    'properties': {
+        'label': {'type': 'string', 'enum': list(LABELS)},
+        'confidence': {'type': 'integer', 'description': '0 to 100'},
+        'summary': {'type': 'string', 'description': 'one line, at most 25 words'},
+    },
+    'required': ['label', 'confidence', 'summary'],
+    'additionalProperties': False,
+}
+ANSWER_TOKENS = 4000      # room for Claude's thinking AND the answer (CH-601)
+
+
 def llm_request(cfg, system, text, max_tokens, timeout=60):
     """CH-600: THE request to the LLM - the real question and the pre-check
     (llm_ready) send the same shape, so a setting the model refuses stops the
@@ -335,12 +357,26 @@ def llm_request(cfg, system, text, max_tokens, timeout=60):
     models refuse anything but the default. The instructions make the answer
     steady enough."""
     if cfg.llm == 'anthropic':
+        # CH-601 (5 Nov: an empty answer, ''): Claude 5.5 thinks before it
+        # answers and the thinking counts against max_tokens - 300 was used up
+        # before any text. Room for both, thinking effort low (enough for this,
+        # cheaper), and the answer forced into ANSWER_SCHEMA.
+        output_config = {}
+        if getattr(cfg, 'structured', True):
+            output_config['format'] = {'type': 'json_schema', 'schema': ANSWER_SCHEMA}
+        if getattr(cfg, 'effort', ''):
+            output_config['effort'] = cfg.effort
         r = http('POST', ANTHROPIC_URL,
                  {'x-api-key': cfg.keys['ANTHROPIC_API_KEY'], 'anthropic-version': '2023-06-01',
                   'content-type': 'application/json'},
                  json.dumps({'model': cfg.model, 'max_tokens': max_tokens, 'system': system,
+                             **({'output_config': output_config} if output_config else {}),
                              'messages': [{'role': 'user', 'content': text}]}).encode(), timeout=timeout)
-        return ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
+        out = ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
+        if not out.strip():
+            # say why, so the log tells the next fix ("max_tokens", "refusal")
+            raise RuntimeError(f"Claude gave no answer (stop_reason: {r.get('stop_reason') or '-'})")
+        return out
     r = http('POST', OPENAI_URL,
              {'Authorization': f"Bearer {cfg.keys['OPENAI_API_KEY']}", 'Content-Type': 'application/json'},
              json.dumps({'model': cfg.model, 'max_completion_tokens': max_tokens,
@@ -353,7 +389,7 @@ def llm_request(cfg, system, text, max_tokens, timeout=60):
 def ask_llm(cfg, text):
     # CH-594: the team's corrections ride along with the instructions.
     system = SYSTEM + (getattr(cfg, 'examples', '') or '')
-    out = llm_request(cfg, system, text, 300)
+    out = llm_request(cfg, system, text, ANSWER_TOKENS)
     found = re.search(r'\{.*\}', out, re.S)
     if not found:
         raise RuntimeError(f'the LLM did not answer in JSON: {out[:80]!r}')
@@ -361,7 +397,11 @@ def ask_llm(cfg, text):
     label = str(a.get('label') or '').strip().lower()
     if label not in LABELS:
         raise RuntimeError(f'the LLM gave an unknown label: {label[:30]!r}')
-    return {'label': label, 'confidence': a.get('confidence'), 'summary': str(a.get('summary') or '')[:300]}
+    try:
+        confidence = max(0, min(100, int(a.get('confidence'))))
+    except (TypeError, ValueError):
+        confidence = None
+    return {'label': label, 'confidence': confidence, 'summary': str(a.get('summary') or '')[:300]}
 
 
 # ── one call, the run ────────────────────────────────────────────────────────
@@ -372,7 +412,14 @@ def llm_ready(cfg):
     spent on transcripts. CH-600: the same request as the real question (the
     instructions, the same settings), so a setting the model refuses stops it
     too."""
-    llm_request(cfg, SYSTEM, 'Reply with {} only.', 5, timeout=30)
+    try:
+        llm_request(cfg, SYSTEM, 'This is a connection test, not a call. Answer dead_caller, 0, "test".',
+                    64, timeout=30)
+    except RuntimeError as e:
+        # CH-601: a test answer cut short by the 64-token limit is fine - only
+        # a refusal of the request itself (an HTTP error) stops the run.
+        if 'Claude gave no answer' not in str(e):
+            raise
 
 
 def final_for(cfg, item):
