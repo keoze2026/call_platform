@@ -125,7 +125,9 @@ EXPORT_HEADER = (
 # Non buyer access should get full row report." A publisher's file has no
 # buyer, destination name or number (CH-594). Staff: every column.
 PARTNER_DROPPED_COLUMNS = {
-    'buyer': ('Called Number', 'Campaign', 'Publisher'),
+    'buyer': ('Called Number', 'Campaign', 'Publisher',
+              # CH-607 (Sir, 5 Nov): "Remove repeated from buyer access".
+              'Repeated'),
     'publisher': ('Buyer', 'Destination Name', 'Destination Number'),
 }
 

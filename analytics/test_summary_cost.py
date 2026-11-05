@@ -141,16 +141,17 @@ class PartnerFileColumnsTests(TestCase):
 
     def test_a_buyer_file_has_no_called_number_campaign_or_publisher(self):
         cols = self.header('buyer')
-        for c in ('Called Number', 'Campaign', 'Publisher'):
+        for c in ('Called Number', 'Campaign', 'Publisher', 'Repeated'):
             self.assertNotIn(c, cols)
-        for c in ('Date', 'Caller', 'Buyer', 'Destination Name', 'Destination Number', 'Status', 'Recording'):
+        for c in ('Date', 'Caller', 'Buyer', 'Destination Name', 'Destination Number', 'Status',
+                  'Qualified', 'Converted', 'Recording'):
             self.assertIn(c, cols)
 
     def test_a_publisher_file_has_no_buyer_or_destination(self):
         cols = self.header('publisher')
         for c in ('Buyer', 'Destination Name', 'Destination Number'):
             self.assertNotIn(c, cols)
-        for c in ('Called Number', 'Campaign', 'Publisher'):
+        for c in ('Called Number', 'Campaign', 'Publisher', 'Repeated'):
             self.assertIn(c, cols)
 
     def test_staff_get_the_full_row(self):

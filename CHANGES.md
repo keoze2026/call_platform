@@ -10237,3 +10237,15 @@ access should get full row report."
 
 Tests: `analytics/test_summary_cost.py` PartnerFileColumnsTests (3).
 Deploy: code only, no migration.
+
+## CH-607 - Buyer's downloaded file: no Repeated
+
+Sir, 5 Nov: "Remove repeated from buyer access - from excel and visibility
+both." `PARTNER_DROPPED_COLUMNS['buyer']` gains Repeated, so the call export
+and the emailed digest never carry it for a buyer login. Publishers and
+staff: unchanged. The portal side (screen and the file it builds) is
+frontend CH-607. Code only, no migration.
+
+Not changed: the buyer Telegram report's optional Repeated column (and its
+Called Number, Campaign and Publisher columns), which our admin ticks per
+report; removing them would break saved reports. Sir to decide.
