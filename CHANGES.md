@@ -10087,3 +10087,31 @@ a partner run Autopilot and change its settings.
 
 Tests: `analytics/test_ai_partner_access.py` (4). Needs the web restart.
 Portal half: CH-576 in Avortyx.
+
+## CH-577 - SSH login alerts to the "Non Priority Notifications" topic
+
+Sir, 5 Nov: "From notification group remove SSL update and push to another
+group - Non Priority Notifications. Under that priority group put all imp
+notifications." The Notifications topic got an "SSH login" alert every two
+minutes (Server A's jobs logging in to Server B over the private link, from
+10.20.0.1), burying the alerts that need someone.
+
+- `scripts/host_watch.py` (both servers): every SSH login alert, the blue
+  known-IP ones and the red new-IP ones, goes to the topic set in
+  `TELEGRAM_NONPRIORITY_THREAD_ID` in `.env`. Everything else (sudo, config,
+  firewall, services, ports, blacklist, "still not resolved" ...) stays in
+  Notifications, as before.
+- Only within the support group (a topic exists only there). Setting not
+  there, or alerts going to another chat: no change, all in Notifications.
+- An SSH alert that cannot be sent waits and goes to the same topic next
+  minute, as every other alert.
+- Nothing else sends SSH login alerts; the portal's own notifications
+  (routing changed, ...) are not touched.
+
+To switch on, on Server A and Server B: create the topic "Non Priority
+Notifications" in Support_Avortyx, take its number from the topic's link
+(t.me/c/<group>/<number>), and add `TELEGRAM_NONPRIORITY_THREAD_ID=<number>`
+to `/opt/call_platform/.env`. The script reads `.env` every minute: no
+restart.
+
+Tests: `support/test_host_watch.py` (+6).

@@ -294,3 +294,114 @@ class CaptureCheckTests(SimpleTestCase):
         self.hw.run(checks=[self.hw.check_services])          # a second look: still nothing to report
         self.assertEqual(self.sent, [])
         self.assertIn('Packet capture', self.services_on(['asterisk', 'kamailio', 'nginx'], capture_running=True))
+
+
+class NonPriorityTopicTests(SimpleTestCase):
+    """CH-577 (Sir, 5 Nov): SSH logins to the "Non Priority Notifications" topic."""
+
+    def setUp(self):
+        self.hw = load()
+        self.tmp = tempfile.mkdtemp()
+        self.hw.STATE = os.path.join(self.tmp, 'state.json')
+        self.hw.LOCK = self.hw.STATE + '.lock'
+        self.hw.ENV_FILE = os.path.join(self.tmp, '.env')
+        self.sent = []          # (thread, text)
+        self.down = set()       # threads whose sending fails
+
+        def telegram(text, thread=None):
+            if thread in self.down:
+                return False
+            self.sent.append((thread, text))
+            return True
+        self.hw.telegram = telegram
+        self.now = int(time.time())
+
+    def env(self, text):
+        open(self.hw.ENV_FILE, 'w').write(text)
+
+    def login_and_sudo(self, ip='10.20.0.1'):
+        """One check that raises an SSH login and a sudo event together."""
+        def check(r):
+            r.event('ssh', f'🔐 <b>SSH login</b>: root · {ip} · 12:44 UTC')
+            r.event('sudo', '🛠 sudo: root · <code>grep</code> · 12:44 UTC')
+        return check
+
+    def run_twice(self, check):
+        self.hw.run(checks=[check])     # first run only takes the picture
+        self.hw.run(checks=[check])
+
+    def test_ssh_logins_go_to_the_non_priority_topic(self):
+        self.env('TELEGRAM_SUPPORT_CHAT_ID=-100\nTELEGRAM_NONPRIORITY_THREAD_ID=55\n')
+        self.run_twice(self.login_and_sudo())
+        self.assertEqual(len(self.sent), 2)
+        main = [t for th, t in self.sent if th is None]
+        quiet = [t for th, t in self.sent if th == '55']
+        self.assertEqual(len(main), 1)
+        self.assertIn('sudo', main[0])
+        self.assertNotIn('SSH login', main[0])
+        self.assertEqual(len(quiet), 1)
+        self.assertIn('SSH login', quiet[0])
+        self.assertNotIn('sudo', quiet[0])
+
+    def test_a_red_new_ip_login_goes_there_too(self):
+        self.env('TELEGRAM_SUPPORT_CHAT_ID=-100\nTELEGRAM_NONPRIORITY_THREAD_ID=55\n')
+
+        def check(r):
+            r.event('ssh', '🔴 <b>SSH login</b>: root · 196.96.169.184 (KE) · new IP', red=True)
+        self.run_twice(check)
+        self.assertEqual([th for th, _ in self.sent], ['55'])
+        self.assertIn('Avortyx Server Alert', self.sent[0][1])
+
+    def test_not_set_everything_stays_in_notifications(self):
+        self.env('TELEGRAM_SUPPORT_CHAT_ID=-100\n')
+        self.run_twice(self.login_and_sudo())
+        self.assertEqual(len(self.sent), 1)
+        self.assertIsNone(self.sent[0][0])
+        self.assertIn('SSH login', self.sent[0][1])
+        self.assertIn('sudo', self.sent[0][1])
+
+    def test_no_split_when_alerts_do_not_go_to_the_support_group(self):
+        # A topic exists only in the support group.
+        self.env('TELEGRAM_SUPPORT_CHAT_ID=-100\nSTATUS_CHAT_ID=-200\nTELEGRAM_NONPRIORITY_THREAD_ID=55\n')
+        self.run_twice(self.login_and_sudo())
+        self.assertEqual([th for th, _ in self.sent], [None])
+
+    def test_a_failed_send_waits_and_goes_to_the_same_topic(self):
+        self.env('TELEGRAM_SUPPORT_CHAT_ID=-100\nTELEGRAM_NONPRIORITY_THREAD_ID=55\n')
+        self.down = {'55'}
+        self.run_twice(self.login_and_sudo())
+        self.assertEqual([th for th, _ in self.sent], [None])
+        self.down = set()
+        self.hw.run(checks=[])
+        self.assertEqual([th for th, _ in self.sent], [None, '55'])
+        self.assertIn('SSH login', self.sent[1][1])
+        self.assertEqual(self.hw.load_state().get('pending'), [])
+
+    def test_telegram_puts_the_message_in_the_topic(self):
+        hw = load()
+        hw.ENV_FILE = os.path.join(self.tmp, '.env2')
+        hw._remember = lambda *a: None
+        open(hw.ENV_FILE, 'w').write('TELEGRAM_BOT_TOKEN=t\nTELEGRAM_SUPPORT_CHAT_ID=-100\n'
+                                     'TELEGRAM_NOTIFY_THREAD_ID=7\nTELEGRAM_NONPRIORITY_THREAD_ID=55\n')
+        bodies = []
+
+        class Resp:
+            status = 200
+
+            def read(self):
+                return b'{}'
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *a):
+                return False
+
+        def urlopen(req, timeout=None):
+            bodies.append(json.loads(req.data))
+            return Resp()
+        with mock.patch.object(hw.urllib.request, 'urlopen', urlopen):
+            self.assertTrue(hw.telegram('a'))
+            self.assertTrue(hw.telegram('b', thread=hw.non_priority_thread()))
+        self.assertEqual([b['message_thread_id'] for b in bodies], ['7', '55'])
+        self.assertEqual({b['chat_id'] for b in bodies}, {'-100'})

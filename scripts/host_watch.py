@@ -23,6 +23,11 @@ unknown process, a dump running, the IP blacklisted) are sent again every 15
 minutes until they are gone, then "Resolved".
 To start again from nothing: rm /var/lib/avortyx/host_watch_state.json
 
+CH-577 (Sir, 5 Nov): SSH logins go to the "Non Priority Notifications" topic
+of the support group (TELEGRAM_NONPRIORITY_THREAD_ID in .env), so the
+Notifications topic keeps only what needs someone. Unset: everything goes to
+Notifications, as before.
+
 What it cannot see, and says so in the report instead of showing green:
   - the server being unreachable: if the server is down it cannot send
     anything; that needs an outside monitor
@@ -845,16 +850,33 @@ def _env(name):
     return ''
 
 
-def telegram(text) -> bool:
-    """To the status chat, the same chat the status bot uses."""
-    token = _env('TELEGRAM_BOT_TOKEN')
+def _chat():
     support = _env('TELEGRAM_SUPPORT_CHAT_ID')
-    chat = _env('STATUS_CHAT_ID') or support or _env('TELEGRAM_BOSS_CHAT_ID') or _env('TELEGRAM_CHAT_ID')
+    return support, _env('STATUS_CHAT_ID') or support or _env('TELEGRAM_BOSS_CHAT_ID') or _env('TELEGRAM_CHAT_ID')
+
+
+# CH-577: alerts of these kinds go to the Non Priority topic.
+NON_PRIORITY_KINDS = ('ssh',)
+
+
+def non_priority_thread() -> str:
+    """The Non Priority topic, when it is set and the alerts go to the
+    support group (a topic exists only there). '' = no split."""
+    thread = _env('TELEGRAM_NONPRIORITY_THREAD_ID')
+    support, chat = _chat()
+    return thread if thread and support and chat == support else ''
+
+
+def telegram(text, thread=None) -> bool:
+    """To the status chat, the same chat the status bot uses. `thread`: a
+    topic of the support group other than Notifications (CH-577)."""
+    token = _env('TELEGRAM_BOT_TOKEN')
+    support, chat = _chat()
     if not (token and chat):
         return False
     body = {'chat_id': chat, 'text': text[:4000], 'parse_mode': 'HTML', 'disable_web_page_preview': True}
-    if support and chat == support and _env('TELEGRAM_NOTIFY_THREAD_ID'):
-        body['message_thread_id'] = _env('TELEGRAM_NOTIFY_THREAD_ID')
+    if support and chat == support and (thread or _env('TELEGRAM_NOTIFY_THREAD_ID')):
+        body['message_thread_id'] = thread or _env('TELEGRAM_NOTIFY_THREAD_ID')
     req = urllib.request.Request(f'https://api.telegram.org/bot{token}/sendMessage',
                                  data=json.dumps(body).encode(), headers={'Content-Type': 'application/json'})
     try:
@@ -956,8 +978,16 @@ def run(send=True, checks=None, save=True):
     if r.first:
         follow_up(r, state)
     if send and (events or pending):
-        text = message([tuple(e) for e in pending] + events)
-        state['pending'] = [] if telegram(text) else ([list(e) for e in pending] + [list(e) for e in events])[-50:]
+        batch = [tuple(e) for e in pending] + [tuple(e) for e in events]
+        thread = non_priority_thread()
+        quiet = [e for e in batch if thread and e[0] in NON_PRIORITY_KINDS]
+        main = [e for e in batch if e not in quiet]
+        left = []
+        if main and not telegram(message(main)):
+            left += main
+        if quiet and not telegram(message(quiet), thread=thread):
+            left += quiet
+        state['pending'] = [list(e) for e in left][-50:]
     # The day's events, for the report's counts.
     log = [x for x in (state.get('events') or []) if x[0] > r.now - DAY]
     log += [[int(r.now), e[0], e[1]] for e in events]
