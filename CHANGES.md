@@ -10272,3 +10272,24 @@ buyer access can see or download, nothing more than that."
 - Publishers and staff: unchanged.
 
 Tests: PartnerFileColumnsTests (+2). Code only, no migration.
+
+## CH-611 - Buyer Telegram reports and buyer API keys: Revo's buyer view only
+
+Sir, 5 Nov, on what a buyer can still receive: "Should removed from
+everywhere." (After "Called number - publisher name - campaign name ...
+should never come to buyer access", "Remove repeated from buyer access" and
+Revo's buyer view, "nothing more than that".)
+
+- Buyer Telegram reports (`buyers/telegram_report.py`): the columns that can
+  be ticked are Date, Caller ID, Destination Name, Destination, Status,
+  Duration, Fail Reason, Payout (what the buyer pays; was headed Revenue) and
+  Recording. Called Number, Campaign, Publisher, Repeated, Call ID, State,
+  Carrier, Qualified and Converted are gone (`REMOVED_COLUMNS`). A report
+  already saved with them keeps going out with the rest, and an old heading
+  for a removed column no longer blocks saving the report.
+- Buyer API keys (the buyer's bot, Stats API): `/campaigns` returns nothing,
+  `/missed` and `/concurrency` carry no campaign names, and `/buyers` rows
+  have no Repeated, Qualified or Conv. rate figures. Staff keys: unchanged.
+
+Tests: `buyers/test_telegram_report.py` (+2, 1 updated),
+`analytics/test_buyer_api_key.py` (+1, 1 updated). Code only, no migration.

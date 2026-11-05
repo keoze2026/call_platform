@@ -252,15 +252,36 @@ class BuyerTelegramReportTests(TestCase):
         url = f'/api/buyers/{self.buyer.id}/telegram-report'
         body = self.api.get(url).json()
         keys = [c['key'] for c in body['columns']]
-        for k in ('call_id', 'state', 'carrier', 'campaign', 'converted', 'repeated', 'revenue'):
-            self.assertIn(k, keys)
-        for k in ('payout', 'profit', 'cost', 'billed_minutes', 'ttc'):   # no TTC for buyers (CH-325)
-            self.assertNotIn(k, keys)
+        # CH-611: Revo's buyer view only - nothing else can be ticked.
+        self.assertEqual(keys, ['date', 'caller', 'destination_name', 'destination', 'status',
+                                'duration', 'fail_reason', 'revenue', 'recording'])
+        self.assertEqual(dict((c['key'], c['label']) for c in body['columns'])['revenue'], 'Payout')
         self.assertEqual(body['included_columns'][:3], ['date', 'caller', 'destination'])
-        r = self.api.patch(url, {'included_columns': ['caller', 'campaign', 'converted', 'bogus']},
+        r = self.api.patch(url, {'included_columns': ['caller', 'campaign', 'revenue', 'bogus']},
                            content_type='application/json')
         self.assertEqual(r.status_code, 200, r.content)
         self.report.refresh_from_db()
         _, header, rows, _ = build_reports(self.report, *self.window())[0]
-        self.assertEqual(header, ['Caller ID', 'Campaign', 'Converted'])
+        self.assertEqual(header, ['Caller ID', 'Payout'])
         self.assertEqual(self.api.patch(url, {'included_columns': []}, content_type='application/json').status_code, 400)
+
+
+    # CH-611 (Sir, 5 Nov: "Should removed from everywhere"): a report saved
+    # with Called Number, Campaign, Publisher, Repeated (or any other column
+    # outside Revo's buyer view) keeps going out, without them.
+    def test_a_report_saved_with_removed_columns_sends_without_them(self):
+        self.rec(self.d1, 'completed', 65)
+        self.report.included_columns = ['date', 'called_number', 'campaign', 'publisher', 'repeated',
+                                         'qualified', 'converted', 'call_id', 'state', 'carrier', 'caller']
+        self.report.column_names = {'campaign': 'Camp', 'caller': 'Phone'}
+        self.report.save()
+        _, header, rows, _ = build_reports(self.report, *self.window())[0]
+        self.assertEqual(header, ['Date (EST)', 'Phone'])
+        self.assertEqual(len(rows[0]), 2)
+        body = self.api.get(f'/api/buyers/{self.buyer.id}/telegram-report').json()
+        self.assertEqual(body['included_columns'], ['date', 'caller'])
+        self.assertEqual(body['column_names'], [{'key': 'caller', 'label': 'Phone'}])
+
+    def test_an_old_heading_of_a_removed_column_does_not_block_saving(self):
+        from buyers.telegram_report import check_column_names
+        self.assertEqual(check_column_names({'campaign': 'Camp', 'caller': 'Phone'}), {'caller': 'Phone'})

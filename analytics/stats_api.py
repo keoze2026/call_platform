@@ -23,6 +23,26 @@ stats_router = Router(tags=["Stats API"], auth=APIKeyAuth())
 
 # CH-538: live calls use the one live rule (routing/live.py).
 
+# CH-611 (Sir, 5 Nov: "Called number - publisher name - campaign name ...
+# should never come to buyer access"; "Remove repeated from buyer access";
+# Revo's buyer view, "nothing more than that"; "Should removed from
+# everywhere"). A buyer's key (its bot, CH-477) gets no campaign names and no
+# Repeated / Qualified / Conv. rate figures. Staff keys: unchanged.
+BUYER_HIDDEN_FIELDS = ('duplicate_calls', 'qualified_calls', 'conversion_rate')
+
+
+def _buyer_key(request) -> bool:
+    return getattr(request.auth, 'role', '') == 'buyer'
+
+
+def _buyer_rows(request, rows):
+    if _buyer_key(request):
+        for row in rows:
+            for k in BUYER_HIDDEN_FIELDS:
+                if k in row:
+                    row[k] = None
+    return rows
+
 
 class _Filters:
     """The attribute bag the analytics services expect.
@@ -80,6 +100,8 @@ def campaigns(request: HttpRequest, date_from: str = None, date_to: str = None,
     total_duration_sec (TCL over connected calls), revenue/payout/profit
     (role permitting), billable_minutes, total_cost.
     """
+    if _buyer_key(request):            # CH-611: our campaigns are not a buyer's
+        return 200, []
     from analytics.services import AnalyticsService
     return 200, AnalyticsService.get_campaign_performance(
         request.auth, _filters(date_from, date_to, timezone_name))
@@ -141,7 +163,7 @@ def buyers(request: HttpRequest, date_from: str = None, date_to: str = None,
                 'total_calls': 0, 'connected_calls': 0,
                 'not_connected_calls': 0, 'converted': 0,
             })
-    return 200, rows
+    return 200, _buyer_rows(request, rows)
 
 
 @stats_router.get("/destinations", response={200: list})
@@ -257,7 +279,7 @@ def missed(request: HttpRequest, date_from: str = None, date_to: str = None,
         ]
 
     return 200, {
-        'by_campaign': grouped('campaign_id', 'campaign_name'),
+        'by_campaign': [] if _buyer_key(request) else grouped('campaign_id', 'campaign_name'),   # CH-611
         'by_buyer': grouped('buyer_id', 'buyer_name'),
     }
 
@@ -333,7 +355,7 @@ def concurrency(request: HttpRequest):
 
     return 200, {
         'total_cc': live.count(),
-        'by_campaign': by_campaign,
+        'by_campaign': [] if _buyer_key(request) else by_campaign,      # CH-611
         'by_buyer': by_buyer,
         'taken_at': timezone.now().isoformat(),
     }

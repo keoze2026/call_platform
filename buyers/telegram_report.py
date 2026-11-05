@@ -43,26 +43,26 @@ MAX_ATTEMPTS = 3
 # Minutes - are never offered.
 COLUMNS = (
     ('date', 'Date (EST)'),
-    ('call_id', 'Call ID'),
     ('caller', 'Caller ID'),
-    ('state', 'State'),
-    ('carrier', 'Carrier'),
-    ('called_number', 'Called Number'),
-    ('campaign', 'Campaign'),
     ('destination_name', 'Destination Name'),
     ('destination', 'Destination'),
-    ('publisher', 'Publisher'),
     ('status', 'Status'),
     ('duration', 'Duration'),
     # No TTC (CH-325, Sir): these files go to the buyer, and a buyer never sees
     # TTC - it differs from their own by the 2-5 s a call takes to connect.
     ('fail_reason', 'Fail Reason'),
-    ('qualified', 'Qualified'),
-    ('converted', 'Converted'),
-    ('repeated', 'Repeated'),
-    ('revenue', 'Revenue'),
+    # CH-611: what the buyer pays for the call - "Payout" in the buyer's own
+    # words, as in the portal (CH-609).
+    ('revenue', 'Payout'),
     ('recording', 'Recording'),
 )
+# CH-611 (Sir, 5 Nov: "Called number - publisher name - campaign name ...
+# should never come to buyer access"; "Remove repeated from buyer access";
+# Revo's buyer view, "nothing more than that"; and on these reports: "Should
+# removed from everywhere"). No longer offered, and dropped from every report
+# already saved with them: the report keeps going out with the rest.
+REMOVED_COLUMNS = frozenset({'call_id', 'state', 'carrier', 'called_number', 'campaign',
+                             'publisher', 'qualified', 'converted', 'repeated'})
 # Ticked for a new report: the report as it was first built.
 DEFAULT_COLUMNS = ('date', 'caller', 'destination', 'status', 'duration', 'fail_reason', 'recording')
 COLUMN_KEYS = {k for k, _ in COLUMNS}
@@ -113,6 +113,8 @@ def check_column_names(names) -> dict:
     out = {}
     for key, label in names.items():
         label = str(label or '').strip()
+        if key in REMOVED_COLUMNS:          # CH-611: a removed column's old heading
+            continue
         if key not in COLUMN_KEYS:
             raise ReportError(f'Unknown column "{key}".')
         if len(label) > 40:
@@ -224,22 +226,13 @@ def build_reports(report, start, end):
                 ttc = ''
             values = {
                 'date': c.call_time.astimezone(EASTERN).strftime('%Y-%m-%d %H:%M:%S'),
-                'call_id': str(c.id),
                 'caller': _caller(c.caller_number),
-                'state': c.caller_state or '',
-                'carrier': c.carrier or c.carrier_name or '',
-                'called_number': _caller(c.called_number),
-                'campaign': c.campaign_name or '',
                 'destination_name': dest.name or '',
                 'destination': _caller(dest.tfn),
-                'publisher': c.publisher_name or '',
                 'status': _status(c),
                 'duration': _hms(c.duration_seconds) if c.status in ANSWERED else '00:00:00',
                 'ttc': ttc,
                 'fail_reason': reason,
-                'qualified': 'Yes' if c.is_qualified else 'No',
-                'converted': 'Yes' if c.is_converted else 'No',
-                'repeated': 'Yes' if c.is_duplicate else 'No',
                 'revenue': float(c.dynamic_revenue or 0),
                 'recording': public_recording_url(c.recording_url) or '',
             }

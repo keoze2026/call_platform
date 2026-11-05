@@ -574,7 +574,7 @@ def _telegram_report(request, buyer_id):
 
 
 def _telegram_report_out(r) -> dict:
-    from buyers.telegram_report import COLUMNS, DEFAULT_COLUMNS
+    from buyers.telegram_report import COLUMN_KEYS, COLUMNS, DEFAULT_COLUMNS
     return {
         "enabled": r.enabled,
         "chat_id": r.chat_id,
@@ -582,10 +582,12 @@ def _telegram_report_out(r) -> dict:
         "no_recording_link": r.no_recording_link,
         "connected_only": r.connected_only,
         "hide_fail_reason": r.hide_fail_reason,
-        "column_names": [{"key": k, "label": v} for k, v in (r.column_names or {}).items()],
+        # CH-611: a removed column never comes back, not even as a saved heading.
+        "column_names": [{"key": k, "label": v} for k, v in (r.column_names or {}).items()
+                         if k in COLUMN_KEYS],
         "comment_rewrites": [{"from": k, "to": v} for k, v in (r.comment_rewrites or {}).items()],
         "columns": [{"key": k, "label": label} for k, label in COLUMNS],
-        "included_columns": list(r.included_columns or DEFAULT_COLUMNS),
+        "included_columns": [k for k in (r.included_columns or DEFAULT_COLUMNS) if k in COLUMN_KEYS],
         "last_sent_at": r.last_sent_at.isoformat() if r.last_sent_at else None,
         "last_result": r.last_result,
         "buyer_approved": r.buyer_approved,

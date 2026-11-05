@@ -50,7 +50,7 @@ class BuyerApiKeyTests(TestCase):
         body = self.key_for(self.buyer_login).get('/api/stats/concurrency').json()
         self.assertEqual(body['total_cc'], 1)
         self.assertEqual([b['name'] for b in body['by_buyer']], ['ADST'])
-        self.assertEqual([c['name'] for c in body['by_campaign']], ['C-02'])
+        self.assertEqual(body['by_campaign'], [])          # CH-611: no campaign names for a buyer
 
     def test_an_admin_key_still_sees_everything(self):
         body = self.key_for(self.admin).get('/api/stats/concurrency').json()
@@ -73,3 +73,21 @@ class BuyerApiKeyTests(TestCase):
                                     role='buyer', is_active=True)
         body = self.key_for(stray).get('/api/stats/concurrency').json()
         self.assertEqual(body['total_cc'], 0)
+
+
+    # CH-611 (Sir, 5 Nov: "Should removed from everywhere"): a buyer's key gets
+    # no campaign names and no Repeated / Qualified / Conv. rate; staff unchanged.
+    def test_a_buyer_key_gets_no_campaigns_and_no_repeated(self):
+        today = timezone.now().date().isoformat()
+        q = f'date_from={today}&date_to={today}&timezone_name=UTC'
+        buyer = self.key_for(self.buyer_login)
+        self.assertEqual(buyer.get(f'/api/stats/campaigns?{q}').json(), [])
+        self.assertEqual(buyer.get(f'/api/stats/missed?{q}').json()['by_campaign'], [])
+        for row in buyer.get(f'/api/stats/buyers?{q}').json():
+            for key in ('duplicate_calls', 'qualified_calls', 'conversion_rate'):
+                if key in row:
+                    self.assertIsNone(row[key], key)
+        admin = self.key_for(self.admin)
+        self.assertEqual({r['campaign_name'] for r in admin.get(f'/api/stats/campaigns?{q}').json()},
+                         {'C-02', 'C-03'})
+        self.assertEqual(admin.get('/api/stats/concurrency').json()['by_campaign'][0]['name'][:2], 'C-')
