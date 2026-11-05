@@ -120,6 +120,15 @@ EXPORT_HEADER = (
     'Revenue', 'Payout', 'Profit', 'Billed Minutes', 'Cost', 'Recording'
 )
 
+# CH-605 (Sir, 5 Nov): "Called number - publisher name - campaign name ...
+# should never come to buyer access portal or excel when they download report.
+# Non buyer access should get full row report." A publisher's file has no
+# buyer, destination name or number (CH-594). Staff: every column.
+PARTNER_DROPPED_COLUMNS = {
+    'buyer': ('Called Number', 'Campaign', 'Publisher'),
+    'publisher': ('Buyer', 'Destination Name', 'Destination Number'),
+}
+
 
 # A call the publisher is paid for: it converted and it carries a payout - its
 # own (the tracking number's payout, CH-250) or the campaign's.
@@ -1928,6 +1937,7 @@ class AnalyticsService:
             drop.update(('Cost', 'Billed Minutes'))
         if 'ttc' in hidden:
             drop.add('TTC (s)')     # CH-325: never in a buyer's file
+        drop.update(PARTNER_DROPPED_COLUMNS.get(getattr(user, 'role', ''), ()))   # CH-605
 
         return drop
 

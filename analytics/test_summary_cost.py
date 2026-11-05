@@ -128,3 +128,31 @@ class BuyerNoTtcTests(TestCase):
     def test_the_buyer_telegram_report_offers_no_ttc(self):
         from buyers.telegram_report import COLUMN_KEYS
         self.assertNotIn('ttc', COLUMN_KEYS)
+
+
+class PartnerFileColumnsTests(TestCase):
+    """CH-605 (Sir, 5 Nov): a buyer's file has no called number, campaign or
+    publisher; a publisher's no buyer or destination; staff get every column."""
+
+    def header(self, role):
+        from analytics.services import AnalyticsService, EXPORT_HEADER
+        drop = AnalyticsService.export_dropped_columns(User(role=role))
+        return [c for c in EXPORT_HEADER if c not in drop]
+
+    def test_a_buyer_file_has_no_called_number_campaign_or_publisher(self):
+        cols = self.header('buyer')
+        for c in ('Called Number', 'Campaign', 'Publisher'):
+            self.assertNotIn(c, cols)
+        for c in ('Date', 'Caller', 'Buyer', 'Destination Name', 'Destination Number', 'Status', 'Recording'):
+            self.assertIn(c, cols)
+
+    def test_a_publisher_file_has_no_buyer_or_destination(self):
+        cols = self.header('publisher')
+        for c in ('Buyer', 'Destination Name', 'Destination Number'):
+            self.assertNotIn(c, cols)
+        for c in ('Called Number', 'Campaign', 'Publisher'):
+            self.assertIn(c, cols)
+
+    def test_staff_get_the_full_row(self):
+        from analytics.services import EXPORT_HEADER
+        self.assertEqual(self.header('admin'), list(EXPORT_HEADER))

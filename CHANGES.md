@@ -10219,3 +10219,21 @@ test ran the SQL in psql directly, so it did not show this). The messages
 are now built with `||`; the trigger SQL contains no `%` (a test checks).
 Re-tested on PostgreSQL 16: installs, refuses the same moves, allows normal
 edits and the quarantine path. 0022 is unchanged.
+
+## CH-605 - Buyer's downloaded file: no called number, campaign or publisher
+
+Sir, 5 Nov: "Called number - publisher name - campaign name - should never
+come to buyer access portal or excel when they download report. Non buyer
+access should get full row report."
+
+- The call export (`/api/analytics/calls/export`, and the emailed digest,
+  which shares `export_dropped_columns`) drops Called Number, Campaign and
+  Publisher for a buyer login, and Buyer, Destination Name and Destination
+  Number for a publisher login (CH-594), at the server: the file never
+  carries them. `PARTNER_DROPPED_COLUMNS` in analytics/services.py.
+- Staff and owner logins: every column, unchanged.
+- The portal drops the same columns from the file it builds (frontend
+  CH-605), so the rule holds even before this deploy.
+
+Tests: `analytics/test_summary_cost.py` PartnerFileColumnsTests (3).
+Deploy: code only, no migration.
