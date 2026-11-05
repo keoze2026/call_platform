@@ -10057,3 +10057,15 @@ standing rules:
 - `format_call_detail(call, viewer=...)`, masking in `_mask_call_detail`.
 
 Tests: `analytics/test_call_panel.py` (+3: buyer, publisher, reasons).
+
+## CH-574 - Call Plan Detail: each destination's name next to its number
+
+Sir, 5 Nov: "Destination name should also come next to destination number -
+Organized way." The call plan (`routing_trace`) stores each destination's
+number and buyer only. The call detail now adds `line_name`, its
+Destinations-page name ("Q07|2500|"), to every eligible and ineligible
+destination - one query for the workspace's Destinations rows, matched by
+buyer and the last ten digits as routing does. No row: no name. The stored
+trace is not changed. Frontend CH-574 shows it.
+
+Tests: `analytics/test_call_panel.py` (+1).

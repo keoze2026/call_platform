@@ -136,3 +136,22 @@ class CallPanelPartnerTests(CallPanelTests):
             self.assertEqual(d['panel']['legs'][-1]['reason'], shown)
             self.assertEqual(d['routing']['block_reason'], shown)
             self.assertNotIn('Server A', str(d))
+
+
+@override_settings(ALLOWED_HOSTS=['*'],
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class CallPlanNamesTests(CallPanelTests):
+    """CH-574: the call plan names each destination as on the Destinations page."""
+
+    def test_each_destination_gets_its_line_name(self):
+        CallLog.objects.filter(pk=self.call.pk).update(routing_trace={
+            'summary': {'total_destinations': 3},
+            'eligible_destinations': [{'name': '18445442126', 'buyer': 'CRM'}],
+            'rejected_destinations': [{'name': '+18669496771', 'buyer': 'Q15', 'reason': 'paused'},
+                                      {'name': '+18000000000', 'buyer': 'Q15', 'reason': 'switched off'}],
+        })
+        trace = self.api.get(f'/api/analytics/calls/{self.call.id}/detail').json()['routing_trace']
+        self.assertEqual([d['line_name'] for d in trace['eligible_destinations']], ['CRM|2126|'])
+        self.assertEqual([d['line_name'] for d in trace['rejected_destinations']], ['Q15|6771|', None])
+        # The stored trace is untouched.
+        self.assertNotIn('line_name', str(CallLog.objects.get(pk=self.call.pk).routing_trace))

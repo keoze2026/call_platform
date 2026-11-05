@@ -1087,7 +1087,7 @@ class AnalyticsService:
             # How the destination was chosen. Empty on calls placed before this
             # was recorded, so the client should treat {} as "not available"
             # rather than "nothing was considered".
-            'routing_trace': call.routing_trace or {},
+            'routing_trace': AnalyticsService._named_trace(call.routing_trace or {}, call.organization_id),
 
             'recording': {
                 'url': public_recording_url(call.recording_url) or None,
@@ -1102,6 +1102,42 @@ class AnalyticsService:
         }
         # CH-566: partner logins get what their Call Log row gives them, no more.
         return AnalyticsService._mask_call_detail(out, call, viewer)
+
+    @staticmethod
+    def _named_trace(trace: dict, organization_id) -> dict:
+        """CH-574 (Sir, 5 Nov: "Destination name should also come next to
+        destination number - organized way"): each destination in the call
+        plan gets its Destinations-page name ("Q07|2500|") as `line_name`.
+
+        The trace stores the number and the buyer only. One query reads every
+        Destinations row of the workspace; a destination is matched by its
+        buyer and the last ten digits, as routing matches it. No row (deleted,
+        never listed): no name, the number shows alone. The stored trace is
+        not changed.
+        """
+        lists = ('eligible_destinations', 'rejected_destinations')
+        if not trace or not any(trace.get(k) for k in lists):
+            return trace
+        from buyers.destination import Destination
+
+        def d10(n):
+            return ''.join(c for c in str(n or '') if c.isdigit())[-10:]
+
+        names = {}
+        for name, tfn, buyer in (Destination.objects.filter(organization_id=organization_id)
+                                 .order_by('-enabled', '-created_at')
+                                 .values_list('name', 'tfn', 'buyer__name')):
+            names.setdefault(((buyer or '').strip().lower(), d10(tfn)), name)
+        out = dict(trace)
+        for k in lists:
+            rows = []
+            for d in trace.get(k) or []:
+                if isinstance(d, dict):
+                    key = (str(d.get('buyer') or '').strip().lower(), d10(d.get('name')))
+                    d = {**d, 'line_name': names.get(key)}
+                rows.append(d)
+            out[k] = rows
+        return out
 
     @staticmethod
     def _mask_call_detail(out: dict, call, viewer) -> dict:
