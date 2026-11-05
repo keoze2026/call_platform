@@ -110,6 +110,14 @@ class PhoneNumber(models.Model):
     # Null = the carrier had no price yet; it is filled once one is set.
     # Owner-only, like every carrier cost.
     tfn_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    # Customer accounts point 5 (phone_numbers/pools.py): main (ours, locked),
+    # inventory (a customer's) or quarantine (released by a customer, until
+    # quarantine_until). Filled on save; checked here and by a database trigger.
+    pool = models.CharField(max_length=12, choices=[('main', 'Main (internal, locked)'),
+                                                    ('inventory', 'Customer inventory'),
+                                                    ('quarantine', 'Quarantine')],
+                            blank=True, default='', db_index=True)
+    quarantine_until = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -122,6 +130,12 @@ class PhoneNumber(models.Model):
         return f"{self.number} ({self.status})"
 
     def save(self, *args, **kwargs):
+        # Point 5: its pool, and the rules that keep our TFNs ours.
+        from phone_numbers.pools import before_save
+        added = before_save(self)
+        if added and kwargs.get('update_fields') is not None:
+            kwargs['update_fields'] = list(kwargs['update_fields']) + [f for f in added
+                                                                        if f not in kwargs['update_fields']]
         # Price the number from its carrier when it has none yet (CH-189).
         if self.carrier_id and self.tfn_price is None:
             price = (

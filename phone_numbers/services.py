@@ -293,6 +293,9 @@ class PhoneNumberService:
         phone_number.released_at = phone_number.released_at or timezone.now()
         phone_number.campaign = None
         phone_number.publisher = None
+        # Point 5: a customer's number goes to quarantine; ours stays main.
+        from phone_numbers.pools import on_release
+        on_release(phone_number)
         phone_number.save()
 
     @staticmethod

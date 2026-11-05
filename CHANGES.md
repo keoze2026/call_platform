@@ -10168,3 +10168,44 @@ row; row-level security (CH-579) needs it on the row itself.
 
 Tests: `accounts/test_tenancy.py` (12). Migrations on 17 apps: deploy after
 calling hours; rehearse on a copy of the database first.
+
+## CH-581 - TFNs kept separate: main, customer inventory, quarantine (customer accounts, point 5)
+
+Sir, 5 Nov, point 5: "Main-account TFNs are locked in an internal pool:
+never listed, sold, released or assigned to customers. Customers buy only
+from a separate customer inventory pool (fresh numbers from the carrier). A
+TFN belongs to exactly one account at a time. Numbers released by a
+customer go into quarantine before any reuse, and are never moved into our
+main pool."
+
+- `pool` on every TFN (`phone_numbers/pools.py`):
+  - **main**: ours. Only in our main account; never leaves it, never changes
+    pool. All 174 TFNs on 5 Nov (105 active, 2 paused, 68 released). Released
+    by us: stays main.
+  - **inventory**: a customer account's numbers, bought fresh from the
+    carrier (any TFN added by an account other than ours).
+  - **quarantine**: released or retired by a customer: no account may take
+    it until `quarantine_until`, `TFN_QUARANTINE_DAYS` (default 30, Sir to
+    confirm) after the release. Then only to a customer account as
+    inventory, never to main.
+- One account at a time: the number is unique across the platform (one row),
+  and its account changes only out of quarantine.
+- Checked on every save (clear error) and **in the database** by a trigger,
+  `avx_tfn_pool_guard` (migration 0023, PostgreSQL), which refuses: a main
+  TFN in another account, a main TFN leaving the main pool, a customer TFN
+  made main, a TFN changing account outside quarantine. Tested on
+  PostgreSQL 16: each refused, the one allowed move (after quarantine, to a
+  customer as inventory) allowed.
+- Listing and selling: customer accounts cannot see our TFNs (the account
+  scoping as before; CH-580's row-level security adds the database rule when
+  it goes live); a number already in the platform cannot be bought or
+  imported by another account (as before). Stands alone on master: does not
+  need CH-580.
+- `manage.py tfn_pools`: TFNs per account and pool, and whether each number
+  is in one account only; `--prove` tries to move one of ours to another
+  account and out of the main pool in a rolled-back transaction (both must
+  be refused).
+
+Tests: `phone_numbers/test_pools.py` (11). Migrations 0022 (pool, filled)
+and 0023 (trigger): deploy after calling hours; nothing on the call path
+changes for our numbers.

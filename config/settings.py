@@ -822,6 +822,9 @@ CAPITALIST_API_SECRET = config('CAPITALIST_API_SECRET', default='')
 # CH-578: our own (main) account. Rows from the public website (support chat,
 # contact form, access requests, visitor counts) belong to it.
 MAIN_ORGANIZATION_SLUG = config('MAIN_ORGANIZATION_SLUG', default='interns')
+# Customer accounts point 5: days a TFN released by a customer stays in
+# quarantine before another customer account may take it (Sir to confirm).
+TFN_QUARANTINE_DAYS = config('TFN_QUARANTINE_DAYS', default=30, cast=int)
 
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
