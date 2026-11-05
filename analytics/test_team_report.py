@@ -161,3 +161,75 @@ class TeamReportTests(TestCase):
     def test_without_a_bot_nothing_is_sent(self):
         self.assertEqual(self.api.post('/api/team-report/connect-link').status_code, 400)
         self.assertEqual(T.send_due(NOW), {'sent': 0, 'failed': 0})
+
+
+@override_settings(**BOT, MAIN_ORGANIZATION_SLUG='avx')
+class SharedLinkTests(TestCase):
+    """CH-603: one standing link - never expires, any number of people, stopped
+    at once by changing one line in .env; every join is announced."""
+
+    def setUp(self):
+        import tempfile
+        self.org = Organization.objects.create(name='Avortyx', slug='avx')
+        self.dir = tempfile.mkdtemp()
+        self.code = 'Abc123_shared-LINK-xyz'
+        self.env(self.code)
+        p = override_settings(BASE_DIR=self.dir)
+        p.enable()
+        self.addCleanup(p.disable)
+
+    def env(self, code):
+        with open(f'{self.dir}/.env', 'w') as f:
+            f.write('OTHER=1\n' + (f'TEAM_REPORT_INVITE={code}\n' if code is not None else ''))
+
+    def start(self, chat_id, name, code=None, username=None):
+        fake = FakeTelegram()
+        chat = {'id': chat_id, 'type': 'private', 'first_name': name, **({'username': username} if username else {})}
+        with mock.patch.object(T, 'telegram', fake):
+            T.handle_update({'message': {'text': f'/start team_{code or self.code}', 'chat': chat}})
+        return fake
+
+    def test_many_people_and_it_never_runs_out(self):
+        self.start(1, 'Evans')
+        fake = self.start(2, 'Admin', username='adm')
+        self.start(3, 'Billing')
+        rows = TeamReportChat.objects.filter(organization=self.org, enabled=True)
+        self.assertEqual(sorted(r.title for r in rows), ['Admin', 'Billing', 'Evans'])
+        to = {data['chat_id']: data['text'] for _, data, _ in fake.sent}
+        self.assertIn('Connected', to['2'])
+        self.assertIn('<b>Admin (@adm)</b> joined', to['1'])              # Evans is told who joined
+        self.assertEqual(T.invite_link(), f'https://t.me/AvortyxReportsBot?start=team_{self.code}')
+
+    def test_tapping_it_again_is_harmless_and_not_announced(self):
+        self.start(1, 'Evans')
+        self.start(2, 'Admin')
+        fake = self.start(2, 'Admin')
+        self.assertEqual(TeamReportChat.objects.count(), 2)
+        self.assertEqual([d['chat_id'] for _, d, _ in fake.sent], ['2'])     # only the reply
+
+    def test_changing_the_line_stops_the_old_link_at_once(self):
+        self.start(1, 'Evans')
+        self.env('a-brand-new-code-1234567')
+        fake = self.start(2, 'Stranger')
+        self.assertFalse(TeamReportChat.objects.filter(chat_id='2').exists())
+        self.assertIn('not valid', fake.sent[0][1]['text'])
+        self.assertTrue(TeamReportChat.objects.get(chat_id='1').enabled)    # already connected: kept
+        self.env(None)                                                   # line removed: no link at all
+        self.start(3, 'Other', code='a-brand-new-code-1234567')
+        self.assertFalse(TeamReportChat.objects.filter(chat_id='3').exists())
+        self.assertEqual(T.invite_link(), '')
+
+    def test_a_short_code_is_never_accepted(self):
+        self.env('short')
+        self.start(1, 'X', code='short')
+        self.assertFalse(TeamReportChat.objects.exists())
+
+    def test_one_time_links_still_work_once(self):
+        link = T.make_link(self.org)
+        code = link['url'].split('start=team_')[1]
+        self.start(5, 'One')
+        self.start(6, 'Once', code=code)
+        fake = self.start(7, 'Twice', code=code)
+        self.assertTrue(TeamReportChat.objects.filter(chat_id='6').exists())
+        self.assertFalse(TeamReportChat.objects.filter(chat_id='7').exists())
+        self.assertIn('not valid', fake.sent[0][1]['text'])

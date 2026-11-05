@@ -25,6 +25,7 @@ three times a day at most.
 import hashlib
 import html
 import logging
+import os
 import secrets
 from datetime import datetime, time, timedelta
 from decimal import Decimal
@@ -140,28 +141,89 @@ def make_link(organization, user=None) -> dict:
     }
 
 
+# CH-603 (5 Nov: "the link should not expire, and can be reused - I will share
+# it only with specific people"): ONE standing link for our main workspace,
+#     https://t.me/<bot>?start=team_<TEAM_REPORT_INVITE>
+# It never expires and any number of people can use it. Its code lives in
+# .env and is read on every use, so changing or deleting that one line stops
+# the link AT ONCE (no restart; chats already connected stay - switch those off
+# on their own). Every new chat that joins through it is announced to the
+# chats already connected, so a leaked link shows straight away.
+INVITE_SETTING = 'TEAM_REPORT_INVITE'
+INVITE_MIN_LENGTH = 16
+JOINED_TEXT = ('🔔 <b>{who}</b> joined the Avortyx AI Reports through the shared link. '
+               'If you do not know this person, tell the admin: the link can be changed in one step.')
+
+
+def invite_code() -> str:
+    """The standing link's code: from the app's .env, read now (so a change
+    works without a restart), else from settings when there is no .env."""
+    path = os.path.join(str(getattr(settings, 'BASE_DIR', '') or ''), '.env')
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line.startswith(INVITE_SETTING + '='):
+                    return line.split('=', 1)[1].strip().strip('"').strip("'")
+        return ''                                   # .env read, no line: the link is off
+    except OSError:
+        return str(getattr(settings, INVITE_SETTING, '') or '').strip()
+
+
+def _is_invite(code: str) -> bool:
+    invite = invite_code()
+    return bool(code) and len(invite) >= INVITE_MIN_LENGTH and secrets.compare_digest(code, invite)
+
+
+def invite_link() -> str:
+    """The standing link, or '' when it is not set up."""
+    invite, bot = invite_code(), bot_username()
+    if len(invite) < INVITE_MIN_LENGTH or not bot:
+        return ''
+    return f'https://t.me/{bot}?start={PREFIX}{invite}'
+
+
 def connect(payload: str, chat: dict):
     """Save the chat for the workspace the code belongs to. Returns the
     TeamReportChat, or None for an unknown or used code."""
     from accounts.models import Organization, User
+    from accounts.tenancy import main_organization_id
     from analytics.models import TeamReportChat
     code = payload[len(PREFIX):] if payload.startswith(PREFIX) else ''
     found = cache.get(_LINK_KEY.format(code)) if code else None
     chat_id = str((chat or {}).get('id', '') or '')
-    if not found or not chat_id:
+    if not chat_id:
+        return None
+    shared = False
+    if not found and _is_invite(code):
+        # CH-603: the standing link - our main workspace, never used up.
+        main = main_organization_id()
+        if main is None:
+            logger.warning('reports bot: shared link used but MAIN_ORGANIZATION_SLUG matches no workspace')
+            return None
+        found, shared = {'org': str(main), 'user': ''}, True
+    if not found:
         return None
     org = Organization.objects.filter(id=found.get('org')).first()
     if org is None:
         return None
-    # One use: a forwarded link cannot later move the report to another chat.
-    cache.delete(_LINK_KEY.format(code))
+    if not shared:
+        # One use: a forwarded link cannot later move the report to another chat.
+        cache.delete(_LINK_KEY.format(code))
     user = User.objects.filter(id=found.get('user')).first() if found.get('user') else None
     title = chat.get('title') or ' '.join(x for x in (chat.get('first_name'), chat.get('last_name')) if x) \
         or (('@' + chat['username']) if chat.get('username') else '')
-    row, _ = TeamReportChat.objects.update_or_create(
-        organization=org, chat_id=chat_id[:64],
-        defaults={'title': (title or '')[:255], 'kind': (chat.get('type') or '')[:16],
-                  'connected_by': user, 'enabled': True, 'attempts': 0, 'last_result': ''})
+    before = TeamReportChat.objects.filter(organization=org, chat_id=chat_id[:64]).values_list('enabled', flat=True).first()
+    defaults = {'title': (title or '')[:255], 'kind': (chat.get('type') or '')[:16],
+                'enabled': True, 'attempts': 0, 'last_result': ''}
+    if not shared or before is None:
+        defaults['connected_by'] = user           # a shared-link rejoin keeps who connected it first
+    row, _ = TeamReportChat.objects.update_or_create(organization=org, chat_id=chat_id[:64], defaults=defaults)
+    if shared and before is not True:
+        # New here (or switched off before): tell the chats already connected.
+        who = (title or chat_id) + (f" (@{chat['username']})" if chat.get('username') and title else '')
+        for other in TeamReportChat.objects.filter(organization=org, enabled=True).exclude(pk=row.pk):
+            reply(other.chat_id, JOINED_TEXT.format(who=html.escape(who)))
     return row
 
 
@@ -373,8 +435,8 @@ CONNECTED_TEXT = (
     '{time} EST.\n\nSend /stop to stop it.'
 )
 STOPPED_TEXT = '⏹ The team report is stopped for this chat. Connect it again from the portal any time.'
-BAD_CODE_TEXT = ('This link has expired or was already used. Open the Avortyx portal → '
-                 '<b>Automated Report</b> and press <b>Connect Telegram</b> for a new one.')
+BAD_CODE_TEXT = ('This link is not valid (it was changed, has expired or was already used). '
+                 'Ask your Avortyx admin for the current link.')
 
 
 def _command(word: str) -> str:
