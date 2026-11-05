@@ -142,6 +142,10 @@ class ActivityLog(models.Model):
         RECORD_UPDATED = 'record_updated', 'Updated'
         RECORD_DELETED = 'record_deleted', 'Deleted'
     
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, 
@@ -202,6 +206,10 @@ class APIKey(models.Model):
 class PasswordResetToken(models.Model):
     """Password reset tokens with expiration"""
     
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, 
@@ -274,6 +282,10 @@ class TelegramLinkCode(models.Model):
     Codes are single use and short lived; an unused one simply expires.
     """
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='telegram_link_codes')
     code = models.CharField(max_length=64, unique=True, db_index=True)

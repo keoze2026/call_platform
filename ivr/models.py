@@ -51,6 +51,10 @@ class IVRNode(models.Model):
         RECORD = 'record', 'Record'
         PAUSE = 'pause', 'Pause'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     flow = models.ForeignKey(IVRFlow, on_delete=models.CASCADE, related_name='nodes')
 
@@ -75,6 +79,10 @@ class IVRNode(models.Model):
 
 class IVRNodeTransition(models.Model):
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     from_node = models.ForeignKey(IVRNode, on_delete=models.CASCADE, related_name='transitions')
     to_node = models.ForeignKey(IVRNode, on_delete=models.CASCADE, related_name='incoming_transitions', null=True, blank=True)

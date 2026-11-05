@@ -95,6 +95,10 @@ class Buyer(models.Model):
 
 class BuyerCap(models.Model):
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     buyer = models.OneToOneField(Buyer, on_delete=models.CASCADE, related_name='cap')
 
@@ -116,6 +120,10 @@ class BuyerCap(models.Model):
 class BuyerCampaign(models.Model):
     """Links a buyer to a campaign with specific settings"""
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     buyer = models.ForeignKey(Buyer, on_delete=models.CASCADE, related_name='campaign_buyers')
     campaign = models.ForeignKey('campaigns.Campaign', on_delete=models.CASCADE, related_name='campaign_assignments')
@@ -149,6 +157,10 @@ class BuyerSchedule(models.Model):
         SATURDAY  = 5, 'Saturday'
         SUNDAY    = 6, 'Sunday'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     buyer = models.ForeignKey(Buyer, on_delete=models.CASCADE, related_name='schedules')
     day_of_week = models.IntegerField(choices=DayOfWeek.choices)
@@ -178,6 +190,10 @@ class BuyerTelegramReport(models.Model):
     its own wording for comments (wording only - a comment can never be made
     to say a call connected when it did not).
     """
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     buyer = models.OneToOneField(Buyer, on_delete=models.CASCADE, related_name='telegram_report')
     enabled = models.BooleanField(default=False)
     chat_id = models.CharField(max_length=64, blank=True, default='')

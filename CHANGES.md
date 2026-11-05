@@ -10127,3 +10127,44 @@ an empty list and never reads who else shares its campaign.
 
 Tests: `campaigns/test_campaign_publishers.py` (4). Needs the web restart.
 Portal half: CH-579 in Avortyx.
+
+## CH-578 - Every row carries its account (customer accounts, point 1b)
+
+Sir, 5 Nov, customer accounts point 1: "Every record ... carries an
+account_id. Enforce it at database level (row-level security)." The main
+tables always had the account. 36 tables reached it only through a parent
+row; row-level security (CH-579) needs it on the row itself.
+
+- `organization` added to the 36 (`accounts/tenancy.py` lists them):
+  - **23 with a parent** take the parent's account on every save and the
+    column is required: buyer / campaign / publisher caps and schedules,
+    buyer and publisher campaign links, buyer Telegram reports, campaign
+    lines and their conditions, IVR steps and transitions, DNI numbers,
+    sessions, landers and calls, RTB bids, referrals and earnings, webhook
+    deliveries, conversion events, integration activity, white-label
+    domains. A line moved to another rule moves with it.
+  - **8 about a login** take that login's account: activity log, password
+    reset and setup tokens, Telegram link codes, reports PIN attempts and
+    unlocks, notification preferences, marketplace favourites. A login with
+    no account (one on 5 Nov: hans@gmail.com) leaves them empty; under
+    row-level security nobody sees those. It is NOT tagged to our account:
+    that would give the login our data.
+  - **5 from the public website** (support chat and its messages, contact
+    form, access requests, visitor counts) go to our main account,
+    `MAIN_ORGANIZATION_SLUG` (default `interns`, the live one).
+- Filled in `pre_save` for every path that saves them; nothing inserts
+  these rows with raw SQL or bulk_create (checked). The migrations fill the
+  rows already there the same way (one UPDATE per table), then a second
+  migration per app makes the column required (on PostgreSQL the ALTER
+  cannot share a transaction with that UPDATE).
+- Already carried the account before this: the four spam lists and RTB
+  auctions (`organization_id`), so 42 of 84 tables had it; with these 36,
+  78. The other 6 are shared by design: organizations, the integration
+  catalogue, the carrier rate table, billing plans, the marketplace
+  categories and services.
+- A test fails if a new table is added without an account.
+- `scripts/ch578_check.sql`: read-only; rows, rows without an account and
+  accounts seen, per table.
+
+Tests: `accounts/test_tenancy.py` (12). Migrations on 17 apps: deploy after
+calling hours; rehearse on a copy of the database first.

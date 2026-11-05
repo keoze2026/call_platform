@@ -75,6 +75,10 @@ class Publisher(models.Model):
 
 class PublisherCap(models.Model):
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     publisher = models.OneToOneField(Publisher, on_delete=models.CASCADE, related_name='cap')
 
@@ -95,6 +99,10 @@ class PublisherCap(models.Model):
 class PublisherCampaign(models.Model):
     """Links a publisher to a campaign"""
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     publisher = models.ForeignKey(Publisher, on_delete=models.CASCADE, related_name='campaign_assignments')
     campaign = models.ForeignKey('campaigns.Campaign', on_delete=models.CASCADE, related_name='publisher_assignments')

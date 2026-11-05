@@ -59,6 +59,10 @@ class WhiteLabelDomain(models.Model):
         ACTIVE = 'active', 'Active'
         FAILED = 'failed', 'Failed'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     white_label = models.ForeignKey(WhiteLabel, on_delete=models.CASCADE, related_name='domains')
     domain = models.CharField(max_length=255, unique=True)

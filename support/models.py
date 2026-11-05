@@ -7,6 +7,10 @@ class SupportSession(models.Model):
         OPEN = 'open', 'Open'
         CLOSED = 'closed', 'Closed'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=200, blank=True)
     email = models.EmailField(blank=True)
@@ -24,6 +28,10 @@ class SupportMessage(models.Model):
         VISITOR = 'visitor', 'Visitor'
         AGENT = 'agent', 'Agent'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(SupportSession, on_delete=models.CASCADE, related_name='messages')
     sender = models.CharField(max_length=20, choices=Sender.choices)

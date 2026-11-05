@@ -58,6 +58,10 @@ class WebhookDelivery(models.Model):
         FAILED = 'failed', 'Failed'
         RETRYING = 'retrying', 'Retrying'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     webhook = models.ForeignKey(Webhook, on_delete=models.CASCADE, related_name='deliveries')
 
@@ -119,6 +123,10 @@ class ConversionPixel(models.Model):
 class ConversionEvent(models.Model):
     """Logs each conversion postback received."""
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pixel = models.ForeignKey(ConversionPixel, on_delete=models.CASCADE, related_name='events')
     call_log = models.ForeignKey('routing.CallLog', on_delete=models.SET_NULL, null=True, blank=True, related_name='conversions')

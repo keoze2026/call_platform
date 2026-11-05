@@ -45,6 +45,10 @@ class ReportsPinUnlock(models.Model):
     does not inherit an unlock from the first.
     """
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey('accounts.User', on_delete=models.CASCADE, related_name='reports_pin_unlocks')
     session_key = models.CharField(max_length=64)
@@ -71,6 +75,10 @@ class ReportsPinAttempt(models.Model):
     minutes by anyone holding a token.
     """
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField('accounts.User', on_delete=models.CASCADE, related_name='reports_pin_attempt')
     failed_count = models.PositiveSmallIntegerField(default=0)

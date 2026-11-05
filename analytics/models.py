@@ -206,6 +206,10 @@ class GuestVisit(models.Model):
     place rather than a new row per hit. Logged-in traffic is skipped.
     Country comes free from Cloudflare's CF-IPCountry header.
     """
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.BigAutoField(primary_key=True)
     ip = models.GenericIPAddressField()
     country = models.CharField(max_length=8, blank=True, default='')

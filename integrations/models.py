@@ -25,6 +25,10 @@ class OrganizationIntegration(models.Model):
 
 
 class IntegrationActivity(models.Model):
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     integration = models.ForeignKey(OrganizationIntegration, on_delete=models.CASCADE, related_name='activity')
     kind = models.CharField(max_length=20, default='sync')

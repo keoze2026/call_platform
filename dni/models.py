@@ -98,6 +98,10 @@ class DNINumber(models.Model):
         # CH-460: pulled out of rotation (by hand, or a call flood) until restored.
         QUARANTINED = 'quarantined', 'Quarantined'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id     = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pool   = models.ForeignKey(DNIPool, on_delete=models.CASCADE, related_name='numbers')
     number = models.CharField(max_length=20)
@@ -136,6 +140,10 @@ class DNISession(models.Model):
         CALLED   = 'called',   'Called'
         RELEASED = 'released', 'Released'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id         = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pool       = models.ForeignKey(DNIPool, on_delete=models.CASCADE, related_name='sessions')
     dni_number = models.ForeignKey(DNINumber, on_delete=models.SET_NULL, null=True, related_name='sessions')
@@ -190,6 +198,10 @@ class DNISession(models.Model):
 class DNILander(models.Model):
     """A landing page that shows a pool's numbers (CH-460). The page is read
     once to find the phone numbers on it; the ticked ones are swapped."""
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     pool = models.ForeignKey(DNIPool, on_delete=models.CASCADE, related_name='landers')
     url = models.URLField(max_length=1000)
@@ -210,6 +222,10 @@ class DNILander(models.Model):
 class DNICall(models.Model):
     """Every call on a pool number (CH-460): which visit it came from, and
     whether the pool's spam rules refused it."""
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.BigAutoField(primary_key=True)
     pool = models.ForeignKey(DNIPool, on_delete=models.CASCADE, related_name='calls')
     number = models.ForeignKey(DNINumber, on_delete=models.SET_NULL, null=True, blank=True, related_name='calls')

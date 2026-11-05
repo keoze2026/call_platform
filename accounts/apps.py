@@ -13,3 +13,6 @@ class AccountsConfig(AppConfig):
         # loaded and nothing is recorded.
         from . import activity_signals
         activity_signals.connect()
+        # CH-578: every row carries its account.
+        from . import tenancy
+        tenancy.connect()

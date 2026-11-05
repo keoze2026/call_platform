@@ -39,6 +39,10 @@ class Referral(models.Model):
         CHURNED = 'churned', 'Churned'
         PENDING = 'pending', 'Pending'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     program = models.ForeignKey(ReferralProgram, on_delete=models.CASCADE, related_name='referrals')
     referred_organization = models.OneToOneField(
@@ -63,6 +67,10 @@ class Referral(models.Model):
 
 
 class ReferralEarning(models.Model):
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     program = models.ForeignKey(ReferralProgram, on_delete=models.CASCADE, related_name='earnings')
     referral = models.ForeignKey(Referral, on_delete=models.CASCADE, related_name='earnings')

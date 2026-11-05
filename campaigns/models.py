@@ -182,6 +182,10 @@ class CampaignCap(models.Model):
         MONTHLY = 'monthly', 'Monthly'
         GLOBAL = 'global', 'Global'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     campaign = models.OneToOneField(Campaign, on_delete=models.CASCADE, related_name='cap')
 
@@ -229,6 +233,10 @@ class CampaignSchedule(models.Model):
         (6, 'Sunday'),
     ]
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     campaign = models.ForeignKey(Campaign, on_delete=models.CASCADE, related_name='schedules')
 

@@ -68,6 +68,10 @@ class RTBBid(models.Model):
         TIMEOUT  = 'timeout',  'Timeout'
         REJECTED = 'rejected', 'Rejected'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id      = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     auction = models.ForeignKey(RTBAuction, on_delete=models.CASCADE, related_name='bids')
 

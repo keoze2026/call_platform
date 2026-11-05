@@ -819,6 +819,10 @@ SECURE_REFERRER_POLICY = 'strict-origin-when-cross-origin'
 CAPITALIST_API_KEY = config('CAPITALIST_API_KEY', default='')
 CAPITALIST_API_SECRET = config('CAPITALIST_API_SECRET', default='')
 
+# CH-578: our own (main) account. Rows from the public website (support chat,
+# contact form, access requests, visitor counts) belong to it.
+MAIN_ORGANIZATION_SLUG = config('MAIN_ORGANIZATION_SLUG', default='interns')
+
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')
 

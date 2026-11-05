@@ -153,6 +153,10 @@ class NotificationPreference(models.Model):
         events = cls.PARTNER_DEFAULTS[kind] if kind else cls.DEFAULT_POPUP_EVENTS
         return [str(e) for e in events]
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE, null=True,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(
         User, on_delete=models.CASCADE, related_name='notification_preference'

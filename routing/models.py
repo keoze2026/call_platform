@@ -46,6 +46,10 @@ class RoutingRule(models.Model):
 class RuleCondition(models.Model):
     """Conditions for each routing rule stored as JSON"""
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     rule = models.ForeignKey(RoutingRule, on_delete=models.CASCADE, related_name='conditions')
     conditions = models.JSONField(default=dict)
@@ -67,6 +71,10 @@ class RuleDestination(models.Model):
         SIP = 'sip', 'SIP Endpoint'
         BUYER = 'buyer', 'Buyer'
 
+    # CH-578: the account this row belongs to, set on every save from its
+    # parent (accounts/tenancy.py).
+    organization = models.ForeignKey('accounts.Organization', on_delete=models.CASCADE,
+                                     blank=True, editable=False, related_name='+')
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     rule = models.ForeignKey(RoutingRule, on_delete=models.CASCADE, related_name='destinations')
     destination_type = models.CharField(max_length=20, choices=DestinationType.choices, default=DestinationType.PHONE)
