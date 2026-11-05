@@ -10069,3 +10069,21 @@ buyer and the last ten digits as routing does. No row: no name. The stored
 trace is not changed. Frontend CH-574 shows it.
 
 Tests: `analytics/test_call_panel.py` (+1).
+
+## CH-576 - AI insights and Autopilot closed to buyer and publisher logins
+
+Reported 5 Nov: "All publishers and buyers are getting our inside
+notification. Hide this fast." Every partner login's bell listed the
+workspace's insights ("7 buyers are missing calls", "Revenue Decline").
+`enforce_route` skips partner logins (Partner Access governs them) and Partner
+Access has no entry for `/api/ai/*`, so nothing refused them. The same gap let
+a partner run Autopilot and change its settings.
+
+- `GET /api/ai/recommendations/` and `/anomalies/`: a partner gets an empty
+  list, not a 403, so an open tab clears without an error.
+- `POST /api/ai/autopilot/`, `GET` and `PATCH /api/ai/autopilot/config/`: 403
+  for a partner.
+- The main account and staff logins: unchanged.
+
+Tests: `analytics/test_ai_partner_access.py` (4). Needs the web restart.
+Portal half: CH-576 in Avortyx.

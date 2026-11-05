@@ -1,5 +1,7 @@
 from accounts.api import JWTAuth
+from accounts.partner_access import is_partner_account
 from ninja import Router, Schema
+from ninja.errors import HttpError
 from typing import List, Optional
 from .ai_insights import AIInsightsService
 from . import autopilot
@@ -37,19 +39,36 @@ class ErrorSchema(Schema):
     detail: str
 
 
+def _refuse_partner(request):
+    """CH-576: Autopilot belongs to the workspace, never to a buyer or publisher.
+
+    `enforce_route` skips partner logins (Partner Access governs them), and
+    Partner Access has no entry for these routes, so the check lives here.
+    """
+    if is_partner_account(request.auth):
+        raise HttpError(403, 'Autopilot is not available on this login.')
+
+
 @router.get("/recommendations/", response={200: List[RecommendationSchema], 403: ErrorSchema})
 def get_recommendations(request):
+    # CH-576: these describe the whole workspace (other buyers, revenue). A
+    # partner gets an empty list, not a 403, so an open tab clears quietly.
+    if is_partner_account(request.auth):
+        return 200, []
     return 200, AIInsightsService.get_recommendations(request.auth.organization)
 
 
 @router.get("/anomalies/", response={200: List[AnomalySchema], 403: ErrorSchema})
 def get_anomalies(request):
+    if is_partner_account(request.auth):   # CH-576, as above
+        return 200, []
     return 200, AIInsightsService.get_anomalies(request.auth.organization)
 
 
 @router.post("/autopilot/", response={200: List[AutopilotActionSchema], 403: ErrorSchema})
 def run_autopilot(request):
     """Run every switched-on rule once, now."""
+    _refuse_partner(request)
     return 200, autopilot.run_pass(request.auth.organization, source='manual')
 
 
@@ -121,11 +140,13 @@ def _config_payload(organization) -> dict:
 
 @router.get("/autopilot/config/", response={200: AutopilotConfigSchema})
 def get_autopilot_config(request):
+    _refuse_partner(request)
     return 200, _config_payload(request.auth.organization)
 
 
 @router.patch("/autopilot/config/", response={200: AutopilotConfigSchema})
 def update_autopilot_config(request, payload: AutopilotConfigPatch):
+    _refuse_partner(request)
     org = request.auth.organization
     autopilot.update_options(org, payload.dict(exclude_unset=True, exclude_none=True))
     return 200, _config_payload(org)
