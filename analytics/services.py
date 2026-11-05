@@ -124,6 +124,15 @@ EXPORT_HEADER = (
 # should never come to buyer access portal or excel when they download report.
 # Non buyer access should get full row report." A publisher's file has no
 # buyer, destination name or number (CH-594). Staff: every column.
+# CH-609 (Sir, 5 Nov, showing Revo's buyer access: "Give this only. This is
+# what only a buyer access can see or download, nothing more than that"): a
+# buyer's file carries these columns and no other. Revenue is what the buyer
+# pays (the portal labels it Payout for the buyer). Call ID stays in the
+# server's file only because the portal matches its rows to the calls by it;
+# the portal drops it from the buyer's download, the digest never offers it.
+BUYER_FILE_COLUMNS = ('Date', 'Call ID', 'Caller', 'Destination Name', 'Status', 'Fail Reason',
+                      'Duration (s)', 'Revenue', 'Recording')
+
 PARTNER_DROPPED_COLUMNS = {
     'buyer': ('Called Number', 'Campaign', 'Publisher',
               # CH-607 (Sir, 5 Nov): "Remove repeated from buyer access".
@@ -1940,6 +1949,8 @@ class AnalyticsService:
         if 'ttc' in hidden:
             drop.add('TTC (s)')     # CH-325: never in a buyer's file
         drop.update(PARTNER_DROPPED_COLUMNS.get(getattr(user, 'role', ''), ()))   # CH-605
+        if getattr(user, 'role', '') == 'buyer':                                    # CH-609
+            drop.update(c for c in EXPORT_HEADER if c not in BUYER_FILE_COLUMNS)
 
         return drop
 

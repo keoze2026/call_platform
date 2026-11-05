@@ -49,7 +49,13 @@ def available_columns(user) -> list:
     drop = AnalyticsService.export_dropped_columns(user)
     if getattr(user, 'role', '') in ('buyer', 'publisher'):
         drop = set(drop) | set(INTERNAL)
-    return [(c, LABELS.get(c, c)) for c in EXPORT_HEADER if c not in drop]
+    labels = LABELS
+    if getattr(user, 'role', '') == 'buyer':
+        # CH-609 (Revo's buyer view): no Call ID, and Revenue - what the buyer
+        # pays - is its Payout.
+        drop = set(drop) | {'Call ID'}
+        labels = {**LABELS, 'Revenue': 'Payout'}
+    return [(c, labels.get(c, c)) for c in EXPORT_HEADER if c not in drop]
 
 
 def _f(report, name, default=None):

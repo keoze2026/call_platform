@@ -10256,3 +10256,19 @@ report; removing them would break saved reports. Sir to decide.
 order 1, 5, 3, 11, then 2, 4, 6-10, how every step runs, and the status as of
 5 Nov 2:40 PM EST (Point 1 in progress, Point 5 live, Point 3 drafted). Docs
 only; nothing to deploy.
+
+## CH-609 - A buyer's file: Revo's buyer view, nothing more
+
+Sir, 5 Nov, showing Revo's buyer access: "Give this only. This is what only a
+buyer access can see or download, nothing more than that."
+
+- The call export for a buyer login carries only `BUYER_FILE_COLUMNS`: Date,
+  Call ID, Caller, Destination Name, Status, Fail Reason, Duration, Revenue,
+  Recording. Call ID stays in the server's file only because the portal
+  matches rows to calls by it; the portal's download drops it and relabels
+  Revenue (what the buyer pays) as Payout (frontend CH-609).
+- The emailed digest for a buyer offers the same columns without Call ID,
+  with Revenue headed "Payout".
+- Publishers and staff: unchanged.
+
+Tests: PartnerFileColumnsTests (+2). Code only, no migration.

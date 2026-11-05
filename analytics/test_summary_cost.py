@@ -143,9 +143,19 @@ class PartnerFileColumnsTests(TestCase):
         cols = self.header('buyer')
         for c in ('Called Number', 'Campaign', 'Publisher', 'Repeated'):
             self.assertNotIn(c, cols)
-        for c in ('Date', 'Caller', 'Buyer', 'Destination Name', 'Destination Number', 'Status',
-                  'Qualified', 'Converted', 'Recording'):
-            self.assertIn(c, cols)
+
+    def test_a_buyer_file_is_revos_buyer_view_and_nothing_more(self):
+        # CH-609 (Sir, 5 Nov): "Give this only ... nothing more than that."
+        self.assertEqual(self.header('buyer'), ['Date', 'Call ID', 'Caller', 'Destination Name', 'Status',
+                                                'Fail Reason', 'Duration (s)', 'Revenue', 'Recording'])
+
+    def test_a_buyer_digest_offers_the_same_with_payout(self):
+        from analytics.digest import available_columns
+        self.assertEqual(available_columns(User(role='buyer')),
+                         [('Date', 'Date'), ('Caller', 'Caller ID'), ('Destination Name', 'Destination Name'),
+                          ('Status', 'Status'), ('Fail Reason', 'Fail Reason'), ('Duration (s)', 'Duration'),
+                          ('Revenue', 'Payout'), ('Recording', 'Recording')])
+        self.assertIn(('Revenue', 'Revenue'), available_columns(User(role='admin')))
 
     def test_a_publisher_file_has_no_buyer_or_destination(self):
         cols = self.header('publisher')
