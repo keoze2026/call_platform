@@ -1,5 +1,5 @@
 from accounts.permissions import require, Capability
-from django.db.models import Count
+from django.db.models import Count, Q
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
@@ -25,6 +25,32 @@ def create_campaign(request: HttpRequest, data: CreateCampaignSchema):
         return 201, CampaignService.format_campaign(campaign, request.auth)
     except ValueError as e:
         return 400, {"detail": str(e)}
+
+
+def _publisher_names(user, campaigns) -> dict:
+    """CH-579: campaign id -> its publishers' names, for the Campaigns list.
+
+    A publisher reaches a campaign by assignment or, more often, by owning one
+    of its numbers. Staff only: a publisher login opens this list too, and must
+    never read who else shares its campaign.
+    """
+    from accounts.partner_access import is_partner_account
+    from phone_numbers.models import PhoneNumber
+    from publishers.models import Publisher, PublisherCampaign
+
+    if is_partner_account(user):
+        return {}
+    ids = [c.id for c in campaigns]
+    live = ~Q(publisher__status=Publisher.Status.ARCHIVED)
+    links = list(PublisherCampaign.objects.filter(live, campaign_id__in=ids, is_active=True)
+                 .values_list('campaign_id', 'publisher__name'))
+    links += list(PhoneNumber.objects.filter(live, campaign_id__in=ids, publisher__isnull=False,
+                                             status=PhoneNumber.Status.ACTIVE)
+                  .values_list('campaign_id', 'publisher__name'))
+    names = {}
+    for campaign_id, name in links:
+        names.setdefault(str(campaign_id), set()).add(name)
+    return {cid: sorted(found, key=str.lower) for cid, found in names.items()}
 
 
 @router.get("", response={200: dict})
@@ -88,6 +114,8 @@ def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
     )).values('campaign_id').annotate(total=Count('id'))
     global_map = {str(item['campaign_id']): item['total'] for item in global_qs if item['campaign_id']}
 
+    publishers_map = _publisher_names(request.auth, campaigns)
+
     data = []
     for c in campaigns:
         cid = str(c.id)
@@ -95,6 +123,7 @@ def list_campaigns(request: HttpRequest, page: int = 1, page_size: int = 50):
         data.append({
             'id': cid,
             'name': c.name,
+            'publishers': publishers_map.get(cid, []),
             'status': c.status,
             'routing_type': c.routing_type,
             'payout_amount': str(c.payout_amount),

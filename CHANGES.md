@@ -10115,3 +10115,15 @@ to `/opt/call_platform/.env`. The script reads `.env` every minute: no
 restart.
 
 Tests: `support/test_host_watch.py` (+6).
+
+## CH-579 - Campaigns list: each campaign's publishers
+
+Reported 5 Nov: "Add one more column publisher and add list here, next to
+campaign name." `GET /api/campaigns/` now sends `publishers`: the names of
+publishers assigned to the campaign or owning one of its active numbers, each
+once, by name. Archived publishers, ended assignments and released numbers are
+left out. Staff only: a publisher login opens this list too, so a partner gets
+an empty list and never reads who else shares its campaign.
+
+Tests: `campaigns/test_campaign_publishers.py` (4). Needs the web restart.
+Portal half: CH-579 in Avortyx.
