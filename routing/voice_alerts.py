@@ -54,8 +54,13 @@ def _line(c) -> str:
     if url:
         parts.append(f'<a href="{html.escape(url, quote=True)}">Listen</a>')
     line = ' | '.join(parts)
+    # CH-594: the LLM's one-line summary when it gave the final label (what
+    # happened on the call, in words); otherwise the rule step's comment.
+    summary = getattr(c, 'ai_summary', '') or ''
+    if summary:
+        line += f'\nAI: <i>{e(summary)}</i>'
     # CH-546: the AI's comment on the call, under it.
-    if c.ai_comment:
+    elif c.ai_comment:
         line += f'\nComment: <i>{e(c.ai_comment)}</i>'
     return line
 

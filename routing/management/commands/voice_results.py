@@ -76,8 +76,9 @@ class Command(BaseCommand):
                 }
             try:
                 before = (CallLog.objects.filter(id=call_id)
-                          .values_list('ai_label', 'organization_id', 'ai_final_at', 'ai_final_by').first()
-                          or ('', None, None, ''))
+                          .values_list('ai_label', 'organization_id', 'ai_final_at', 'ai_final_by',
+                                       'status', 'recording_url').first()
+                          or ('', None, None, '', '', ''))
                 # CH-555: the rule label is kept apart; once the LLM has set
                 # the final label, a re-check updates only the rule label.
                 if extra:
@@ -104,7 +105,13 @@ class Command(BaseCommand):
             counts[label] += 1
             orgs.add(before[1])
             if extra.get('ai_label') in ai_labels.NO_VOICE and before[0] != extra['ai_label']:
-                new_no_voice.append(call_id)
+                # CH-594: when the LLM gives the final label, the alert waits
+                # for it (ai_final_results sends it) - no alert that the LLM
+                # turns into Valid a few seconds later.
+                if not (getattr(settings, 'AI_FINAL_ENABLED', False) and ai_labels.needs_final(
+                        before[4], extra['ai_label'], extra.get('voice_caller_seconds'),
+                        fault=extra.get('voice_audio_fault'), has_recording=bool(before[5]))):
+                    new_no_voice.append(call_id)
         summary = 'voice {voice} | no_voice {no_voice} | missing {missing} | skipped {skipped}'.format(**counts)
         # CH-536: the instant report to the team's Telegram (VOICE_TELEGRAM_ALERTS).
         if new_no_voice:

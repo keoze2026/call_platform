@@ -91,6 +91,16 @@ MIN_RUN = 8          # a sound must last 8 windows (~0.25 s) in a row to count a
 BEEP_MIN_RMS = 0.01          # about -40 dBFS
 BEEP_TONAL = 0.6             # share of the window's power in the strongest band
 BEEP_MIN_RUN, BEEP_MAX_RUN = 3, 62      # windows: 0.1 s .. 2 s
+# CH-594 echo (Sir, 5 Nov: "No voice AI is not working correctly ... I need
+# 100% accuracy"): the caller's line often carries the AGENT's own voice back
+# (line or speakerphone echo), a little later and quieter. Silero hears
+# speech there, so an agent-only call read "caller speaks" - Valid. A caller
+# window is echo when the agent spoke in the ECHO_LAG s before it (or just
+# after, for jitter) and the caller side is under ECHO_RATIO of the agent's
+# loudness then. A real caller talks louder than an echo, and mostly when the
+# agent is quiet, so his speech still counts.
+ECHO_LAG = float(os.environ.get('ECHO_LAG', '0.5'))          # seconds
+ECHO_RATIO = float(os.environ.get('ECHO_RATIO', '0.35'))     # about -9 dB
 
 
 # CH-553: PANNs (scripts/voice_check/panns_sound.py) is asked only about a
@@ -146,7 +156,9 @@ class Vad:
         """One side of a call (or the mixed file), CH-543: seconds of speech,
         of audio and of beeping, when speech first started (s from the start
         of pcm16, None if never), and whether the file holds no audio data at
-        all (digital silence - a recording fault, not a quiet line)."""
+        all (digital silence - a recording fault, not a quiet line).
+        CH-594: also each window's speech probability and loudness ('probs',
+        'rms'), for the echo check of a split call (never sent on)."""
         np = self.np
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
         state = np.zeros((2, 1, 128), dtype=np.float32)
@@ -168,8 +180,49 @@ class Vad:
                 run = 0
         windows += run if run >= MIN_RUN else 0
         no_data = bool(len(audio) == 0 or float(np.max(np.abs(audio))) < 2.0 / 32768)
+        n = len(probs)
+        rms = (np.sqrt(np.mean(audio[:n * CHUNK].reshape(n, CHUNK) ** 2, axis=1)) if n
+               else np.zeros(0, dtype=np.float32))
         return {'speech': round(windows * CHUNK / SR, 2), 'audio': round(len(audio) / SR, 2),
-                'beep': beep_seconds(np, audio, probs), 'first': first, 'no_data': no_data}
+                'beep': beep_seconds(np, audio, probs), 'first': first, 'no_data': no_data,
+                'probs': probs, 'rms': rms}
+
+
+def echo_free(np, caller_probs, caller_rms, agent_probs, agent_rms):
+    """CH-594: the caller's speech with the agent's echo taken out.
+
+    Both sides are the talk part of the same call, cut from the END of each
+    file (talk_part), so they are lined up from the end. Returns (speech s,
+    first speech s from the start of the caller's part or None, echo s)."""
+    nc, na = len(caller_probs), len(agent_probs)
+    n = min(nc, na)
+    cp = np.asarray(caller_probs, dtype=np.float32)
+    cr = np.asarray(caller_rms, dtype=np.float32)
+    caller_speech = cp >= THRESHOLD
+    echo = np.zeros(nc, dtype=bool)
+    if n:
+        ap = np.asarray(agent_probs, dtype=np.float32)[na - n:]
+        ar = np.asarray(agent_rms, dtype=np.float32)[na - n:]
+        talking = np.where(ap >= THRESHOLD, ar, 0.0)          # the agent's loudness while he speaks
+        lag = max(1, int(round(ECHO_LAG * SR / CHUNK)))
+        lead = 2                                              # ~60 ms of network jitter
+        padded = np.concatenate([np.zeros(lag, dtype=np.float32), talking, np.zeros(lead, dtype=np.float32)])
+        # loudest agent speech from `lag` windows before to `lead` after each window
+        near = np.max(np.stack([padded[k:k + n] for k in range(lag + lead + 1)]), axis=0)
+        off = nc - n
+        echo[off:] = caller_speech[off:] & (near > 0) & (cr[off:] < ECHO_RATIO * near)
+    clean = caller_speech & ~echo
+    windows, run, first = 0, 0, None
+    for i, flag in enumerate(list(clean) + [False]):
+        if flag:
+            run += 1
+            if run == MIN_RUN and first is None:
+                first = round((i - MIN_RUN + 1) * CHUNK / SR, 2)
+            continue
+        windows += run if run >= MIN_RUN else 0
+        run = 0
+    return (round(windows * CHUNK / SR, 2), first,
+            round(int(echo.sum()) * CHUNK / SR, 2))
 
 
 def beep_seconds(np, audio, probs):
@@ -305,6 +358,12 @@ def split_sides(vad, item):
         caller_pcm, agent_pcm = talk_part(pcm['caller'], talk), talk_part(pcm['agent'], talk)
         caller = vad.side(caller_pcm)
         agent = vad.side(agent_pcm)
+        # CH-594: the agent's echo on the caller's line is not the caller.
+        raw_speech, echo = caller['speech'], 0.0
+        if all(k in side for side in (caller, agent) for k in ('probs', 'rms')):
+            import numpy
+            caller['speech'], caller['first'], echo = echo_free(
+                numpy, caller['probs'], caller['rms'], agent['probs'], agent['rms'])
         # CH-553: no speech on a side - music or machine tones there?
         caller_sound = sound_of(caller_pcm) if caller['speech'] < SPEECH_GATE else None
         agent_sound = sound_of(agent_pcm) if (caller['speech'] < SPEECH_GATE
@@ -322,6 +381,9 @@ def split_sides(vad, item):
         'speech': round(caller['speech'] + agent['speech'], 2),
         'audio': round(max(len(pcm['caller']), len(pcm['agent'])) / 2 / SR, 2),
         'caller_speech': caller['speech'], 'agent_speech': agent['speech'],
+        # CH-594: what Silero heard on the caller's line, and how much of it
+        # was the agent's echo (taken out of caller_speech).
+        'caller_speech_raw': raw_speech, 'caller_echo': echo,
         'caller_first': first, 'beep': caller['beep'],
         'no_data': caller['no_data'] and agent['no_data'],
         **({'caller_music': caller_sound['music'], 'caller_tone': caller_sound['tone'],
@@ -432,8 +494,9 @@ def one_pass(o, vad, age_arg):
         result = split_sides(vad, item)
         if result is not None:
             done += 1
-            log(f"[{done}/{len(items)}] {item['id']}: caller speech {result['caller_speech']:.1f}s, agent speech "
-                f"{result['agent_speech']:.1f}s, caller beep {result['beep']:.1f}s"
+            log(f"[{done}/{len(items)}] {item['id']}: caller speech {result['caller_speech']:.1f}s"
+                + (f" (+{result['caller_echo']:.1f}s agent echo removed)" if result.get('caller_echo') else '')
+                + f", agent speech {result['agent_speech']:.1f}s, caller beep {result['beep']:.1f}s"
                 + (f", caller music {result['caller_music']}s" if 'caller_music' in result else '')
                 + (f", agent music {result['agent_music']}s" if 'agent_music' in result else '')
                 + (', NO AUDIO DATA' if result['no_data'] else ''))

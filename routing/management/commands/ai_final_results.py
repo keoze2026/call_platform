@@ -15,6 +15,7 @@ keeps the rule label and is tried again only with --retry-failed.
 import json
 import sys
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
@@ -37,17 +38,26 @@ class Command(BaseCommand):
             try:
                 r = json.loads(line)
                 call_id = str(r['id'])
-                c = CallLog.objects.filter(id=call_id).values('ai_label', 'ai_rule_label', 'organization_id').first()
+                c = CallLog.objects.filter(id=call_id).values('ai_label', 'ai_rule_label', 'organization_id',
+                                                               'ai_final_at', 'ai_final_by').first()
             except (ValueError, KeyError, TypeError, Exception):
                 counts['skipped'] += 1
                 continue
             if c is None:
                 counts['skipped'] += 1
                 continue
+            # CH-594: with AI_FINAL_ENABLED the rule step held the No Voice
+            # alert back for this label; it is sent here, once.
+            waits = getattr(settings, 'AI_FINAL_ENABLED', False)
+            had_final = bool(c['ai_final_at']) and not (c['ai_final_by'] or '').startswith('error')
             if r.get('error'):
                 CallLog.objects.filter(id=call_id).update(
                     ai_final_at=now, ai_final_by=f"error: {r['error']}"[:120])
                 counts['failed'] += 1
+                # The LLM could not decide: the alert held back for it goes out
+                # on the rule label (first failure only - a retry sends nothing).
+                if waits and not c['ai_final_at'] and c['ai_label'] in ai_labels.NO_VOICE:
+                    new_no_voice.append(call_id)
                 continue
             label = str(r.get('label') or '').strip().lower()
             if label not in ai_labels.LABELS:
@@ -68,7 +78,10 @@ class Command(BaseCommand):
                                                          ai_summary=summary, updated_at=now)
             counts['saved'] += 1
             orgs.add(c['organization_id'])
-            if label in ai_labels.NO_VOICE and c['ai_label'] not in ai_labels.NO_VOICE:
+            # Sent before? Without AI_FINAL_ENABLED the rule step alerted on a
+            # No Voice rule label; with it, only an earlier final label did.
+            alerted = c['ai_label'] in ai_labels.NO_VOICE and (had_final or not waits)
+            if label in ai_labels.NO_VOICE and not alerted:
                 new_no_voice.append(call_id)
         out = 'saved {saved} | failed {failed} | skipped {skipped}'.format(**counts)
         if new_no_voice:

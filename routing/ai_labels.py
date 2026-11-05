@@ -66,6 +66,28 @@ NAMES = {
 FAULT_NOTE = 'Possible audio fault'
 
 
+def final_skip_seconds() -> float:
+    """CH-594: a call the rules call Valid with at least this many seconds of
+    the caller's own speech is a real conversation; the transcript + LLM step
+    (scripts/ai_final) is not paid for it. 0 = every answered call goes."""
+    try:
+        return max(0.0, float(getattr(settings, 'AI_FINAL_SKIP_CALLER_SECONDS', 15) or 0))
+    except (TypeError, ValueError):
+        return 15.0
+
+
+def needs_final(status, rule_label, caller_seconds, fault=False, has_recording=True) -> bool:
+    """CH-594: will scripts/ai_final give this call its final label? The same
+    rule as ai_final_pending, so the Telegram alert waits for the LLM only on
+    calls the LLM will really see (AI_FINAL_ENABLED)."""
+    if status != 'completed' or fault or not has_recording or not rule_label:
+        return False
+    skip = final_skip_seconds()
+    if skip and rule_label == VALID and caller_seconds is not None and float(caller_seconds) >= skip:
+        return False
+    return True
+
+
 def _min_speech() -> float:
     return float(getattr(settings, 'VOICE_MIN_SECONDS', 1.0) or 1.0)
 
@@ -128,6 +150,10 @@ def decide(r: dict) -> dict:
             return _ivr(music, _num(r, 'agent_sound_s'), "on the agent's side")
     first = r.get('caller_first')
     sides = f'caller {caller:.1f} s, agent {agent:.1f} s, beeping {beep:.1f} s'
+    echo = _num(r, 'caller_echo') or 0
+    if echo >= 0.1:
+        # CH-594: the agent's voice coming back on the caller's line.
+        sides += f', agent echo on caller line {echo:.1f} s (not counted)'
     if caller >= thr:
         when = f', caller first spoke {float(first):.0f} s after answer' if first is not None else ''
         return {'label': VALID, 'confidence': 95 if caller >= 3 * thr else 80, 'fault': False,

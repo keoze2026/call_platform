@@ -28,6 +28,13 @@ ANTHROPIC_API_KEY / OPENAI_API_KEY), read here, never printed.
 
     /opt/avx-voice/venv/bin/python ai_final.py --dry-run --limit 3   # prints, saves nothing
     /opt/avx-voice/venv/bin/python ai_final.py --loop 55             # cron
+    /opt/avx-voice/venv/bin/python ai_final.py --redo --days 1      # CH-594: today's calls again
+
+CH-594 (Sir, 5 Nov: "I need 100% accuracy"): Sir's own definitions in the
+instructions, temperature 0 (the same call, the same answer), the audit
+team's Correct / Wrong verdicts shown as worked examples every run
+(manage.py ai_final_examples), the first 120 s only, and real conversations
+(Valid, 15 s+ of the caller's own speech) not sent at all.
 """
 import argparse
 import fcntl
@@ -76,9 +83,14 @@ class Config:
         self.stt = get('AI_STT_PROVIDER', 'assemblyai').lower()
         self.llm = get('AI_LLM_PROVIDER', 'anthropic').lower()
         self.model = get('AI_LLM_MODEL', DEFAULT_MODELS.get(self.llm, ''))
-        self.max_seconds = int(float(get('AI_FINAL_MAX_SECONDS', '300')))
+        # CH-594: 120 s (was 300). Whether anyone answered the agent shows in
+        # the first two minutes; a longer call past that is a conversation.
+        self.max_seconds = int(float(get('AI_FINAL_MAX_SECONDS', '120')))
         self.keys = {k: get(k) for k in ('ASSEMBLYAI_API_KEY', 'DEEPGRAM_API_KEY', 'ANTHROPIC_API_KEY',
                                          'OPENAI_API_KEY')}
+        # CH-594: the audit team's verdicts shown to the LLM (0 = none).
+        self.example_count = int(float(get('AI_FINAL_EXAMPLES', '12')))
+        self.examples = ''
 
     def problems(self):
         p = []
@@ -243,16 +255,65 @@ def transcribe_deepgram(key, audio, stereo):
 
 # ── the LLM ──────────────────────────────────────────────────────────────────
 
-SYSTEM = """You audit pay-per-call phone calls. A caller (the consumer) dialled an advertised number and was connected to an agent (the buyer). Give the call ONE final label:
-- valid: a live caller and the agent had a real conversation.
-- caller_ok: a live caller spoke, no quality problem, but no real conversation developed (a quick question, wrong number, hung up after a few words).
-- dead_caller: nobody spoke on either side (silence, or no audio at all).
-- agent_only: the agent spoke, the caller side stayed silent, no beeping.
-- agent_beep: the agent spoke, the caller side had only beeps, tones or machine sound, no person.
-- ivr: no person - a voicemail greeting, an IVR menu, hold music or an answering machine.
-- robocall: the caller side is a recorded or automated message or a bot, not a live person.
-Use the transcript as the main evidence and the measurements as support: Silero = seconds of human speech per side; PANNs = seconds of music and machine tones. If the transcript is empty, decide from the measurements.
+SYSTEM = """You audit pay-per-call phone calls for our own audit team. A caller (the consumer) dialled an advertised number and was connected to an agent at a call centre (the buyer). The agent normally answers with an opening such as "Thank you for calling, how can I help you?". Our question is whether a real person was on the caller's side and talked about why they called.
+
+Give the call ONE final label:
+- valid: a live caller talked with the agent about their need or problem (asked something, explained an issue, gave details).
+- caller_ok: a live person spoke on the caller's side, but never talked about any need - only "hello?", "who is this?", "wrong number", a word or two before hanging up.
+- dead_caller: nobody spoke on either side - silence, or no audio at all.
+- agent_only: the agent gave the opening (maybe repeated "hello? are you there?") and the caller's side stayed completely silent - no voice, no beeping.
+- agent_beep: the agent spoke, and the caller's side had only beeps, tones, clicks or computer/machine sound - no human talking.
+- ivr: no live person - a voicemail greeting, an IVR menu ("press 1"), hold music or an answering machine.
+- robocall: the caller's side is a recorded or automated message or a bot talking, not a live person.
+
+How to judge:
+- The transcript is the main evidence. With two channels, "Caller:" lines are the caller's line and "Agent:" lines the agent's line.
+- ECHO: the agent's own words often come back on the caller's line a moment later. "Caller:" words that repeat or closely mirror what the Agent just said are echo - not the caller speaking. Ignore them.
+- Words on the caller's line that only greet ("hello", "hi", "yes?") do not make a call valid; valid needs the caller to say what they want.
+- The measurements support the transcript: Silero = seconds of human speech per side (agent echo already removed from the caller's side); beeping and PANNs = seconds of tones / machine sound / music. If the transcript is empty, decide from the measurements.
+- When the evidence is unclear, choose the label that fits best and give a LOW confidence (below 60) - never guess with high confidence.
+
 Answer with JSON only: {"label": "<one of: valid, caller_ok, dead_caller, agent_only, agent_beep, ivr, robocall>", "confidence": <0-100>, "summary": "<one line, at most 25 words: what happened on the call>"}"""
+
+
+def examples_text(rows):
+    """CH-594: the audit team's verdicts (manage.py ai_final_examples), as
+    worked examples after the instructions. '' when there are none."""
+    parts = []
+    for i, x in enumerate(rows, 1):
+        try:
+            label = str(x['label'])
+        except (KeyError, TypeError):
+            continue
+        if label not in LABELS:
+            continue
+        head = (f"Example {i} - the AI said {x.get('ai_said')}, our audit team listened and corrected it to: {label}"
+                if x.get('wrong') else f'Example {i} - our audit team listened and confirmed: {label}')
+        body = [head, f"Talk time: {x.get('talk')} s", f"Measurements: {x.get('measurements') or '-'}"]
+        if x.get('note'):
+            body.append(f"Team's note: {x['note']}")
+        body.append('Transcript:\n' + (str(x.get('transcript') or '').strip() or '(no words heard)'))
+        parts.append('\n'.join(body))
+    if not parts:
+        return ''
+    return ('\n\nCalls our audit team checked by ear. Their verdict is the truth - judge new calls the same '
+            'way, and above all do not repeat the mistakes they corrected:\n\n' + '\n\n'.join(parts))
+
+
+def load_examples(cfg):
+    """The team's latest verdicts, once per pass. A failure only means no
+    examples this time - the label is still given."""
+    if cfg.example_count <= 0:
+        cfg.examples = ''
+        return
+    try:
+        p = vc.manage(['ai_final_examples', '--limit', str(cfg.example_count)])
+        rows = [json.loads(line) for line in p.stdout.splitlines() if line.strip().startswith('{')] \
+            if p.returncode == 0 else []
+    except Exception as e:
+        vc.log(f'examples not loaded: {e}')
+        rows = []
+    cfg.examples = examples_text(rows)
 
 
 def prompt(item, transcript, stereo):
@@ -266,19 +327,23 @@ def prompt(item, transcript, stereo):
 
 
 def ask_llm(cfg, text):
+    # CH-594: the team's corrections ride along with the instructions, and
+    # temperature 0: the same call always gets the same answer.
+    system = SYSTEM + (getattr(cfg, 'examples', '') or '')
     if cfg.llm == 'anthropic':
         r = http('POST', ANTHROPIC_URL,
                  {'x-api-key': cfg.keys['ANTHROPIC_API_KEY'], 'anthropic-version': '2023-06-01',
                   'content-type': 'application/json'},
-                 json.dumps({'model': cfg.model, 'max_tokens': 300, 'system': SYSTEM,
+                 json.dumps({'model': cfg.model, 'max_tokens': 300, 'temperature': 0, 'system': system,
                              'messages': [{'role': 'user', 'content': text}]}).encode(), timeout=60)
         out = ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
     else:
         r = http('POST', OPENAI_URL,
                  {'Authorization': f"Bearer {cfg.keys['OPENAI_API_KEY']}", 'Content-Type': 'application/json'},
+                 # no temperature here: newer GPT models refuse any but the default
                  json.dumps({'model': cfg.model, 'max_completion_tokens': 300,
                              'response_format': {'type': 'json_object'},
-                             'messages': [{'role': 'system', 'content': SYSTEM},
+                             'messages': [{'role': 'system', 'content': system},
                                           {'role': 'user', 'content': text}]}).encode(), timeout=60)
         out = ((r.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
     found = re.search(r'\{.*\}', out, re.S)
@@ -325,6 +390,10 @@ def one_pass(o, cfg):
     args = ['ai_final_pending', '--limit', str(o.limit), '--days', str(o.days)]
     if o.retry_failed:
         args.append('--retry-failed')
+    # CH-594: --redo gives the calls of the last --days their final label
+    # again, each once (finalised before this run started).
+    if getattr(o, 'redo_before', None):
+        args += ['--redo-before', str(o.redo_before)]
     for i in o.id or []:
         args += ['--id', i]
     p = vc.manage(args)
@@ -339,6 +408,7 @@ def one_pass(o, cfg):
         except Exception as e:
             vc.log(f'STOPPED before any call - the {cfg.llm} account is not ready: {str(e)[:200]}')
             return 0, 2
+        load_examples(cfg)
     for n, item in enumerate(items, 1):
         try:
             r = final_for(cfg, item)
@@ -372,14 +442,19 @@ def main(argv=None):
     ap.add_argument('--retry-failed', action='store_true')
     ap.add_argument('--id', action='append', help='these calls (again)')
     ap.add_argument('--loop', type=int, default=0, help='keep going for this many seconds (cron: --loop 55)')
+    ap.add_argument('--redo', action='store_true',
+                    help='CH-594: give calls of the last --days their final label again (after an update)')
     o = ap.parse_args(argv)
+    o.redo_before = time.time() if o.redo else None
     cfg = Config(read_env())
     problems = cfg.problems()
     if problems:
         for p in problems:
             vc.log(f'not ready: {p}')
         return 1
-    lock = open('/tmp/ai_final.lock', 'w')
+    # CH-594: a --redo has its own lock: it never holds up the every-minute
+    # run of new calls (it only takes calls that already have a label).
+    lock = open('/tmp/ai_final_redo.lock' if o.redo else '/tmp/ai_final.lock', 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -389,6 +464,19 @@ def main(argv=None):
         os.nice(10)
     except OSError:
         pass
+    if o.redo and not o.loop:
+        # CH-594: through every call of the last --days, --limit at a time.
+        total, failed = 0, 0
+        while True:
+            done, rc = one_pass(o, cfg)
+            total += done
+            if rc == 2:
+                return 2
+            failed = failed or rc
+            if not done or o.dry_run:
+                break
+        vc.log(f'redo finished: {total} calls')
+        return failed
     if not o.loop:
         return one_pass(o, cfg)[1]
     deadline, failed = time.time() + o.loop, 0

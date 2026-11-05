@@ -916,3 +916,11 @@ AI_MUSIC_SHARE = config('AI_MUSIC_SHARE', default=0.4, cast=float)
 AI_RATE_ALERT_PERCENT = config('AI_RATE_ALERT_PERCENT', default=15, cast=float)
 AI_RATE_ALERT_MIN_CALLS = config('AI_RATE_ALERT_MIN_CALLS', default=10, cast=int)
 AI_DAILY_SUMMARY_HOUR = config('AI_DAILY_SUMMARY_HOUR', default=9, cast=int)
+# CH-594 (Sir, 5 Nov: "No voice AI is not working correctly ... 100% accuracy"):
+# True once scripts/ai_final runs from cron (transcript + Claude). A No Voice
+# alert then waits for the LLM's final label (about 15-40 s) instead of going
+# out on the rule label and being proved wrong a moment later.
+AI_FINAL_ENABLED = config('AI_FINAL_ENABLED', default=False, cast=bool)
+# A call the rules call Valid with this many seconds of the caller's own speech
+# skips the transcript + LLM (a real conversation). 0 = every answered call.
+AI_FINAL_SKIP_CALLER_SECONDS = config('AI_FINAL_SKIP_CALLER_SECONDS', default=15, cast=float)
