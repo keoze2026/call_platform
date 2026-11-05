@@ -203,3 +203,18 @@ class BreakdownTests(AiReportsTests):
         self.assertEqual((camp[0]['name'], camp[0]['checked']), ('C-07', 5))
         self.assertEqual(self.api('admin').get('/api/ai-audit/breakdown?by=x').status_code, 400)
         self.assertEqual(self.api('buyer', buyer=self.buyer).get('/api/ai-audit/breakdown').status_code, 403)
+
+    def test_no_voice_percent_per_tfn_and_per_hour(self):
+        """CH-600: Sir's list also asks for the rate by TFN and by hour."""
+        self.call('dead_caller')
+        other = self.call('agent_only')
+        CallLog.objects.filter(pk=other.pk).update(called_number='+18005550100')   # another TFN
+        self.call('valid')
+        day = self.today()
+        tfn = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&by=tfn').json()['items']
+        self.assertEqual([(i['name'], i['checked'], i['no_voice'], i['no_voice_pct']) for i in tfn],
+                         [('+18005550100', 1, 1, 100.0), ('+18334973067', 2, 1, 50.0)])
+        hours = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&by=hour').json()['items']
+        h = (timezone.now() - timedelta(minutes=5)).astimezone(ET).hour
+        name = f"{12 if h % 12 == 0 else h % 12} {'AM' if h < 12 else 'PM'}"
+        self.assertEqual([(i['name'], i['hour'], i['checked'], i['no_voice']) for i in hours], [(name, h, 3, 2)])

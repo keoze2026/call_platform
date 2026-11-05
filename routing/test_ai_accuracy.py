@@ -167,7 +167,7 @@ class PromptTests(SimpleTestCase):
         self.assertNotIn('nonsense', text)
         self.assertEqual(self.af.examples_text([]), '')
 
-    def test_claude_gets_temperature_0_and_the_examples(self):
+    def test_claude_gets_the_examples_and_no_temperature(self):
         self.cfg.examples = '\n\nEXAMPLES-HERE'
         sent = {}
 
@@ -177,7 +177,8 @@ class PromptTests(SimpleTestCase):
         with mock.patch.object(self.af, 'http', fake_http):
             a = self.af.ask_llm(self.cfg, 'call')
         self.assertEqual(a['label'], 'agent_only')
-        self.assertEqual(sent['temperature'], 0)
+        # CH-600: Claude 5.5 refuses `temperature` ("deprecated for this model")
+        self.assertNotIn('temperature', sent)
         self.assertTrue(sent['system'].startswith('You audit pay-per-call'))
         self.assertTrue(sent['system'].endswith('EXAMPLES-HERE'))
         self.assertIn('ECHO', sent['system'])
@@ -191,6 +192,45 @@ class PromptTests(SimpleTestCase):
         with mock.patch.object(self.af.vc, 'manage', side_effect=RuntimeError('docker down')):
             self.af.load_examples(self.cfg)
         self.assertEqual(self.cfg.examples, '')
+
+    def test_the_pre_check_sends_the_same_request_as_the_real_question(self):
+        """CH-600: 5 Nov, Claude refused `temperature` - but only on the real
+        question, after AssemblyAI was paid. The pre-check now sends the same
+        shape, so such a refusal stops the run before anything is spent."""
+        sent = []
+
+        def fake_http(method, url, headers, body=None, timeout=120):
+            sent.append(json.loads(body))
+            return {'content': [{'type': 'text', 'text': '{}'}]}
+        with mock.patch.object(self.af, 'http', fake_http):
+            self.af.llm_ready(self.cfg)
+        self.assertEqual(set(sent[0]), {'model', 'max_tokens', 'system', 'messages'})
+        self.assertTrue(sent[0]['system'].startswith('You audit pay-per-call'))
+
+    def test_an_llm_failure_keeps_the_transcript_and_a_retry_reuses_it(self):
+        with mock.patch.object(self.af, 'call_audio', return_value=(b'wav', True)), \
+                mock.patch.object(self.af, 'transcribe_assemblyai', return_value='[0s] Agent: Thank you for calling.') as stt, \
+                mock.patch.object(self.af, 'ask_llm', side_effect=RuntimeError('400 from api.anthropic.com: bad')):
+            r = self.af.final_for(self.cfg, {'id': 'c1', 'talk': 9})
+        self.assertEqual(stt.call_count, 1)
+        self.assertEqual(r['transcript'], '[0s] Agent: Thank you for calling.')
+        self.assertIn('400', r['error'])
+        with mock.patch.object(self.af, 'call_audio') as audio, \
+                mock.patch.object(self.af, 'transcribe_assemblyai') as stt, \
+                mock.patch.object(self.af, 'ask_llm', return_value={'label': 'agent_only', 'confidence': 90,
+                                                                    'summary': 's'}) as ask:
+            r = self.af.final_for(self.cfg, {'id': 'c1', 'talk': 9, 'transcript': '[0s] Agent: Thank you for calling.'})
+        audio.assert_not_called()
+        stt.assert_not_called()                                           # not paid twice
+        self.assertEqual(r['label'], 'agent_only')
+        self.assertIn('caller and agent recorded apart', ask.call_args[0][1])
+
+    def test_an_account_problem_still_stops_the_run(self):
+        with mock.patch.object(self.af, 'call_audio', return_value=(b'wav', True)), \
+                mock.patch.object(self.af, 'transcribe_assemblyai', return_value='x'), \
+                mock.patch.object(self.af, 'ask_llm', side_effect=self.af.AccountError('credit balance')):
+            with self.assertRaises(self.af.AccountError):
+                self.af.final_for(self.cfg, {'id': 'c1', 'talk': 9})
 
     def test_redo_asks_for_calls_labelled_before_the_run(self):
         listing = mock.Mock(returncode=0, stdout='', stderr='')
@@ -260,6 +300,17 @@ class BackendTests(TestCase):
         self.assertEqual(self.pending('--redo-before', str(time.time() + 1)), [str(c.id)])
         self.assertEqual(self.pending('--redo-before', str(time.time() - 3600)), [])   # done after that
 
+    def test_a_failed_try_keeps_its_transcript_and_is_retried_once_per_run(self):
+        c = self.call('agent_only', voice_caller_seconds=0.0)
+        self.final({'id': str(c.id), 'error': '400 from api.anthropic.com: bad', 'transcript': 'Agent: Hello?'})
+        c.refresh_from_db()
+        self.assertEqual(c.ai_transcript, 'Agent: Hello?')
+        out = io.StringIO()
+        call_command('ai_final_pending', '--retry-failed', '--redo-before', str(time.time() + 1), stdout=out)
+        items = [json.loads(line) for line in out.getvalue().splitlines()]
+        self.assertEqual([(i['id'], i['transcript']) for i in items], [(str(c.id), 'Agent: Hello?')])
+        self.assertEqual(self.pending('--retry-failed', '--redo-before', str(time.time() - 3600)), [])
+
     # -- the team's corrections ----------------------------------------------
     def test_examples_wrong_first(self):
         now = timezone.now()
@@ -292,7 +343,7 @@ class BackendTests(TestCase):
         out, tg = self.final({'id': str(c.id), 'label': 'agent_only', 'confidence': 90, 'summary': 'Agent only.',
                               'transcript': '', 'by': 'x'})
         self.assertTrue(tg.called)                                     # sent now, once
-        self.assertIn('AI: <i>Agent only.</i>', tg.call_args[0][1]['text'])
+        self.assertIn('AI (90% sure): <i>Agent only.</i>', tg.call_args[0][1]['text'])
         _, tg = self.final({'id': str(c.id), 'label': 'agent_only', 'confidence': 90, 'summary': 'Agent only.',
                             'transcript': '', 'by': 'x'})
         self.assertFalse(tg.called)                                    # a redo sends nothing again

@@ -47,6 +47,8 @@ class Command(BaseCommand):
             qs = qs.filter(id__in=o['id'])
         elif o['retry_failed']:
             qs = qs.filter(ai_final_by__startswith='error')
+            if o['redo_before'] is not None:          # CH-600: each failed call once per run
+                qs = qs.filter(ai_final_at__lt=datetime.fromtimestamp(o['redo_before'], tz=dt_timezone.utc))
         elif o['redo_before'] is not None:
             before = datetime.fromtimestamp(o['redo_before'], tz=dt_timezone.utc)
             # only calls that HAVE a final label: new ones stay with the
@@ -80,4 +82,8 @@ class Command(BaseCommand):
             if '/recordings/' in public:
                 base = public.split('/recordings/')[0] + '/recordings/split/'
                 item['split'] = {'caller': f'{base}{c.id}-caller.wav', 'agent': f'{base}{c.id}-agent.wav'}
+            # CH-600: the transcript already paid for (a failed LLM try, or a
+            # --redo): the LLM is asked again with it, nothing is transcribed.
+            if c.ai_transcript:
+                item['transcript'] = c.ai_transcript
             self.stdout.write(json.dumps(item))

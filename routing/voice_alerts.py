@@ -58,7 +58,9 @@ def _line(c) -> str:
     # happened on the call, in words); otherwise the rule step's comment.
     summary = getattr(c, 'ai_summary', '') or ''
     if summary:
-        line += f'\nAI: <i>{e(summary)}</i>'
+        # CH-600: with how sure it is - under 60% the team should listen first.
+        sure = f' ({int(c.ai_confidence)}% sure)' if c.ai_confidence is not None else ''
+        line += f'\nAI{sure}: <i>{e(summary)}</i>'
     # CH-546: the AI's comment on the call, under it.
     elif c.ai_comment:
         line += f'\nComment: <i>{e(c.ai_comment)}</i>'

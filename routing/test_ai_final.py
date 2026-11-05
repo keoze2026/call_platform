@@ -179,10 +179,14 @@ class PipelineTests(SimpleTestCase):
     def test_an_unknown_label_is_an_error_not_saved(self):
         Fake.llm_label = 'maybe'
         try:
-            with self.assertRaisesRegex(RuntimeError, 'unknown label'):
-                self.af.final_for(self.cfg(), self.item)
+            # CH-600: returned as an error with the transcript kept (a retry
+            # does not pay for it again), not raised.
+            r = self.af.final_for(self.cfg(), self.item)
         finally:
             Fake.llm_label = 'agent_only'
+        self.assertIn('unknown label', r['error'])
+        self.assertNotIn('label', r)
+        self.assertIn('Agent: Thank you for calling.', r['transcript'])
 
     def test_no_credit_stops_before_anything_is_transcribed_or_marked(self):
         Fake.no_credit = True

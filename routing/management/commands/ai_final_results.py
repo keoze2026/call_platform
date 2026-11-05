@@ -51,8 +51,9 @@ class Command(BaseCommand):
             waits = getattr(settings, 'AI_FINAL_ENABLED', False)
             had_final = bool(c['ai_final_at']) and not (c['ai_final_by'] or '').startswith('error')
             if r.get('error'):
+                kept = {'ai_transcript': str(r['transcript'])[:20000]} if r.get('transcript') else {}
                 CallLog.objects.filter(id=call_id).update(
-                    ai_final_at=now, ai_final_by=f"error: {r['error']}"[:120])
+                    ai_final_at=now, ai_final_by=f"error: {r['error']}"[:120], **kept)
                 counts['failed'] += 1
                 # The LLM could not decide: the alert held back for it goes out
                 # on the rule label (first failure only - a retry sends nothing).

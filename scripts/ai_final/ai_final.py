@@ -31,7 +31,7 @@ ANTHROPIC_API_KEY / OPENAI_API_KEY), read here, never printed.
     /opt/avx-voice/venv/bin/python ai_final.py --redo --days 1      # CH-594: today's calls again
 
 CH-594 (Sir, 5 Nov: "I need 100% accuracy"): Sir's own definitions in the
-instructions, temperature 0 (the same call, the same answer), the audit
+instructions (CH-600: no `temperature` - Claude 5.5 refuses it), the audit
 team's Correct / Wrong verdicts shown as worked examples every run
 (manage.py ai_final_examples), the first 120 s only, and real conversations
 (Valid, 15 s+ of the caller's own speech) not sent at all.
@@ -326,26 +326,34 @@ def prompt(item, transcript, stereo):
             + ':\n' + (transcript[:6000] or '(no words heard)'))
 
 
-def ask_llm(cfg, text):
-    # CH-594: the team's corrections ride along with the instructions, and
-    # temperature 0: the same call always gets the same answer.
-    system = SYSTEM + (getattr(cfg, 'examples', '') or '')
+def llm_request(cfg, system, text, max_tokens, timeout=60):
+    """CH-600: THE request to the LLM - the real question and the pre-check
+    (llm_ready) send the same shape, so a setting the model refuses stops the
+    run before anything is transcribed. No `temperature`: Claude 5.5 models
+    refuse it ("temperature is deprecated for this model", 5 Nov - CH-594
+    sent 0 and every call failed after AssemblyAI had been paid); newer GPT
+    models refuse anything but the default. The instructions make the answer
+    steady enough."""
     if cfg.llm == 'anthropic':
         r = http('POST', ANTHROPIC_URL,
                  {'x-api-key': cfg.keys['ANTHROPIC_API_KEY'], 'anthropic-version': '2023-06-01',
                   'content-type': 'application/json'},
-                 json.dumps({'model': cfg.model, 'max_tokens': 300, 'temperature': 0, 'system': system,
-                             'messages': [{'role': 'user', 'content': text}]}).encode(), timeout=60)
-        out = ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
-    else:
-        r = http('POST', OPENAI_URL,
-                 {'Authorization': f"Bearer {cfg.keys['OPENAI_API_KEY']}", 'Content-Type': 'application/json'},
-                 # no temperature here: newer GPT models refuse any but the default
-                 json.dumps({'model': cfg.model, 'max_completion_tokens': 300,
-                             'response_format': {'type': 'json_object'},
-                             'messages': [{'role': 'system', 'content': system},
-                                          {'role': 'user', 'content': text}]}).encode(), timeout=60)
-        out = ((r.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
+                 json.dumps({'model': cfg.model, 'max_tokens': max_tokens, 'system': system,
+                             'messages': [{'role': 'user', 'content': text}]}).encode(), timeout=timeout)
+        return ''.join(b.get('text', '') for b in r.get('content') or [] if b.get('type') == 'text')
+    r = http('POST', OPENAI_URL,
+             {'Authorization': f"Bearer {cfg.keys['OPENAI_API_KEY']}", 'Content-Type': 'application/json'},
+             json.dumps({'model': cfg.model, 'max_completion_tokens': max_tokens,
+                         'response_format': {'type': 'json_object'},
+                         'messages': [{'role': 'system', 'content': system},
+                                      {'role': 'user', 'content': text}]}).encode(), timeout=timeout)
+    return ((r.get('choices') or [{}])[0].get('message') or {}).get('content') or ''
+
+
+def ask_llm(cfg, text):
+    # CH-594: the team's corrections ride along with the instructions.
+    system = SYSTEM + (getattr(cfg, 'examples', '') or '')
+    out = llm_request(cfg, system, text, 300)
     found = re.search(r'\{.*\}', out, re.S)
     if not found:
         raise RuntimeError(f'the LLM did not answer in JSON: {out[:80]!r}')
@@ -361,29 +369,35 @@ def ask_llm(cfg, text):
 def llm_ready(cfg):
     """CH-556: a one-word question to the LLM before any call is transcribed:
     a refused account (no credit, bad key) stops the run before anything is
-    spent on transcripts."""
-    if cfg.llm == 'anthropic':
-        http('POST', ANTHROPIC_URL,
-             {'x-api-key': cfg.keys['ANTHROPIC_API_KEY'], 'anthropic-version': '2023-06-01',
-              'content-type': 'application/json'},
-             json.dumps({'model': cfg.model, 'max_tokens': 1,
-                         'messages': [{'role': 'user', 'content': 'ok'}]}).encode(), timeout=30)
-    else:
-        http('POST', OPENAI_URL,
-             {'Authorization': f"Bearer {cfg.keys['OPENAI_API_KEY']}", 'Content-Type': 'application/json'},
-             json.dumps({'model': cfg.model, 'max_completion_tokens': 1,
-                         'messages': [{'role': 'user', 'content': 'ok'}]}).encode(), timeout=30)
+    spent on transcripts. CH-600: the same request as the real question (the
+    instructions, the same settings), so a setting the model refuses stops it
+    too."""
+    llm_request(cfg, SYSTEM, 'Reply with {} only.', 5, timeout=30)
 
 
 def final_for(cfg, item):
-    audio, stereo = call_audio(item, cfg.max_seconds)
-    if audio is None:
-        return {'id': item['id'], 'error': 'no readable recording'}
-    key = cfg.keys['ASSEMBLYAI_API_KEY' if cfg.stt == 'assemblyai' else 'DEEPGRAM_API_KEY']
-    transcript = (transcribe_assemblyai if cfg.stt == 'assemblyai' else transcribe_deepgram)(key, audio, stereo)
-    answer = ask_llm(cfg, prompt(item, transcript, stereo))
-    return {'id': item['id'], **answer, 'transcript': transcript,
-            'by': f"{cfg.stt} + {cfg.model}{'' if stereo else ' (one channel)'}"}
+    # CH-600: a retry of a call whose transcript was already paid for (the
+    # LLM failed after it) asks the LLM again with that transcript.
+    kept = (item.get('transcript') or '').strip()
+    if kept:
+        transcript = kept
+        stereo = bool(re.search(r'(^|\] )(Caller|Agent): ', kept, re.M))
+    else:
+        audio, stereo = call_audio(item, cfg.max_seconds)
+        if audio is None:
+            return {'id': item['id'], 'error': 'no readable recording'}
+        key = cfg.keys['ASSEMBLYAI_API_KEY' if cfg.stt == 'assemblyai' else 'DEEPGRAM_API_KEY']
+        transcript = (transcribe_assemblyai if cfg.stt == 'assemblyai' else transcribe_deepgram)(key, audio, stereo)
+    by = f"{cfg.stt} + {cfg.model}{'' if stereo else ' (one channel)'}"
+    try:
+        answer = ask_llm(cfg, prompt(item, transcript, stereo))
+    except AccountError:
+        raise
+    except Exception as e:
+        # The transcript is saved with the error, so --retry-failed does not
+        # pay for it again.
+        return {'id': item['id'], 'error': str(e)[:150], 'transcript': transcript, 'by': by}
+    return {'id': item['id'], **answer, 'transcript': transcript, 'by': by}
 
 
 def one_pass(o, cfg):
@@ -445,7 +459,9 @@ def main(argv=None):
     ap.add_argument('--redo', action='store_true',
                     help='CH-594: give calls of the last --days their final label again (after an update)')
     o = ap.parse_args(argv)
-    o.redo_before = time.time() if o.redo else None
+    # CH-600: --retry-failed too, so a call failing again is not retried
+    # over and over in the same run.
+    o.redo_before = time.time() if (o.redo or o.retry_failed) else None
     cfg = Config(read_env())
     problems = cfg.problems()
     if problems:
@@ -454,7 +470,8 @@ def main(argv=None):
         return 1
     # CH-594: a --redo has its own lock: it never holds up the every-minute
     # run of new calls (it only takes calls that already have a label).
-    lock = open('/tmp/ai_final_redo.lock' if o.redo else '/tmp/ai_final.lock', 'w')
+    # CH-600: --retry-failed too (it takes only failed calls, never new ones).
+    lock = open('/tmp/ai_final_redo.lock' if (o.redo or o.retry_failed) else '/tmp/ai_final.lock', 'w')
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except OSError:
@@ -464,8 +481,10 @@ def main(argv=None):
         os.nice(10)
     except OSError:
         pass
-    if o.redo and not o.loop:
+    if (o.redo or o.retry_failed) and not o.loop:
         # CH-594: through every call of the last --days, --limit at a time.
+        # CH-600: --retry-failed the same way (a retried call that fails
+        # again keeps its error and is not taken twice in one run).
         total, failed = 0, 0
         while True:
             done, rc = one_pass(o, cfg)

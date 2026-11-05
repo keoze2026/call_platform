@@ -232,7 +232,18 @@ def _range(date_from: Optional[str], date_to: Optional[str]):
     return lo, hi, start, end
 
 
-BREAKDOWN_BY = {'publisher': 'publisher__name', 'campaign': 'campaign__name', 'buyer': 'buyer__name'}
+BREAKDOWN_BY = {'publisher': 'publisher__name', 'campaign': 'campaign__name', 'buyer': 'buyer__name',
+                # CH-600 (Sir, 4 Nov: "no-voice rate by publisher, campaign, TFN,
+                # buyer and hour"): the TFN the caller dialled, and the hour (EST).
+                'tfn': 'called_number', 'hour': 'est_hour'}
+
+
+def _hour_name(h) -> str:
+    """0..23 -> "12 AM" .. "11 PM" (Eastern)."""
+    if h is None:
+        return '-'
+    h = int(h)
+    return f"{12 if h % 12 == 0 else h % 12} {'AM' if h < 12 else 'PM'}"
 
 
 @router.get('/breakdown', response={200: dict})
@@ -245,12 +256,15 @@ def breakdown(request, date_from: Optional[str] = None, date_to: Optional[str] =
     user = _staff(request)
     field = BREAKDOWN_BY.get(by)
     if field is None:
-        raise HttpError(400, 'by must be publisher, campaign or buyer')
+        raise HttpError(400, 'by must be publisher, campaign, buyer, tfn or hour')
     lo, hi, start, end = _range(date_from, date_to)
     qs = (CallLog.objects.filter(organization=user.organization, status='completed', retry_hidden=False,
                                  created_at__gte=start, created_at__lt=end)
           .exclude(ai_label='').exclude(ai_label=ai_labels.MIXED)
           .exclude(twilio_call_sid__startswith='tfntest-'))
+    if by == 'hour':
+        from django.db.models.functions import ExtractHour
+        qs = qs.annotate(est_hour=ExtractHour('created_at', tzinfo=ET))
     rows = (qs.values(field)
             .annotate(checked=Count('id'),
                       no_voice=Count('id', filter=Q(ai_label__in=ai_labels.NO_VOICE)),
@@ -259,11 +273,16 @@ def breakdown(request, date_from: Optional[str] = None, date_to: Optional[str] =
                       agent_beep=Count('id', filter=Q(ai_label=ai_labels.AGENT_BEEP)),
                       ivr=Count('id', filter=Q(ai_label=ai_labels.IVR)),
                       valid=Count('id', filter=Q(ai_label__in=(ai_labels.VALID, ai_labels.CALLER_OK)))))
-    items = [{'name': r[field] or '-', 'checked': r['checked'], 'no_voice': r['no_voice'],
+    items = [{'name': _hour_name(r[field]) if by == 'hour' else (r[field] or '-'),
+              'checked': r['checked'], 'no_voice': r['no_voice'],
               'no_voice_pct': round(100.0 * r['no_voice'] / r['checked'], 1) if r['checked'] else None,
               'dead_caller': r['dead_caller'], 'agent_only': r['agent_only'], 'agent_beep': r['agent_beep'],
-              'ivr': r['ivr'], 'valid': r['valid']} for r in rows]
-    items.sort(key=lambda x: (-(x['no_voice_pct'] or 0), -x['checked'], x['name']))
+              'ivr': r['ivr'], 'valid': r['valid'], **({'hour': r[field]} if by == 'hour' else {})}
+             for r in rows]
+    if by == 'hour':
+        items.sort(key=lambda x: -1 if x['hour'] is None else x['hour'])      # the day in order
+    else:
+        items.sort(key=lambda x: (-(x['no_voice_pct'] or 0), -x['checked'], x['name']))
     return 200, {'date_from': lo.isoformat(), 'date_to': hi.isoformat(), 'by': by, 'items': items}
 
 
