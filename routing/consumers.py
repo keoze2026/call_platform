@@ -98,8 +98,12 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_live_calls(self):
         from accounts.models import User
+        from accounts import rls
         try:
-            return live_calls_for(User.objects.get(id=self.user_id))
+            user = User.objects.get(id=self.user_id)
+            # 1c: the socket's reads run as its login's account, as a request does.
+            with rls.scope(user.organization_id):
+                return live_calls_for(user)
         except Exception:
             return []
 

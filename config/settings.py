@@ -141,6 +141,9 @@ MIDDLEWARE = [
     # ip+page+day for the owner's guest-visits view, and swallows every one
     # of its own errors - tracking must never break the page it tracks.
     'analytics.guest_tracking.GuestVisitMiddleware',
+    # Point 1c: innermost, around the view only. The view starts with no
+    # account; the login check gives it the login's (accounts/rls.py).
+    'accounts.rls.TenantMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -193,6 +196,23 @@ DATABASES = {
 DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = config(
     'DB_DISABLE_SERVER_SIDE_CURSORS', default=False, cast=bool
 )
+
+# Customer accounts point 1c: the portal server (`web`, AVX_SERVICE=web in
+# docker-compose.yml) connects with the restricted login in
+# PORTAL_DATABASE_URL, under row-level security (accounts/rls.py). Everything
+# else - call routing (web_calls), Celery, every `manage.py` command, even
+# one run inside `web` - keeps DATABASE_URL, the owner login. Not set: as
+# before. Rollback: remove PORTAL_DATABASE_URL from .env, recreate `web`.
+import sys as _sys
+TENANT_GUARD = False
+_portal_db = config('PORTAL_DATABASE_URL', default='')
+if (_portal_db and os.environ.get('AVX_SERVICE') == 'web'
+        and os.path.basename(_sys.argv[0] if _sys.argv else '') != 'manage.py'):
+    _server_side = DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS']
+    DATABASES['default'] = dj_database_url.parse(
+        _portal_db, conn_max_age=config('DB_CONN_MAX_AGE', default=600, cast=int))
+    DATABASES['default']['DISABLE_SERVER_SIDE_CURSORS'] = _server_side
+    TENANT_GUARD = True
 
 
 # Custom user model

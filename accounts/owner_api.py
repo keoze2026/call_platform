@@ -38,6 +38,9 @@ def require_owner(request: HttpRequest):
     from accounts.main_account import is_main_account
     if not is_main_account(user):
         raise HttpError(403, "This area belongs to the system owner.")
+    # 1c: the owner's pages look across every account.
+    from accounts import rls
+    rls.owner_view(request)
     return user
 
 

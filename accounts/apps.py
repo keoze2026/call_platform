@@ -16,3 +16,9 @@ class AccountsConfig(AppConfig):
         # CH-578: every row carries its account.
         from . import tenancy
         tenancy.connect()
+        # Point 1c: database row-level security for the portal.
+        from . import rls
+        rls.connect()
+        from django.db.models.signals import post_migrate
+        from . import rls_sql
+        post_migrate.connect(rls_sql.on_post_migrate, sender=self, dispatch_uid='rls-policies')

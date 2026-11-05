@@ -10976,3 +10976,91 @@ typing, or attach a file - up to 2 MB.
 Tests: `support/test_pictures.py` (8). docs/api-paths.txt: the two new
 addresses. Migration: yes (two columns). Deploy: `git pull`, `migrate`,
 restart `web` (any time - calls not affected).
+
+## CH-580 - Database row-level security for the portal (customer accounts, point 1c)
+
+*Built 5 Nov; rebuilt 10 Nov on the current code (after CH-653, Server B on
+147.93.7.36). Two places changed since were joined by hand: the Owner gate keeps
+the main-account check (point 3) before the cross-account view, and the Live
+Monitor connection now calls `live_calls_for` (CH-630) inside the login's
+account.*
+
+Sir, 5 Nov, customer accounts point 1: "Enforce it at database level
+(row-level security), not only in the code. Every query and API call is
+scoped to the logged-in account." Until now only the code scoped each query.
+
+- **Policies** (`accounts/rls_sql.py`): every table with an account (78, plus
+  `organizations`) has row-level security and one policy, `avx_account`: a
+  row is visible and writable only when its account is the one the
+  connection is set to (`avx.org`). With no account set: nothing at all. The
+  carrier rate table (shared, no account) is visible only to our main
+  account. Tested on PostgreSQL 16: no account sees 0 rows; account A sees
+  only A; a write into another account is refused ("violates row-level
+  security policy"); an update or delete of another account's row changes
+  nothing; a rollback cannot leave a connection on another account. The
+  queries keep their indexes (the code's own account filter is used).
+  Applied after every `migrate` (so a new table is covered the day it
+  exists); `manage.py rls --check` must print 0.
+- **The portal's own login**: PostgreSQL never applies these to a superuser
+  or a table owner, and the portal connected as the database superuser. Now
+  the portal server (`web`, marked `AVX_SERVICE=web` in docker-compose.yml)
+  connects with `PORTAL_DATABASE_URL`, the restricted login `avx_portal`
+  (`scripts/portal_db_role.sh`: not superuser, no bypass, password made on
+  the server, never shown). **Call routing (`web_calls`), Celery, every
+  `manage.py` command (even inside `web`) and Server A keep the owner login:
+  nothing on the call path changes.** Not set in `.env`: everything as
+  before.
+- **Which account the code runs as** (`accounts/rls.py`):
+  - every portal request starts with **no account** (middleware, innermost);
+  - after the login check, the **login's account** (a buyer or publisher:
+    its workspace, then the partner rules narrow it as before; a login
+    without an account, e.g. hans@gmail.com: nothing);
+  - endpoints that work before login (login, reset, invite, website chat,
+    webhooks) and the `/api/twilio/` callbacks run as **system**, as their
+    own checks decide what they do;
+  - **owner pages** (`require_owner`: Owner, Carrier Costs, Company Profit,
+    carrier statements) look across accounts for the platform owner only;
+  - five checks that must see every account to stay correct do so
+    explicitly: e-mail already taken (invite member, partner invite, buyer
+    bot login), number already in the platform (buy, import);
+  - the live-calls socket reads as its login's account;
+  - outside a request (Celery, commands): system.
+  The setting is applied per connection before the first query that needs
+  another value; inside a transaction it is set for that transaction only,
+  on every query.
+- `manage.py rls --prove`: per account table, the rows the owner sees and
+  the rows the restricted login sees with no account, as system and as each
+  account (read-only, rolled back).
+- `config/test_settings_rls.py`: the whole suite on PostgreSQL as the
+  restricted login, under the policies (run on Server B, own test database).
+
+Rollback: remove `PORTAL_DATABASE_URL` from `.env`, recreate `web`; the
+policies stay and do nothing for the owner login.
+
+Requires: no PgBouncer transaction pooling in front of `web` (it is off).
+
+Rehearsal B (10 Nov, new Server B, the whole suite on PostgreSQL as
+`avx_portal` with the rules, against a throw-away database): 24 tests failed
+only with the rules. Fixed:
+
+- **The rollback after an error** (most of them): the setting was sent before
+  every statement, also before `ROLLBACK TO SAVEPOINT`; in a transaction
+  aborted by an error that failed too, so the rollback never ran and the
+  request stayed broken. Transaction control now goes through untouched.
+- **Point 3 under the rules:** our main account was looked up as the customer
+  login, which cannot see it - "no main account" - so a customer login counted
+  as main (AI Audit 200, `is_main_account` true). Looked up as system now.
+- **Point 10 under the rules:** the account's own log joined each row to its
+  login; the platform owner's login is not visible to the account, so the
+  owner's rows vanished from it. The logins are read apart now.
+- **The recording-link check** (nginx, no login, a plain view) ran with no
+  account and refused every link; it runs as system, like the routing
+  callbacks (on Server B it is served by `web_calls`, owner login, anyway).
+  The account's rows written by its own logins before CH-578 (no account on
+  the row) are found by a list of its logins, not a join, for the same reason.
+- Test side only: TransactionTestCase's `flush` (emptying tables, then
+  re-applying the policies) runs as the owner (`config/rls_test_runner.py`);
+  one test made its login inside the no-account scope.
+
+Tests: `accounts/test_rls.py` (21). Deploy after calling hours: only `web`
+is recreated.

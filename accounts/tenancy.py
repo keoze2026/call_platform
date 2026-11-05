@@ -76,7 +76,12 @@ def main_organization_id():
     slug = getattr(settings, 'MAIN_ORGANIZATION_SLUG', '')
     if not slug:
         return None
-    return Organization.objects.filter(slug=slug).values_list('id', flat=True).first()
+    # Rehearsal B, 10 Nov: looked up as system. Under row-level security a
+    # customer login cannot see our account's row, so the answer was None -
+    # "no main account" - and every customer login counted as main (point 3).
+    from accounts import rls
+    with rls.system():
+        return Organization.objects.filter(slug=slug).values_list('id', flat=True).first()
 
 
 def _account_of(row):

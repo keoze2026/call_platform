@@ -103,11 +103,14 @@ def _bot_login(buyer):
     for u in User.objects.filter(buyer=buyer).order_by('date_joined'):
         if _is_bot(u):
             return u, False
+    from accounts import rls
     n = 1
     while True:
         email = bot_email(buyer.name, n)
-        if not User.objects.filter(email__iexact=email).exists() and \
-                not User.objects.filter(username__iexact=email).exists():
+        with rls.system():      # 1c: addresses are unique across every account
+            free = (not User.objects.filter(email__iexact=email).exists()
+                    and not User.objects.filter(username__iexact=email).exists())
+        if free:
             break
         n += 1
     u = User(username=email, email=email, organization=buyer.organization,

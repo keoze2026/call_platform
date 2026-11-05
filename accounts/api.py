@@ -595,7 +595,11 @@ def invite_member(request: HttpRequest):
         # different capitalisation
         email = email.lower()
 
-        if User.objects.filter(email__iexact=email).exists():
+        # An address is unique across every account (1c: looked up as system).
+        from accounts import rls
+        with rls.system():
+            taken = User.objects.filter(email__iexact=email).exists()
+        if taken:
             return 400, {"detail": "User with this email already exists"}
         temp_password = secrets.token_urlsafe(12)
         user = User.objects.create(
@@ -739,27 +743,40 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
     # CH-637 (point 10): the account's own log - every row it carries,
     # including what the platform owner did to it (accounts/owner_audit.py).
     # Rows from before CH-578 carry no account; they are read by their login.
+    # Rehearsal B (10 Nov): "by their login" is a list of this account's
+    # logins, not a join - a join to the logins table hides every row whose
+    # login is outside the account (the platform owner's, point 10) under
+    # row-level security, even rows of this account.
+    from accounts.models import User as _Login
     logs = ActivityLog.objects.filter(
-        Q(organization_id=org_id) | Q(organization__isnull=True, user__organization_id=org_id)
-    ).select_related('user').order_by('-created_at')
+        Q(organization_id=org_id)
+        | Q(organization__isnull=True, user_id__in=_Login.objects.filter(organization_id=org_id).values('id'))
+    ).order_by('-created_at')
     # Only the page asked for is read and built. The whole log used to be loaded
     # on every request, which is fine for a few hundred rows and not for the
     # thousands this will hold now that every change is recorded.
     paged = paginate_queryset(logs, page, page_size)
+    # Rehearsal B, 10 Nov: the logins are read apart, not joined. Under
+    # row-level security the platform owner's login (our account) is not
+    # visible to this account, and a join dropped every row the owner wrote
+    # here (point 10) - the account never saw them.
+    from accounts.models import User
+    people = {u.id: u for u in User.objects.filter(id__in={log.user_id for log in paged['items']})}
     data = []
     for log in paged['items']:
         meta = log.metadata if isinstance(log.metadata, dict) else {}
         # Done by someone outside this account (the platform owner): named
         # as the platform, never by our team member's name or address.
-        outside = str(log.user.organization_id) != str(org_id)
+        person = people.get(log.user_id)
+        outside = person is None or str(person.organization_id) != str(org_id)
         if outside:
             meta = {k: v for k, v in meta.items() if k not in ('ip', 'email', 'user_agent')}
         data.append({
             'id': str(log.id),
             # A fixed text, not empty: the portal draws the avatar from it.
-            'actor_id': 'avortyx' if outside else str(log.user.id),
+            'actor_id': 'avortyx' if outside else str(person.id),
             'actor_name': PLATFORM_NAME if outside else (
-                f"{log.user.first_name} {log.user.last_name}".strip() or log.user.email),
+                f"{person.first_name} {person.last_name}".strip() or person.email),
             'action': log.action,
             'action_label': LABELS.get(log.action) or log.get_action_display(),
             # These were hardcoded empty, so every row showed who and what but

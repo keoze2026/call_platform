@@ -52,6 +52,10 @@ services:
       --workers ${WEB_WORKERS:-4} --lifespan off --timeout-keep-alive 5
     volumes:
       - .:/app
+    environment:
+      # Customer accounts 1c: this service alone uses PORTAL_DATABASE_URL (the
+      # restricted login, row-level security) when .env has it.
+      AVX_SERVICE: web
     # Fixed port: Nginx proxies to 127.0.0.1:8000. Do NOT change this to a range
     # here — with a range Docker may bind 8001 instead of 8000 and Nginx silently
     # loses the backend. To run replicas, use docker-compose.scale.yml (see

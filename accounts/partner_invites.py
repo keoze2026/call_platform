@@ -64,7 +64,11 @@ def invite_partner(*, organization, partner, kind: str, email: str,
     email = _clean_email(email)
     name = (contact_name or getattr(partner, 'name', '') or '').strip()
 
-    user = User.objects.filter(email__iexact=email).first()
+    # Across every account (1c): an address in another workspace is refused
+    # below, so it has to be found first.
+    from accounts import rls
+    with rls.system():
+        user = User.objects.filter(email__iexact=email).first()
 
     if user is None:
         user = User(

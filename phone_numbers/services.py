@@ -56,7 +56,10 @@ class PhoneNumberService:
         client = PhoneNumberService.get_twilio_client()
         if not user.organization:
             raise ValueError("User has no organization")
-        if PhoneNumber.objects.filter(number=data.phone_number).exists():
+        from accounts import rls
+        with rls.system():      # 1c: a number is unique across every account
+            taken = PhoneNumber.objects.filter(number=data.phone_number).exists()
+        if taken:
             raise ValueError("Number already purchased")
 
         # Check the provisioning fee is affordable BEFORE buying from Twilio.
@@ -180,7 +183,10 @@ class PhoneNumberService:
     def import_existing_number(data, user) -> PhoneNumber:
         if not user.organization:
             raise ValueError("User has no organization")
-        if PhoneNumber.objects.filter(number=data.phone_number).exists():
+        from accounts import rls
+        with rls.system():      # 1c: a number is unique across every account
+            taken = PhoneNumber.objects.filter(number=data.phone_number).exists()
+        if taken:
             raise ValueError("Number already exists in platform")
 
         renews_at = None
