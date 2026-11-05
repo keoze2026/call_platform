@@ -301,7 +301,7 @@ def call_detail(request: HttpRequest, call_id: str):
     except CallLog.DoesNotExist:
         return 404, {"detail": "Call not found"}
 
-    return 200, AnalyticsService.format_call_detail(call)
+    return 200, AnalyticsService.format_call_detail(call, viewer=request.auth)
 
 
 @router.get("/live/summary", response={200: dict})

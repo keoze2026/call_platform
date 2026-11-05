@@ -22,6 +22,25 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+import re as _re
+
+# CH-566: reasons written for our own bookkeeping, never shown as they are:
+# a call our reconciler closed reads as the caller hanging up (as the Call
+# Log's own label does), and a reason that names one of our servers is
+# dropped (Sir, 5 Nov: no real server names on screen).
+_INTERNAL_REASONS = {'asterisk_gone': 'Not Connected', 'stale_timeout': 'Not Connected'}
+_SERVER_NAME = _re.compile(r'\bserver\s*[ab]\b|asterisk', _re.I)
+
+
+def _public_reason(reason):
+    text = str(reason or '').strip()
+    if not text:
+        return ''
+    if text.lower() in _INTERNAL_REASONS:
+        return _INTERNAL_REASONS[text.lower()]
+    return '' if _SERVER_NAME.search(text) else text
+
+
 def _map_twilio_status(status_str):
     mapping = {'completed': 'completed', 'busy': 'busy', 'no-answer': 'no_answer', 'failed': 'failed', 'canceled': 'cancelled'}
     return mapping.get((status_str or '').lower(), 'completed')
@@ -909,7 +928,7 @@ class AnalyticsService:
     # ── buyer performance ────────────────────────────────────────────────────
 
     @staticmethod
-    def format_call_detail(call) -> dict:
+    def format_call_detail(call, viewer=None) -> dict:
         """Assemble the full picture of one call.
 
         caller_profile   who rang, from the Telnyx lookup plus what the carrier
@@ -1018,7 +1037,7 @@ class AnalyticsService:
                 'detail': {
                     'status': call.status,
                     'duration_seconds': call.duration or 0,
-                    'reason': call.block_reason or call.ipqs_block_reason or None,
+                    'reason': _public_reason(call.block_reason or call.ipqs_block_reason) or None,
                 },
             })
 
@@ -1030,7 +1049,7 @@ class AnalyticsService:
                 event['at'] = started.isoformat()
         timeline.sort(key=lambda e: e['at'] or '')
 
-        return {
+        out = {
             'id': str(call.id),
             'call_sid': call.twilio_call_sid,
             'status': call.status,
@@ -1052,7 +1071,7 @@ class AnalyticsService:
                 'buyer_id': str(call.buyer_id) if call.buyer_id else None,
                 'buyer_name': call.buyer.name if call.buyer_id else None,
                 'publisher_name': call.publisher.name if call.publisher_id else None,
-                'block_reason': call.block_reason or call.ipqs_block_reason or None,
+                'block_reason': _public_reason(call.block_reason or call.ipqs_block_reason) or None,
             },
 
             'financials': {
@@ -1081,6 +1100,52 @@ class AnalyticsService:
             # CH-565: Sir's call panel (header, legs, timing). Stored facts only.
             'panel': AnalyticsService._call_panel(call),
         }
+        # CH-566: partner logins get what their Call Log row gives them, no more.
+        return AnalyticsService._mask_call_detail(out, call, viewer)
+
+    @staticmethod
+    def _mask_call_detail(out: dict, call, viewer) -> dict:
+        """CH-566: the call panel obeys the same partner rules as the Call Log.
+
+        Buyer login: never the time to answer (CH-325: "a buyer never sees
+        TTC" - ring time and total time give it away too); never our campaign,
+        publisher, tracking number or routing (CH-375); only its own lines in
+        the list of destinations rung - another buyer's TFN or name never;
+        no payout or profit (MASKED_KEYS). Publisher login: no revenue or
+        profit. Staff and owners: everything.
+        """
+        role = getattr(viewer, 'role', '') if viewer is not None else ''
+        if viewer is None or getattr(viewer, 'is_superuser', False) or role not in ('buyer', 'publisher'):
+            return out
+        fin = out.get('financials') or {}
+        if role == 'publisher':
+            fin['revenue'] = None
+            fin['profit'] = None
+            return out
+        own = str(getattr(viewer, 'buyer_id', '') or '')
+        fin['payout'] = None
+        fin['profit'] = None
+        out['routing_trace'] = {}
+        routing = out.get('routing') or {}
+        for k in ('called_number', 'campaign_id', 'campaign_name', 'rule_id', 'rule_name', 'rule_type', 'publisher_name'):
+            routing[k] = None
+        for e in out.get('timeline') or []:
+            if e.get('event') == 'call_received':
+                if isinstance(e.get('detail'), dict):
+                    e['detail'].pop('to', None)
+            else:
+                # Answer and end times give the time to answer away (start is
+                # on the Call Log row): only the start keeps its time.
+                e['at'] = None
+        panel = out.get('panel') or {}
+        for k in ('answered_in', 'wait_seconds', 'total_seconds', 'started_at', 'answered_at', 'ended_at'):
+            panel[k] = None
+        legs = []
+        for leg in panel.get('legs') or []:
+            if own and leg.get('buyer_id') == own:
+                legs.append({**leg, 'ring_seconds': None, 'started_at': None})
+        panel['legs'] = legs
+        return out
 
     @staticmethod
     def _call_panel(call) -> dict:
@@ -1124,6 +1189,7 @@ class AnalyticsService:
                 'destination': t.destination_number,
                 'name': line_name(t.buyer, t.destination_number),
                 'buyer': t.buyer.name if t.buyer_id else None,
+                'buyer_id': str(t.buyer_id) if t.buyer_id else None,
                 'result': 'busy' if t.block_reason == 'Destination busy' else 'no_answer',
                 'started_at': iso(leg_start),
                 'ring_seconds': max(0, int((missed_at - leg_start).total_seconds())),
@@ -1136,8 +1202,9 @@ class AnalyticsService:
                 'destination': call.destination_number,
                 'name': line_name(call.buyer, call.destination_number),
                 'buyer': call.buyer.name if call.buyer_id else None,
+                'buyer_id': str(call.buyer_id) if call.buyer_id else None,
                 'result': 'answered' if answered else (call.status or ''),
-                'reason': None if answered else (call.block_reason or None),
+                'reason': None if answered else (_public_reason(call.block_reason) or None),
                 'started_at': iso(leg_start),
                 'ring_seconds': max(0, int((stop - leg_start).total_seconds())) if stop else None,
                 'talk_seconds': (call.duration or 0) if answered else 0,

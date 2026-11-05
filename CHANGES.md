@@ -10037,3 +10037,23 @@ draws it):
   answered call. Nothing from the AI audit (CH-548).
 
 Tests: `analytics/test_call_panel.py` (4).
+
+## CH-566 - Call panel: partner rules, no internal reasons (fixes CH-565)
+
+CH-565 sent the same call panel to every login. Review found three breaks of
+standing rules:
+
+- Buyer logins (CH-325, CH-375): a buyer got the time to answer (answered
+  in, ring time, total time, answer / end times), our campaign, publisher,
+  tracking number and routing, and in the list of destinations rung the TFN
+  and name of OTHER buyers (a failover miss). Now a buyer gets only its own
+  line, no times after the start, no routing, no campaign / publisher / TFN,
+  no payout or profit (as MASKED_KEYS). A publisher gets no revenue or profit.
+  Staff and owners: unchanged.
+- Internal reasons: the raw block reason was sent, so "asterisk_gone" or
+  "Routed by Server A" (a real server name) could reach the screen. Now
+  asterisk_gone / stale_timeout read "Not Connected" (as the Call Log) and a
+  reason naming a server is not sent.
+- `format_call_detail(call, viewer=...)`, masking in `_mask_call_detail`.
+
+Tests: `analytics/test_call_panel.py` (+3: buyer, publisher, reasons).

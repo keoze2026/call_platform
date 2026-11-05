@@ -90,3 +90,49 @@ class CallPanelTests(TestCase):
         self.assertFalse([k for k in p if k.startswith('ai')])
         self.assertNotIn('dead_caller', json.dumps(p))
         self.assertNotIn('secret summary', json.dumps(p))
+
+
+@override_settings(ALLOWED_HOSTS=['*'],
+                   CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache'}})
+class CallPanelPartnerTests(CallPanelTests):
+    """CH-566: partner logins see in the panel only what their Call Log gives them."""
+
+    def as_login(self, role, **link):
+        u = User.objects.create(username=f'{role}-login', email=f'{role}@x.io', organization=self.org,
+                                role=role, **link)
+        self.api = Client(HTTP_AUTHORIZATION=f'Bearer {AccessToken.for_user(u)}')
+
+    def detail(self):
+        r = self.api.get(f'/api/analytics/calls/{self.call.id}/detail')
+        self.assertEqual(r.status_code, 200, r.content)
+        return r.json()
+
+    def test_a_buyer_never_sees_ttc_other_buyers_or_our_side(self):
+        self.as_login('buyer', buyer=self.crm)
+        d = self.detail()
+        p = d['panel']
+        self.assertEqual((p['answered_in'], p['wait_seconds'], p['total_seconds'], p['answered_at'], p['ended_at']),
+                         (None, None, None, None, None))
+        self.assertEqual([e['at'] is None for e in d['timeline']], [e['event'] != 'call_received' for e in d['timeline']])
+        # Only CRM's own line; Q15's miss (another buyer) is not there.
+        self.assertEqual([(l['name'], l['ring_seconds']) for l in p['legs']], [('CRM|2126|', None)])
+        self.assertEqual(d['routing_trace'], {})
+        self.assertIsNone(d['routing']['campaign_name'])
+        self.assertIsNone(d['routing']['publisher_name'])
+        self.assertIsNone(d['routing']['called_number'])
+        self.assertIsNone(d['financials']['payout'])
+
+    def test_a_publisher_sees_no_revenue(self):
+        self.as_login('publisher', publisher=self.pub)
+        d = self.detail()
+        self.assertIsNone(d['financials']['revenue'])
+        self.assertEqual(d['panel']['answered_in'], 20)
+
+    def test_no_internal_or_server_names_in_reasons(self):
+        for raw, shown in (('asterisk_gone', 'Not Connected'), ('Routed by Server A', None)):
+            CallLog.objects.filter(pk=self.call.pk).update(status='no_answer', answered_at=None, duration=0,
+                                                           block_reason=raw)
+            d = self.detail()
+            self.assertEqual(d['panel']['legs'][-1]['reason'], shown)
+            self.assertEqual(d['routing']['block_reason'], shown)
+            self.assertNotIn('Server A', str(d))
