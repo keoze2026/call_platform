@@ -117,3 +117,5 @@ class PoolTests(TestCase):
         for words in ('main account only', 'never leaves the main pool', 'only after its quarantine',
                       "slug = 'interns'", 'security definer'):
             self.assertIn(words, sql)
+        # The migration runner reads '%' as a parameter placeholder (rehearsal, 5 Nov).
+        self.assertNotIn('%', sql)

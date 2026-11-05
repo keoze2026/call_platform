@@ -109,6 +109,13 @@ def fill_existing(apps, schema_editor):
 
 
 def trigger_sql(main_slug: str) -> list:
+    # No '%' anywhere in this SQL: Django's migration runner sends it through
+    # the driver with parameters, and the driver reads every '%' as a
+    # placeholder (rehearsal on a copy of live, 5 Nov: 0023 failed with
+    # "IndexError: tuple index out of range"). So the messages are built with
+    # || instead of RAISE's '%' format.
+    if '%' in main_slug:
+        raise ValueError('the main account slug cannot contain %')
     slug = main_slug.replace("'", "''")
     return [
         f"""create or replace function avx_tfn_pool_guard() returns trigger
@@ -120,22 +127,22 @@ begin
     NEW.pool := case when main is not null and NEW.organization_id = main then '{MAIN}' else '{INVENTORY}' end;
   end if;
   if NEW.pool not in ('{MAIN}', '{INVENTORY}', '{QUARANTINE}') then
-    raise exception 'TFN %: unknown pool %', NEW.number, NEW.pool;
+    raise exception using message = 'TFN ' || NEW.number || ': unknown pool ' || coalesce(NEW.pool, '(none)');
   end if;
   if NEW.pool = '{MAIN}' and NEW.organization_id is distinct from main then
-    raise exception 'TFN %: a main-pool TFN belongs to the main account only', NEW.number;
+    raise exception using message = 'TFN ' || NEW.number || ': a main-pool TFN belongs to the main account only';
   end if;
   if NEW.pool <> '{MAIN}' and main is not null and NEW.organization_id = main then
-    raise exception 'TFN %: the main account holds main-pool TFNs only', NEW.number;
+    raise exception using message = 'TFN ' || NEW.number || ': the main account holds main-pool TFNs only';
   end if;
   if TG_OP = 'UPDATE' then
     if OLD.pool = '{MAIN}' and NEW.pool <> '{MAIN}' then
-      raise exception 'TFN %: a main-pool TFN never leaves the main pool', NEW.number;
+      raise exception using message = 'TFN ' || NEW.number || ': a main-pool TFN never leaves the main pool';
     end if;
     if NEW.organization_id is distinct from OLD.organization_id and not (
         OLD.pool = '{QUARANTINE}' and OLD.quarantine_until is not null
         and OLD.quarantine_until <= now() and NEW.pool = '{INVENTORY}') then
-      raise exception 'TFN %: a TFN changes account only after its quarantine', NEW.number;
+      raise exception using message = 'TFN ' || NEW.number || ': a TFN changes account only after its quarantine';
     end if;
   end if;
   return NEW;

@@ -10209,3 +10209,13 @@ main pool."
 Tests: `phone_numbers/test_pools.py` (11). Migrations 0022 (pool, filled)
 and 0023 (trigger): deploy after calling hours; nothing on the call path
 changes for our numbers.
+
+Fix, 5 Nov (found by the rehearsal on a copy of live, before any deploy):
+migration 0023 failed with "IndexError: tuple index out of range" and the
+trigger was not installed. Its RAISE messages used PL/pgSQL's `%` format,
+and Django's migration runner passes the SQL through the driver with
+parameters, which reads every `%` as a placeholder (the earlier PostgreSQL
+test ran the SQL in psql directly, so it did not show this). The messages
+are now built with `||`; the trigger SQL contains no `%` (a test checks).
+Re-tested on PostgreSQL 16: installs, refuses the same moves, allows normal
+edits and the quarantine path. 0022 is unchanged.
