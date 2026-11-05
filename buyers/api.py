@@ -1,6 +1,7 @@
 from accounts.permissions import require, Capability
 from django.conf import settings
 from ninja import Router, Schema
+from ninja.errors import HttpError
 from django.http import HttpRequest
 from typing import List, Optional
 from .schemas import (
@@ -14,6 +15,18 @@ from .models import Buyer
 from accounts.api import JWTAuth
 
 router = Router(tags=["Buyers"], auth=JWTAuth())
+
+
+def _view_only_for_partners(user):
+    """CH-612 (Sir, 6 Nov: "Under buyer access - buyer cannot pause - play -
+    set cc from his own buyer cap section, he can just view. Buyer can only
+    change cc to his allotted destination, not the buyer section"). A buyer or
+    publisher login views the Buyers section and changes nothing in it, whatever
+    its partner switches say; its own destinations keep their own switches
+    (buyers/destinations_api.py)."""
+    if getattr(user, 'role', '') in ('buyer', 'publisher'):
+        raise HttpError(403, 'A buyer login can view the Buyers section, not change it. '
+                             'Concurrency is set per destination, on the Destinations page.')
 
 
 # ── The buyer's own Telegram report switch (CH-259) ─────────────────────────
@@ -190,6 +203,7 @@ def get_buyer(request: HttpRequest, buyer_id: str):
 
 @router.patch("/{buyer_id}", response={200: BuyerOutSchema, 400: dict, 404: dict})
 def update_buyer(request: HttpRequest, buyer_id: str, data: UpdateBuyerSchema):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.EDIT)
@@ -203,6 +217,7 @@ def update_buyer(request: HttpRequest, buyer_id: str, data: UpdateBuyerSchema):
 
 @router.delete("/{buyer_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_buyer(request: HttpRequest, buyer_id: str):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'delete')
     require(request.auth, Capability.DELETE)
@@ -215,6 +230,7 @@ def delete_buyer(request: HttpRequest, buyer_id: str):
 
 @router.post("/{buyer_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_buyer(request: HttpRequest, buyer_id: str):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
@@ -227,6 +243,7 @@ def pause_buyer(request: HttpRequest, buyer_id: str):
 
 @router.post("/{buyer_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_buyer(request: HttpRequest, buyer_id: str):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
@@ -239,6 +256,7 @@ def activate_buyer(request: HttpRequest, buyer_id: str):
 
 @router.patch("/{buyer_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, buyer_id: str, data: BuyerCapSchema):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.EDIT)
@@ -257,6 +275,7 @@ def update_cap(request: HttpRequest, buyer_id: str, data: BuyerCapSchema):
 
 @router.post("/{buyer_id}/campaigns", response={200: dict, 400: dict, 404: dict})
 def assign_campaign(request: HttpRequest, buyer_id: str, data: AssignCampaignSchema):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'edit')
     require(request.auth, Capability.CREATE)
@@ -276,6 +295,7 @@ def assign_campaign(request: HttpRequest, buyer_id: str, data: AssignCampaignSch
 
 @router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'delete')
     require(request.auth, Capability.DELETE)
@@ -298,6 +318,7 @@ def get_stats(request: HttpRequest, buyer_id: str):
 
 @router.delete("/{buyer_id}/campaigns/{campaign_id}", response={200: dict, 404: dict})
 def detach_campaign(request: HttpRequest, buyer_id: str, campaign_id: str):
+    _view_only_for_partners(request.auth)   # CH-612
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'buyers', 'delete')
     require(request.auth, Capability.DELETE)

@@ -10293,3 +10293,20 @@ Revo's buyer view, "nothing more than that".)
 
 Tests: `buyers/test_telegram_report.py` (+2, 1 updated),
 `analytics/test_buyer_api_key.py` (+1, 1 updated). Code only, no migration.
+
+## CH-612 - Buyer login: the Buyers section is view only
+
+Sir, 6 Nov: "Under buyer access - buyer cannot pause - play - set cc from his
+own buyer cap section, he can just view. Buyer can only change cc to his
+alloted destination, not the buyer section."
+
+A buyer login with Manage Traffic or Number Creation switched on could pause
+and play its buyer, change its concurrency and caps, edit it, delete it and
+link campaigns. Now a buyer (or publisher) login is refused (403) on every one
+of these, whatever its switches (`_view_only_for_partners` in buyers/api.py):
+update, delete, pause, activate, caps, campaign link and unlink. Viewing is
+unchanged. Concurrency on its own destinations stays as before (Set
+Concurrency switch, Destinations page). Staff: unchanged. The portal shows
+the section read-only (frontend CH-612).
+
+Tests: `buyers/test_buyer_view_only.py` (3). Code only, no migration.
