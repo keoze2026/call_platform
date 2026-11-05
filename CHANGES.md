@@ -10310,3 +10310,36 @@ Concurrency switch, Destinations page). Staff: unchanged. The portal shows
 the section read-only (frontend CH-612).
 
 Tests: `buyers/test_buyer_view_only.py` (3). Code only, no migration.
+
+## CH-615 - Buyer and publisher logins receive only their own data (server side)
+
+Sir, 6 Nov: "Everything private - main acc; buyers to buyers things only;
+publisher to publisher things only. Nothing exposed any more, do run check
+once."
+
+The check (read-only, run on Server B for 3 buyer and 3 publisher logins)
+found the screens and files clean but the data behind them exposed: 2,436
+items on 9 pages. A buyer's call list carried our TFN, the campaign, the
+publisher and the publisher's payout; buyers and publishers could read the
+workspace's change feed and member list; a publisher's call list carried the
+buyer's name and number, and its dashboard our revenue and cost.
+
+`accounts/partner_guard.py`, one guard on every JSON answer of /api/ for a
+buyer or publisher login (so detail pages and pages added later are covered):
+- Empty, same shape: workspace activity and members (both); campaigns list
+  and routing rules (buyer); buyers list (publisher).
+- Blanked wherever they appear ("" for text, None for money): buyer - called
+  number, campaign, publisher, publisher payout; publisher - buyer,
+  destination name and number, revenue, cost, profit.
+- Staff and owner: untouched. Call routing (/api/twilio/) and file downloads:
+  untouched (files already cut, CH-605 / CH-609).
+- If the guard itself fails, the answer is withheld (500), never sent
+  unguarded.
+
+Not covered here: the Live Monitor's websocket (separate channel), to be
+checked next.
+
+Tests: `accounts/test_partner_guard.py` (6), including the exposure check
+itself on a test database: 0 exposures. Full suite unchanged. Deploy: restart
+web (code only, no migration); then rerun the exposure check on live - it
+must print "TOTAL exposures: 0".

@@ -133,6 +133,10 @@ MIDDLEWARE = [
     'accounts.current_request.CurrentRequestMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    # CH-615: a buyer or publisher login's API answers carry only its own
+    # things (accounts/partner_guard.py). Inside everything that encodes the
+    # answer (gzip), so it sees the plain JSON.
+    'accounts.partner_guard.PartnerDataGuard',
     # Last on purpose: it only observes. Counts anonymous requests per
     # ip+page+day for the owner's guest-visits view, and swallows every one
     # of its own errors - tracking must never break the page it tracks.
