@@ -10444,3 +10444,22 @@ off-campaign ones do not). PD-02: 5. Nothing on the numbers is changed.
 
 Tests: `publishers/test_publisher_list_counts.py` (+1). Code only, no
 migration - restart web.
+
+## CH-622 - Three pages that answered with a server error
+
+Found by the tenant check on live (6 Nov, customer accounts point 1): asked
+for another account's records, three pages failed with a server error (500).
+None gave out any data; each now answers properly.
+
+- Caller profile (`/api/analytics/caller-profile/{number}`): it called a
+  CallerProfileService that no longer exists, so it failed for every login.
+  It now uses the existing profile (AnalyticsService.get_profile, the one
+  analytics/tests.py checks). Staff only: it counts every campaign and buyer
+  a caller reached, which is not a buyer's or publisher's to see (403).
+  The portal does not open this page today.
+- Number-pool sessions (`/api/dni/pools/{id}/sessions`) and webhook
+  deliveries (`/api/webhooks/{id}/deliveries`): a pool or webhook that is not
+  this account's now answers 404 "not found" instead of 500.
+
+Tests: `analytics/test_ch622_pages.py` (3). Code only, no migration -
+restart web.

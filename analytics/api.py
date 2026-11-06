@@ -393,11 +393,17 @@ def live_calls(request: HttpRequest):
     ]
 
 
-@router.get('/caller-profile/{caller_number}')
+@router.get('/caller-profile/{caller_number}', response={200: dict, 403: dict})
 def get_caller_profile(request, caller_number: str):
-    from analytics.services import CallerProfileService
-    organization_id = str(request.auth.organization_id)
-    return CallerProfileService.get_profile(organization_id, caller_number)
+    """One caller's history in this account. CH-622: it called a
+    CallerProfileService that no longer exists, so it failed (500) for every
+    login; the profile is AnalyticsService.get_profile (analytics/tests.py).
+    Staff only: it counts every campaign and buyer the caller reached, which
+    is not a buyer's or a publisher's to see."""
+    if getattr(request.auth, 'role', '') in ('buyer', 'publisher'):
+        return 403, {'detail': 'Not available for this login.'}
+    from analytics.services import AnalyticsService
+    return 200, AnalyticsService.get_profile(str(request.auth.organization_id), caller_number)
 
 def _tfns_with_calls(org, start, end, tz_name):
     """Destination numbers sent calls between `start` and `end` (dates, in

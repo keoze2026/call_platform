@@ -114,7 +114,8 @@ def rotate_secret(request: HttpRequest, webhook_id: str):
         return 404, {"detail": "Webhook not found"}
 
 
-@router.get("/{webhook_id}/deliveries", response={200: dict})
+# CH-622: 404 declared, as for number-pool sessions (was a 500).
+@router.get("/{webhook_id}/deliveries", response={200: dict, 404: dict})
 def list_deliveries(request: HttpRequest, webhook_id: str, page: int = 1, page_size: int = 50):
     try:
         from config.pagination import paginate_list

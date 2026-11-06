@@ -124,7 +124,9 @@ def remove_number(request: HttpRequest, pool_id: str, number_id: str):
 
 # ── Sessions ──────────────────────────────────────────────────────────────────
 
-@router.get("/pools/{pool_id}/sessions", response={200: dict})
+# CH-622: 404 is declared, so a pool that is not this account's answers
+# "not found" (it raised a server error, 500, found by the tenant check).
+@router.get("/pools/{pool_id}/sessions", response={200: dict, 404: dict})
 def list_sessions(request: HttpRequest, pool_id: str, page: int = 1, page_size: int = 50):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'number-pools', 'view')
