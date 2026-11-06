@@ -10533,3 +10533,22 @@ Total CC, Active Live, Total Live and Active TFNs are unchanged.
 
 Tests: `buyers/test_unfilled_cc.py` (4). Code only, no migration - restart
 web.
+
+## CH-630 - Live Monitor connection: buyers and publishers get only their own
+
+Customer accounts point 4 ("Live Monitor ... show only that customer's
+data") and Sir's "Nothing exposed" (CH-615). The Live Monitor's live
+connection (websocket) is not a page of the API, so the CH-615 guard never
+saw it. Checked 6 Nov: it already gave each login only its own account's
+calls (and a buyer or publisher only its own calls), but a buyer login was
+still sent our TFN (called number) and the campaign name, and a publisher
+login the buyer's name and number - readable in the browser's developer
+tools. Now the snapshot sent on connect, every refresh and every update go
+through the same rule as the API pages (accounts/partner_guard.scrub).
+Staff: unchanged.
+
+Also in the plan: hans@gmail.com (a login with no account) sees nothing and is
+left as it is.
+
+Tests: `routing/test_live_ws_partner.py` (3). Code only, no migration -
+restart web (the Live Monitor connection runs in web).

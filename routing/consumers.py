@@ -33,6 +33,8 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
         # CH-538: "a call event happened" for this workspace's reports - the
         # event name only, never the call (routing/call_events.py).
         org_id = await self.get_org_id()
+        # CH-630: a buyer or publisher login's updates are scrubbed as well.
+        self.partner_role = await self.get_partner_role()
         self.reports_group = f"reports_org_{org_id}" if org_id else None
         if self.reports_group:
             await self.channel_layer.group_add(self.reports_group, self.channel_name)
@@ -66,10 +68,24 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
         }))
 
     async def live_call_update(self, event):
+        data = event['data']
+        if getattr(self, 'partner_role', ''):
+            from accounts.partner_guard import scrub
+            data = scrub(data, self.partner_role)
         await self.send(text_data=json.dumps({
             'type': 'call_update',
-            'data': event['data']
+            'data': data
         }))
+
+    @database_sync_to_async
+    def get_partner_role(self):
+        from accounts.models import User
+        from accounts.partner_guard import PARTNER_ROLES
+        try:
+            role = User.objects.only('role').get(id=self.user_id).role or ''
+        except Exception:
+            return ''
+        return role if role in PARTNER_ROLES else ''
 
     @database_sync_to_async
     def get_org_id(self):
@@ -81,31 +97,48 @@ class LiveCallConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def get_live_calls(self):
-        from .models import CallLog
         from accounts.models import User
-        from accounts.permissions import scope_queryset
-
         try:
-            user = User.objects.get(id=self.user_id)
-            from routing.live import live
-            calls = live(scope_queryset(user, CallLog.objects.filter(
-                organization=user.organization,
-            ).select_related('campaign', 'buyer'))).order_by('-created_at')
-
-            return [
-                {
-                    'id': str(c.id),
-                    'caller_number': c.caller_number,
-                    'called_number': c.called_number,
-                    'destination_number': c.destination_number,
-                    'status': c.status,
-                    'campaign_id': str(c.campaign_id) if c.campaign_id else None,
-                    'campaign_name': c.campaign.name if c.campaign else None,
-                    'buyer_id': str(c.buyer_id) if c.buyer_id else None,
-                    'buyer_name': c.buyer.name if c.buyer else None,
-                    'created_at': c.created_at.isoformat(),
-                }
-                for c in calls
-            ]
+            return live_calls_for(User.objects.get(id=self.user_id))
         except Exception:
             return []
+
+
+def live_calls_for(user) -> list:
+    """The live calls one login's Live Monitor connection is sent.
+
+    Its own account only (organization), narrowed for a buyer or publisher
+    login (scope_queryset). CH-630: and, for a buyer or publisher login,
+    without what is not theirs - the same rule as every page of the API
+    (CH-615, accounts/partner_guard.scrub): a buyer is not sent our TFN (the
+    called number) or the campaign; a publisher is not sent the buyer or its
+    number. This connection is not a page of the API, so the CH-615 guard
+    never saw it: the exposure check found the pages clean while this still
+    carried them."""
+    from accounts.permissions import scope_queryset
+    from routing.live import live
+    from .models import CallLog
+
+    calls = live(scope_queryset(user, CallLog.objects.filter(
+        organization=user.organization,
+    ).select_related('campaign', 'buyer'))).order_by('-created_at')
+    rows = [
+        {
+            'id': str(c.id),
+            'caller_number': c.caller_number,
+            'called_number': c.called_number,
+            'destination_number': c.destination_number,
+            'status': c.status,
+            'campaign_id': str(c.campaign_id) if c.campaign_id else None,
+            'campaign_name': c.campaign.name if c.campaign else None,
+            'buyer_id': str(c.buyer_id) if c.buyer_id else None,
+            'buyer_name': c.buyer.name if c.buyer else None,
+            'created_at': c.created_at.isoformat(),
+        }
+        for c in calls
+    ]
+    role = getattr(user, 'role', '') or ''
+    from accounts.partner_guard import PARTNER_ROLES, scrub
+    if role in PARTNER_ROLES:
+        rows = scrub(rows, role)
+    return rows

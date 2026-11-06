@@ -51,7 +51,8 @@ show a row to any other account.
 main account) holds everything (52 users, 17 campaigns, 82 buyers, 174 TFNs,
 31,903 calls); texora and Keoze have 1 user each and nothing else; 1 user has
 no account (hans@gmail.com). *Sir to decide:* which extra accounts stay, and
-hans@gmail.com.
+hans@gmail.com. **6 Nov:** hans@gmail.com (an agent login with no account, no
+data) sees nothing and is left as it is - nothing switched off on our own.
 
 **1b. CH-578 (live, 5 Nov 9:08 AM EST).** The account column on the 36 child
 tables, filled from the parent and required; filled on every save. Proof to
