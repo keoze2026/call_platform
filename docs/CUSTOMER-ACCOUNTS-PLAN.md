@@ -28,10 +28,10 @@ column, pulled before its migration, breaks every process that restarts
 
 | Order | Point | Dates (EST) | Change IDs | Status |
 |---|---|---|---|---|
-| 1 | 1. Tenant isolation | 5-7 Nov | CH-578, CH-580 | In progress |
-| 2 | 5. TFNs kept separate | 8-9 Nov | CH-581 (+ fix) | Live; proof to Sir pending |
-| 3 | 3. Rates and internal data hidden | 10 Nov | CH-619 | Patch ready (6 Nov); CI on Server B, then deploy |
-| 4 | 11. Isolation tests (then every deploy) | 11-12 Nov | next free ID | Not started |
+| 1 | 1. Tenant isolation | 5-7 Nov | CH-578, CH-580 | Checked on live 6 Nov: a customer login saw 0 of our data, opened 0 of our records (tenant_check). CH-580 (database rules) with the other developer |
+| 2 | 5. TFNs kept separate | 8-9 Nov | CH-581 (+ fix) | Done: proven live 6 Nov (174 main; both moves refused) |
+| 3 | 3. Rates and internal data hidden | 10 Nov | CH-619 | Done: live 6 Nov, proven (customer login refused on all 6 sections) |
+| 4 | 11. Isolation tests (then every deploy) | 11-12 Nov | CH-623 | Built 6 Nov: test database only, runs with the suite before every deploy |
 | 5 | 2. Fresh portal + 4. Header, search, stats | 13 Nov | next free ID | Not started |
 | 6 | 6. Calls and routing | 14-15 Nov | next free ID | Not started |
 | 7 | 7. Notifications and bot | 16 Nov | next free ID | Not started |
@@ -101,8 +101,11 @@ CI on Server B, push, deploy (restart web), proof.
 Two test customer accounts (Test A, Test B); an API sweep of every endpoint
 and a page sweep as Test A, Test B and the main account; any other account's
 ID, name, number or price in a response fails. Runs before every deploy.
-*Sir to confirm:* the test accounts live on the real system, marked as test,
-kept out of reports and billing.
+**Decided 6 Nov (CH-623):** the test accounts exist only in the test
+database (`accounts/test_isolation.py`), created and thrown away on every run
+of the suite - never on the live system, so calls, reports and billing are
+never touched. On live, after each deploy, the read-only `tenant_check` (a
+real customer login, nothing saved).
 
 ## Points 2, 4, 6-10 (13-19 Nov)
 

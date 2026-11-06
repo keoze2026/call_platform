@@ -10463,3 +10463,25 @@ None gave out any data; each now answers properly.
 
 Tests: `analytics/test_ch622_pages.py` (3). Code only, no migration -
 restart web.
+
+## CH-623 - Customer accounts point 11: the isolation sweep before every deploy
+
+Plan point 11: "Two test customer accounts (Test A, Test B); an API sweep of
+every endpoint ... as Test A, Test B and the main account; any other
+account's ID, name, number or price in a response fails. Runs before every
+deploy."
+
+`accounts/test_isolation.py`: three accounts - our main account, Test A and
+Test B - each with its own campaign, buyer, destination, publisher, TFN and
+calls (with their Reports copies). For each account's admin login:
+- every list page of the API (no id in its address) is opened; no other
+  account's name, number or record id may appear in the answer;
+- every page that opens one record is asked for each other account's
+  campaign, buyer, publisher, TFN and call; it must not give it out;
+- control: the login does see its own campaign.
+The accounts exist only in the test database and are thrown away after each
+run - nothing on the live system, no effect on calls, reports or billing. It
+runs with the whole suite, so before every deploy. Later points add their
+cases here. The plan document is updated (points 1, 3, 5 proven on live).
+
+Test only - no change to the running code.
