@@ -82,6 +82,38 @@ def sign(url: str, holder: str = None) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(flat), parts.fragment))
 
 
+# CH-635: the B2 test file for the account folders (scripts/recordings_to_b2.py).
+CANARY_FOLDER = 'canary/'
+CANARY_FOLDER_FILE = 'b2-canary-folder'
+
+
+def folder_for_org(organization_id) -> str:
+    """Where an account's recordings are kept in B2, under recordings/ (CH-635,
+    point 8): our main account at the top, as always; every customer account
+    in a folder of its own named by its account id."""
+    if not organization_id:
+        return ''
+    from accounts.main_account import is_main_org
+    if is_main_org(organization_id):
+        return ''
+    return uuid.UUID(str(organization_id)).hex + '/'
+
+
+def folder_of_file(name: str) -> str:
+    """The folder for a recording file (<call id>.mp3 or .wav) - its call's
+    account. Not a call (the B2 test files, a stray file): the top."""
+    stem = (name or '').rsplit('/', 1)[-1].split('.', 1)[0]
+    if stem == CANARY_FOLDER_FILE:
+        return CANARY_FOLDER
+    try:
+        call_id = uuid.UUID(stem)
+    except ValueError:
+        return ''
+    from routing.models import CallLog
+    org = CallLog.objects.filter(id=call_id).values_list('organization_id', flat=True).first()
+    return folder_for_org(org)
+
+
 def holder_active(holder: str):
     """(True, 'ok') while the holder still has an account; else (False, why)."""
     if holder == SYSTEM:

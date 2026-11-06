@@ -10665,3 +10665,33 @@ moved, unsigned, with the login disabled and the account suspended, in one
 transaction that is rolled back.
 
 Tests: `routing/test_recording_links.py` (13).
+
+## CH-635 - Customer accounts point 8: each customer account's recordings in a folder of its own
+
+Sir (point 8): "Recordings: storage path per account."
+
+Recordings are kept in Backblaze B2 (Server A copies each finished MP3 there,
+`scripts/recordings_to_b2.py`). Ours stay where they are,
+`recordings/<call>.mp3`; a customer account's now go to
+`recordings/<account id>/<call>.mp3`. Customer accounts have had no calls, so
+nothing has to be moved.
+
+- Server B says which folder: `python manage.py recording_folders <file>...`
+  (read only), asked by Server A's copier over the ssh link it already has
+  (one more case in /usr/local/bin/avx-from-a). If Server B cannot answer, the
+  copier uploads nothing that run - a customer's recording never lands
+  outside its folder.
+- Serving: the link check of CH-634 also names the folder
+  (X-Recording-Folder), and nginx fetches an old recording from that folder
+  in B2.
+- A second B2 test file, inside a folder, is checked through the public link
+  before any local copy is deleted, so local copies are deleted only while
+  folders are served correctly.
+- The copier keeps where each file went (b2_name), so --verify reads the
+  right one. Deleting a local copy still checks B2 by the file's id.
+
+Off until RECORDING_FOLDERS=1 is in Server A's .env (after the recordings
+host checks links, deploy/recording_links_nginx.conf step 5); until then
+everything is uploaded and served exactly as before.
+
+Tests: `routing/test_recording_folders.py` (8).

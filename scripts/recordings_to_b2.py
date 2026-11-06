@@ -73,6 +73,17 @@ RETRIES = 3
 NGINX_SNIPPET = os.environ.get('NGINX_SNIPPET', '/etc/nginx/avortyx-b2.conf')
 CANARY = 'b2-canary.mp3'
 CANARY_BODY = b'AVORTYX B2 FALLBACK TEST - CH-305\n'
+# CH-635: account folders. A customer account's recordings go to
+# recordings/<account id>/<call>.mp3, ours stay at recordings/<call>.mp3. On
+# when RECORDING_FOLDERS=1 is in .env (after the recordings host checks links,
+# deploy/recording_links_nginx.conf); off, everything is as before. Server B
+# says which folder each file goes to (manage.py recording_folders), asked over
+# MANAGE (the same ssh command recordings_to_mp3.sh uses). The second test
+# file lives in a folder, so a fallback that does not reach folders stops
+# deleting.
+CANARY_FOLDER = 'canary/'
+CANARY_FOLDER_FILE = 'b2-canary-folder.mp3'
+MANAGE = os.environ.get('MANAGE', '')
 TOKEN_SECONDS = 7 * 24 * 3600
 DELETE_PER_RUN = int(os.environ.get('DELETE_PER_RUN', '2000'))
 
@@ -196,19 +207,67 @@ def open_state():
     cols = [r[1] for r in db.execute('PRAGMA table_info(copied)')]
     if 'deleted_at' not in cols:
         db.execute('ALTER TABLE copied ADD COLUMN deleted_at INTEGER')  # CH-305
+    if 'b2_name' not in cols:
+        # CH-635: where it went in B2; empty = recordings/<name> (all before).
+        db.execute('ALTER TABLE copied ADD COLUMN b2_name TEXT')
     db.execute('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)')
     db.commit()
     return db
 
 
-def ensure_canary(db, b2):
-    """The test file the fallback is checked with: only in B2, never on disk."""
+def ensure_canary(db, b2, folders=False):
+    """The test file the fallback is checked with: only in B2, never on disk.
+    With account folders (CH-635), a second one inside a folder."""
     sha1 = hashlib.sha1(CANARY_BODY).hexdigest()
-    if db.execute("SELECT value FROM meta WHERE key = 'canary'").fetchone() == (sha1,):
-        return
-    b2.upload(None, PREFIX + CANARY, sha1, len(CANARY_BODY), int(time.time() * 1000), data=CANARY_BODY)
-    db.execute("INSERT OR REPLACE INTO meta VALUES ('canary', ?)", (sha1,))
-    db.commit()
+    wanted = [('canary', PREFIX + CANARY)]
+    if folders:
+        wanted.append(('canary_folder', PREFIX + CANARY_FOLDER + CANARY_FOLDER_FILE))
+    for key, b2_name in wanted:
+        if db.execute('SELECT value FROM meta WHERE key = ?', (key,)).fetchone() == (sha1,):
+            continue
+        b2.upload(None, b2_name, sha1, len(CANARY_BODY), int(time.time() * 1000), data=CANARY_BODY)
+        db.execute('INSERT OR REPLACE INTO meta VALUES (?, ?)', (key, sha1))
+        db.commit()
+
+
+def on(value) -> bool:
+    return str(value or '').strip().lower() in ('1', 'on', 'true', 'yes')
+
+
+def folders_for(names):
+    """{file: folder} from Server B (CH-635), '' for the top. None when it
+    could not be asked: nothing is uploaded then, so a customer's recording
+    never lands outside its folder."""
+    import shlex
+    import subprocess
+    if not MANAGE:
+        log('RECORDING_FOLDERS is on but MANAGE (the ssh command to Server B) is not set')
+        return None
+    out = {}
+    for i in range(0, len(names), 200):
+        chunk = names[i:i + 200]
+        try:
+            p = subprocess.run(shlex.split(MANAGE) + ['recording_folders'] + chunk,
+                               capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            log(f'Server B did not say the folders: {e}')
+            return None
+        if p.returncode != 0:
+            log(f'Server B did not say the folders (rc={p.returncode}): {p.stderr.strip()[-200:]}')
+            return None
+        for line in p.stdout.splitlines():
+            parts = line.split()
+            if len(parts) == 2 and parts[0] in chunk:
+                folder = '' if parts[1] == '-' else parts[1]
+                if folder and not (folder.endswith('/') and folder[:-1].isalnum()):
+                    log(f'Server B gave a folder that is not one ({parts[1]!r}) - nothing uploaded')
+                    return None
+                out[parts[0]] = folder
+        missing = [n for n in chunk if n not in out]
+        if missing:
+            log(f'Server B did not say the folder of {len(missing)} files - nothing uploaded this run')
+            return None
+    return out
 
 
 def signed_query(path, secret, holder='sys'):
@@ -223,20 +282,26 @@ def signed_query(path, secret, holder='sys'):
     return '?' + urllib.parse.urlencode([('a', holder), ('s', sig)])
 
 
-def fallback_works(base_url, secret=''):
+def fallback_works(base_url, secret='', folders=False):
     """Does a file that is only in B2 play through the public link now?
     Signed when RECORDING_LINK_SECRET is in .env (CH-634): once the
-    recordings host checks links, an unsigned one is refused."""
-    path = f'/recordings/{CANARY}'
-    url = f'{base_url.rstrip("/")}{path}{signed_query(path, secret)}'
-    try:
-        return _request(url, timeout=30) == CANARY_BODY
-    except B2Error as e:
-        log(f'fallback check {url}: {e}')
-        return False
+    recordings host checks links, an unsigned one is refused. With account
+    folders (CH-635), the one inside a folder must play too."""
+    names = [CANARY] + ([CANARY_FOLDER_FILE] if folders else [])
+    for name in names:
+        path = f'/recordings/{name}'
+        url = f'{base_url.rstrip("/")}{path}{signed_query(path, secret)}'
+        try:
+            if _request(url, timeout=30) != CANARY_BODY:
+                log(f'fallback check {path}: wrong content')
+                return False
+        except B2Error as e:
+            log(f'fallback check {path}: {e}')
+            return False
+    return True
 
 
-def write_nginx(b2, reload=True):
+def write_nginx(b2, reload=True, folders=False):
     """nginx's B2 settings: bucket path, host and a 7-day read token for recordings/."""
     import subprocess
     token = b2.download_token()
@@ -245,7 +310,10 @@ def write_nginx(b2, reload=True):
             f'# Renewed daily by cron; do not edit. Read-only token for {PREFIX} in {b2.bucket}.\n'
             # CH-634: the trailing ? drops the link's own query (its holder and
             # signature, checked here first) so B2 gets only the file path.
-            f'rewrite ^/recordings/([A-Za-z0-9_.-]+)\\.(wav|mp3)$ /file/{urllib.parse.quote(b2.bucket)}/{PREFIX}$1.mp3? break;\n'
+            # CH-635: with account folders, $recording_folder is the folder the
+            # link check named (auth_request_set, deploy/recording_links_nginx.conf).
+            f'rewrite ^/recordings/([A-Za-z0-9_.-]+)\\.(wav|mp3)$ /file/{urllib.parse.quote(b2.bucket)}/{PREFIX}'
+            f'{"$recording_folder" if folders else ""}$1.mp3? break;\n'
             f'proxy_pass {b2.download_url};\n'
             f'proxy_set_header Host {host};\n'
             f'proxy_set_header Authorization "{token}";\n')
@@ -270,9 +338,9 @@ def write_nginx(b2, reload=True):
     return True
 
 
-def delete_local(db, b2, days, base_url, secret=''):
+def delete_local(db, b2, days, base_url, secret='', folders=False):
     """Remove local MP3s that are safely in B2 and older than `days` (CH-305)."""
-    if not fallback_works(base_url, secret):
+    if not fallback_works(base_url, secret, folders):
         log('B2 fallback is not answering through the public link: nothing deleted this run')
         return 0
     cutoff = time.time() - days * 86400
@@ -383,20 +451,21 @@ def main():
         log(f'B2 sign-in failed: {e}')
         return 1
 
+    folders = on(env.get('RECORDING_FOLDERS'))
     if a.nginx:
         try:
-            ensure_canary(db, b2)
-            return 0 if write_nginx(b2, reload=not a.no_reload) else 1
+            ensure_canary(db, b2, folders)
+            return 0 if write_nginx(b2, reload=not a.no_reload, folders=folders) else 1
         except B2Error as e:
             log(f'nginx settings not written: {e}')
             return 1
 
     if a.verify:
-        rows = db.execute('SELECT name, size, sha1 FROM copied').fetchall()
+        rows = db.execute('SELECT name, size, sha1, b2_name FROM copied').fetchall()
         bad = 0
-        for name, size, sha1 in random.sample(rows, min(a.verify, len(rows))):
+        for name, size, sha1, b2_name in random.sample(rows, min(a.verify, len(rows))):
             try:
-                data = b2.download(PREFIX + name)
+                data = b2.download(b2_name or PREFIX + name)
                 ok = len(data) == size and hashlib.sha1(data).hexdigest() == sha1
             except B2Error as e:
                 ok = False
@@ -408,12 +477,19 @@ def main():
 
     copied = failed = 0
     nbytes = 0
-    for _, name, size in todo[:a.limit]:
+    batch = todo[:a.limit]
+    where = {}
+    if folders and batch:
+        where = folders_for([name for _, name, _ in batch])
+        if where is None:
+            batch = []                     # asked again next run; nothing goes to the wrong place
+    for _, name, size in batch:
         path = os.path.join(DIR, name)
+        b2_name = PREFIX + where.get(name, '') + name
         try:
             st = os.stat(path)
             sha1 = sha1_of(path)
-            r = b2.upload(path, PREFIX + name, sha1, st.st_size, int(st.st_mtime * 1000))
+            r = b2.upload(path, b2_name, sha1, st.st_size, int(st.st_mtime * 1000))
             if int(r.get('contentLength', -1)) != st.st_size or r.get('contentSha1') != sha1:
                 raise B2Error(0, 'B2 reply does not match the file')
         except FileNotFoundError:
@@ -425,9 +501,9 @@ def main():
                 log('10 failures this run, stopping until the next run')
                 break
             continue
-        db.execute('INSERT OR REPLACE INTO copied (name, size, sha1, file_id, copied_at)'
-                   ' VALUES (?, ?, ?, ?, ?)',
-                   (name, st.st_size, sha1, r.get('fileId', ''), int(time.time())))
+        db.execute('INSERT OR REPLACE INTO copied (name, size, sha1, file_id, copied_at, b2_name)'
+                   ' VALUES (?, ?, ?, ?, ?, ?)',
+                   (name, st.st_size, sha1, r.get('fileId', ''), int(time.time()), b2_name))
         db.commit()
         copied += 1
         nbytes += st.st_size
@@ -437,7 +513,7 @@ def main():
     if a.delete_local_days > 0:
         base = env.get('RECORDING_BASE_URL') or 'https://rec.v0l1.com'
         try:
-            delete_local(db, b2, a.delete_local_days, base, env.get('RECORDING_LINK_SECRET', ''))
+            delete_local(db, b2, a.delete_local_days, base, env.get('RECORDING_LINK_SECRET', ''), folders)
         except B2Error as e:
             log(f'delete step stopped: {e}')
     return 1 if failed and not copied else 0
