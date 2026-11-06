@@ -10574,3 +10574,33 @@ Tests: `routing/test_cross_account_routing.py` (3) - a bad link made directly
 in the database is never rung, by B or by A. Code only, no migration.
 Deploy after calling hours: restart web_calls (it routes the calls) and web,
 with a test call before and after.
+
+## CH-632 - Customer accounts point 6: the database refuses routing links between accounts
+
+Sir (point 6): "Failover never crosses accounts ... This must be checked at
+the database level."
+
+CH-631 made routing ignore a link into another account. Now the database
+itself refuses to store one, like the TFN rule of point 5 (PostgreSQL
+triggers, `routing/same_account.py`, migration routing 0026):
+- a TFN's campaign and publisher, a rule's campaign, a rule line's rule and
+  buyer, a destination's buyer, and the buyer/publisher campaign lists must
+  be in the row's own account;
+- a campaign, buyer, publisher or rule cannot change account while rows of
+  another account would then point at it.
+
+Rows already stored are checked only when their link or account changes, so
+nothing that works today can start failing. Call records are not covered: a
+call is never refused for being saved.
+
+`python manage.py same_account` lists links that cross accounts and how many
+tables are guarded (changes nothing). `--prove` tries each link across
+accounts and within its own account, and moves a campaign, buyer, publisher
+and rule, all in one transaction rolled back at the end.
+
+Tests: `routing/test_same_account.py` (10, one of them PostgreSQL only; the trigger
+itself is proven with `--prove` on a copy of live, then on live). CH-631's tests
+skip on PostgreSQL, where the bad link cannot be made any more.
+Deploy after calling hours: rehearsal on a copy of live first, then
+`migrate`, `same_account --prove`, restart web_calls and web, test call
+before and after.

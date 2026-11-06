@@ -8,6 +8,8 @@ plan ever sends a call to it.
 
 Run:  python manage.py test routing.test_cross_account_routing
 """
+from django.db import connection
+
 from accounts.models import Organization
 from buyers.destination import Destination
 from buyers.models import Buyer
@@ -18,6 +20,9 @@ from routing.test_fallback import A, B, FallbackBase
 
 class CrossAccountRoutingTests(FallbackBase):
     def foreign_line(self, number, priority=1):
+        if connection.vendor == 'postgresql':
+            # CH-632: there the database refuses to store this link at all.
+            self.skipTest('PostgreSQL refuses a rule line into another account (CH-632)')
         other = Organization.objects.create(name='Texora', slug='texora')
         theirs = Buyer.objects.create(organization=other, name='THEIRS')
         Destination.objects.create(organization=other, buyer=theirs, name='THEIRS|1', tfn=number, enabled=True)

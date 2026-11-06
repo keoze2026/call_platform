@@ -33,7 +33,7 @@ column, pulled before its migration, breaks every process that restarts
 | 3 | 3. Rates and internal data hidden | 10 Nov | CH-619 | Done: live 6 Nov, proven (customer login refused on all 6 sections) |
 | 4 | 11. Isolation tests (then every deploy) | 11-12 Nov | CH-623 | Built 6 Nov: test database only, runs with the suite before every deploy |
 | 5 | 2. Fresh portal + 4. Header, search, stats | 13 Nov | next free ID | Not started |
-| 6 | 6. Calls and routing | 14-15 Nov | next free ID | Not started |
+| 6 | 6. Calls and routing | 14-15 Nov | CH-631, CH-632, next free ID | CH-631 live 6 Nov (routing ignores a link into another account). CH-632 built: the database refuses such links (rehearsal, then live after calling hours). Left: per-customer concurrency limit |
 | 7 | 7. Notifications and bot | 16 Nov | next free ID | Not started |
 | 8 | 8. Recordings and files | 17-18 Nov | next free ID | Not started |
 | 9 | 9. IDs and branding + 10. Access and audit | 19 Nov | next free IDs | Not started |
@@ -114,6 +114,8 @@ real customer login, nothing saved).
   search, dashboards and Live Monitor show only its own data.
 - **6:** calls route only to the customer's destinations; failover never
   crosses accounts; per-customer concurrency limit.
+  CH-631 (code) and CH-632 (database triggers, `same_account --prove`) cover
+  the first two; the concurrency limit is next.
 - **7:** alerts per account; customers connect their own bot.
 - **8:** storage path per account; signed, expiring recording links.
 - **9 + 10:** random IDs; no Avortyx names or TFNs in customer pages,
