@@ -60,6 +60,21 @@ class PublisherListCountsTests(TestCase):
         self.assertEqual((quiet['payable_today'], quiet['sent_today'], quiet['tfn_count']), (0, 0, 0))
         self.assertEqual(quiet['campaigns'], [])
 
+    def test_tfns_counted_are_the_ones_on_a_campaign(self):
+        # CH-621 (Sir, 6 Nov): PD-02 showed 18 TFNs; 5 were on its campaign,
+        # 13 were old numbers taken off their campaign but still linked to it.
+        for n in ('+18005550201', '+18005550202'):                        # off any campaign
+            PhoneNumber.objects.create(organization=self.org, number=n, publisher=self.pub)
+        PhoneNumber.objects.create(organization=self.org, number='+18005550203', publisher=self.pub,
+                                   campaign=self.c13, status='released')  # released
+        PhoneNumber.objects.create(organization=self.org, number='+18005550204', publisher=self.pub,
+                                   campaign=self.c13, status='paused')    # paused, still on C-13
+        row = self.row(self.api.get('/api/publishers/').json(), 'ADS-1')
+        self.assertEqual(row['tfn_count'], 4)                             # the 3 + the paused one
+        self.assertEqual([c['name'] for c in row['campaigns']], ['C-13'])
+        # Nothing is changed on the numbers themselves.
+        self.assertEqual(PhoneNumber.objects.filter(publisher=self.pub).count(), 7)
+
     def test_summary_payable_by_hour_and_pending_payouts(self):
         self.call(status='completed', is_converted=True)
         self.call(status='completed', is_converted=True)

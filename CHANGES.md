@@ -10428,3 +10428,19 @@ activate, caps, campaign link and unlink. Viewing is unchanged. Staff:
 unchanged. The portal shows the section read-only (frontend CH-620).
 
 Tests: `publishers/test_publisher_view_only.py` (2). Code only, no migration.
+
+## CH-621 - Publishers list: the TFN count shows the numbers in use
+
+Sir, 6 Nov: "Under publisher list - next to publisher name - correct TFN
+numbers are not showing - PD-02 showing 18 TFNs but PDSO 2 I think 4 or 5 TFNs
+under tracking numbers assigned today."
+
+The "· N TFNs" next to each publisher counted every number still linked to the
+publisher and not released - including old numbers taken off their campaign.
+Live, 6 Nov: PD-02 had 18; 5 on H-02 (assigned 5 Nov 4:36 PM EST) and 13 old
+ones on no campaign. Now it counts the numbers on a campaign, as the campaign's
+Tracking Numbers lists them (a paused one on a campaign counts; released and
+off-campaign ones do not). PD-02: 5. Nothing on the numbers is changed.
+
+Tests: `publishers/test_publisher_list_counts.py` (+1). Code only, no
+migration - restart web.

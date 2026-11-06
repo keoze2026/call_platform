@@ -43,8 +43,15 @@ def publisher_usage(organization, publisher_ids, now=None) -> dict:
         if row is not None:
             row.update(r)
 
-    # Its tracking numbers (not released) and the campaigns they send to.
-    numbers = (PhoneNumber.objects.filter(publisher_id__in=ids, released_at__isnull=True)
+    # Its tracking numbers in use - on a campaign, not released - and the
+    # campaigns they send to. CH-621 (Sir, 6 Nov: "Next to publisher name -
+    # correct TFN numbers are not showing - PD-02 showing 18 TFNs but ... 4 or 5
+    # under tracking numbers"): old numbers taken off their campaign but still
+    # linked to the publisher were counted too (PD-02: 13 of the 18). Now the
+    # count is what the campaign's Tracking Numbers lists for the publisher
+    # (a paused number on a campaign is still listed there, so it counts).
+    numbers = (PhoneNumber.objects.filter(publisher_id__in=ids, released_at__isnull=True,
+                                          campaign__isnull=False)
                .exclude(status=PhoneNumber.Status.RELEASED)
                .values_list('publisher_id', 'campaign_id', 'campaign__name'))
     seen = {}
