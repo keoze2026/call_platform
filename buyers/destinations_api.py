@@ -450,14 +450,85 @@ def get_destination_stats(request, timezone: Optional[str] = None):
         active_tfns=Count('id', filter=Q(enabled=True)),
     )
     total_cc = stats['total_cc'] or 0
+    vacant, open_lines, capped_lines = _unfilled_cc(
+        qs.filter(enabled=True).select_related('buyer'), live_q)
     return 200, {
         'active_live': active_live,
         'total_live': total_live,
         'total_cc': total_cc,
         'active_tfns': stats['active_tfns'] or 0,
-        # Free capacity on active destinations, never negative.
-        'vacant_cc': max(0, total_cc - active_live),
+        # CH-626: free CC only where a call can still land (see _unfilled_cc).
+        'vacant_cc': vacant,
+        'vacant_lines': open_lines,
+        'capped_lines': capped_lines,
     }
+
+
+def _unfilled_cc(destinations, live_q):
+    """CH-626 (Sir, 6 Nov): "Unfilled CC means free CC ... If someone has a
+    10 cap with 3 CC and the 10 cap is over, the TFN is active but more calls
+    cannot go due to the cap, so it should not be counted as unfilled.
+    Unfilled means we can still fill them and we have cap for that
+    destination."
+
+    It was total CC of the active destinations minus the calls live on them,
+    so a line whose cap was full still showed its CC as free. Now, line by
+    line, a destination's free CC (its CC minus its own live calls) counts
+    only when routing would still send it a call - the same checks, in the
+    same order, as RoutingEngine._destination_refusal: its buyer is active,
+    the buyer's own daily / monthly cap is not full, the line is not resting
+    after missed calls (CH-514), and none of the line's Hourly / Daily /
+    Monthly / Global caps is full. A line with no CC set adds nothing, as
+    before. Returns (unfilled CC, lines it is on, lines with free CC that
+    cannot take a call now)."""
+    from collections import Counter
+
+    from buyers.caps import buyer_cap_hit, destination_cap_hit
+    from routing.engine import RoutingEngine
+
+    live = Counter((str(b) if b else None, t)
+                   for b, t in live_q.values_list('buyer_id', 'destination_number'))
+    buyer_ok = {}
+    vacant = open_lines = capped = 0
+    for d in destinations:
+        cc = d.concurrency_cap or 0
+        if cc <= 0 or not d.tfn:
+            continue
+        # The line's own calls: its number and its buyer, or none recorded
+        # (buyers.caps.own_calls_q).
+        n = live[(str(d.buyer_id) if d.buyer_id else None, d.tfn)]
+        if d.buyer_id:
+            n += live[(None, d.tfn)]
+        free = max(0, cc - n)
+        if not free:
+            continue
+        buyer = d.buyer
+        if buyer is not None:
+            if buyer.id not in buyer_ok:
+                ok = buyer.status == 'active'
+                if ok:
+                    try:
+                        cap = buyer.cap
+                    except Exception:  # noqa: BLE001 - no cap row: no buyer cap
+                        cap = None
+                    try:
+                        ok = cap is None or buyer_cap_hit(buyer, cap) is None
+                    except Exception:  # noqa: BLE001 - as routing: a failed count stops nothing
+                        ok = True
+                buyer_ok[buyer.id] = ok
+            if not buyer_ok[buyer.id] or RoutingEngine.line_resting(buyer, d.tfn):
+                capped += 1
+                continue
+        try:
+            hit = destination_cap_hit(d)
+        except Exception:  # noqa: BLE001
+            hit = None
+        if hit:
+            capped += 1
+            continue
+        vacant += free
+        open_lines += 1
+    return vacant, open_lines, capped
 
 
 

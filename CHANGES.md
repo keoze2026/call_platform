@@ -10511,3 +10511,25 @@ nothing of theirs - every spam check is scoped by account - but a row of one
 account pointed into another. Now refused (400 "Campaign not found in this
 account."; `_own_campaign` in spam_protection/api.py). Tests:
 `spam_protection/test_own_campaign.py` (2). Restart web.
+
+## CH-626 - Destinations: Unfilled CC counts only lines that can still take calls
+
+Sir, 6 Nov: "Unfilled CC means free CC. If someone has a 10 cap with 3 CC and
+the 10 cap is over, the TFN is active but more calls cannot go due to the
+cap, so it should not be counted as unfilled. Unfilled means we can still
+fill them and we have cap for that destination."
+
+Unfilled CC was the CC of every active destination minus the calls live on
+them - so a line whose cap was full (Q35 25/25, Q08 20/20, MXX 10/10 ...)
+still showed its CC as free, and a line over its CC took free CC away from
+the others. Now it is worked out line by line: a destination's free CC (its
+CC minus its own live calls) counts only when routing would still send it a
+call - the same checks as routing: the buyer is active, the buyer's own
+daily / monthly cap is not full, the line is not resting after missed calls,
+and none of its Hourly / Daily / Monthly / Global caps is full.
+`/api/destinations/stats/` also gives `vacant_lines` (lines with free CC that
+can take calls) and `capped_lines` (lines with free CC that cannot, now).
+Total CC, Active Live, Total Live and Active TFNs are unchanged.
+
+Tests: `buyers/test_unfilled_cc.py` (4). Code only, no migration - restart
+web.
