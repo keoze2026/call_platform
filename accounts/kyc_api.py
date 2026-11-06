@@ -3,9 +3,10 @@ from ninja import Router, Schema, File
 from ninja.files import UploadedFile
 from django.utils import timezone
 from typing import Optional
-from accounts.api import JWTAuth
+from accounts.api import MainAccountAuth
 
-router = Router(tags=["KYC"], auth=JWTAuth())
+# Point 3: the Trust Engine (KYC) is our main account's only.
+router = Router(tags=["KYC"], auth=MainAccountAuth())
 
 
 class KYCIndividualSchema(Schema):

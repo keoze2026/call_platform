@@ -5,9 +5,11 @@ or publisher login's API answers carry only its own things.
 Run:  python manage.py test accounts.test_partner_guard
 """
 import io
+import os
 import contextlib
 from unittest import mock
 
+from django.conf import settings
 from django.test import Client, SimpleTestCase, TestCase, override_settings
 from rest_framework_simplejwt.tokens import AccessToken
 
@@ -104,5 +106,8 @@ class LiveAnswersTests(TestCase):
     def test_the_exposure_check_finds_nothing(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out):
-            exec(open('/home/claude/out/recon/exposure_check.py').read(), {'__name__': '__main__'})
+            # CH-619: the script is in the repository (it was read from a path
+            # that exists on one machine only, so the test failed elsewhere).
+            script = os.path.join(settings.BASE_DIR, 'scripts', 'exposure_check.py')
+            exec(open(script).read(), {'__name__': '__main__'})
         self.assertIn('TOTAL exposures: 0', out.getvalue(), out.getvalue()[-3000:])

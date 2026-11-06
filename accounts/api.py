@@ -51,6 +51,18 @@ class JWTAuth(HttpBearer):
         return user
 
 
+class MainAccountAuth(JWTAuth):
+    """Customer accounts point 3: a section only our main account has (Trust
+    Engine, White Label). Any other account's login: 403, whatever its role."""
+
+    def authenticate(self, request, token):
+        user = super().authenticate(request, token)
+        if user is not None:
+            from accounts.main_account import require_main_account
+            require_main_account(user)
+        return user
+
+
 class CapabilityAuth(HttpBearer):
     """Authenticate, then require a capability for the whole router.
 

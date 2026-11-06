@@ -185,6 +185,14 @@ def _can_ai_audit(user) -> bool:
         return False
 
 
+def _is_main_account(user) -> bool:
+    from accounts.main_account import is_main_account
+    try:
+        return is_main_account(user)
+    except Exception:
+        return False
+
+
 def _is_main_user(user) -> bool:
     from accounts.main_user import is_main_user
     try:
@@ -208,6 +216,9 @@ class ProfileService:
             'is_staff': bool(user.is_staff),
             'is_superuser': bool(user.is_superuser),
             'is_main_user': _is_main_user(user),
+            # Point 3: our own account (not a customer account) - the portal
+            # shows the owner-only sections only then.
+            'is_main_account': _is_main_account(user),
             # CH-548: may this login see the AI audit (billing / audit team, owner).
             'can_ai_audit': _can_ai_audit(user),
             'phone_number': user.phone_number,

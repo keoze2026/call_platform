@@ -26,6 +26,10 @@ def can_see_ai(user) -> bool:
     if getattr(user, 'role', '') in ('buyer', 'publisher') or getattr(user, 'buyer_id', None) \
             or getattr(user, 'publisher_id', None):
         return False
+    # Point 3: the internal AI audit is our main account's only.
+    from accounts.main_account import is_main_account
+    if not is_main_account(user):
+        return False
     if getattr(user, 'is_superuser', False):
         return True
     return (getattr(user, 'email', '') or '').strip().lower() in allowed_emails()

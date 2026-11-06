@@ -13,3 +13,11 @@ PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 # CH-538: call events are pushed on the channel layer; no Redis in tests.
 CHANNEL_LAYERS = {'default': {'BACKEND': 'channels.layers.InMemoryChannelLayer'}}
+
+# CH-619: the suite must not depend on the server's .env. Run on a server (in a
+# throwaway container, with that server's environment), these three took the
+# live values and 9 tests failed that pass everywhere else. Each is set back
+# to its default here; a test that needs another value overrides it itself.
+AI_FINAL_ENABLED = False
+RECORDING_BASE_URL = ''
+ZERO_SECOND_ANSWER_IS_NOT_CONNECTED = True

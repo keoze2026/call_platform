@@ -1,7 +1,7 @@
 from ninja import Router
 from django.http import HttpRequest
 from typing import List
-from accounts.api import JWTAuth
+from accounts.api import MainAccountAuth
 from .schemas import (
     WhiteLabelUpdateSchema, AddDomainSchema,
     WhiteLabelOutSchema, WhiteLabelDomainOutSchema,
@@ -9,7 +9,9 @@ from .schemas import (
 )
 from .services import WhiteLabelService
 
-router = Router(tags=["White Label"], auth=JWTAuth())
+# Point 3: White Label admin is our main account's only. The public /config
+# (a branded site asks for its look, no login) keeps auth=None.
+router = Router(tags=["White Label"], auth=MainAccountAuth())
 
 
 @router.get("/", response={200: WhiteLabelOutSchema})

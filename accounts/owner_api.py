@@ -18,17 +18,25 @@ from django.http import HttpRequest
 from ninja import Router, Schema
 from ninja.errors import HttpError
 
-from accounts.api import JWTAuth
+from accounts.api import MainAccountAuth
 
 logger = logging.getLogger(__name__)
 
-owner_router = Router(tags=["Owner"], auth=JWTAuth())
+# Customer accounts point 3: every Owner page (Owner, Carrier Costs, Company
+# Profit, carrier statements) is refused to a customer account's login at the
+# router as well, so a page added later is covered even before require_owner.
+owner_router = Router(tags=["Owner"], auth=MainAccountAuth())
 
 
 def require_owner(request: HttpRequest):
     """The one gate every owner endpoint passes through."""
     user = request.auth
     if not getattr(user, 'is_superuser', False):
+        raise HttpError(403, "This area belongs to the system owner.")
+    # Customer accounts point 3: and only in our main account - never a
+    # customer account's login, even a superuser one.
+    from accounts.main_account import is_main_account
+    if not is_main_account(user):
         raise HttpError(403, "This area belongs to the system owner.")
     return user
 

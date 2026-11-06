@@ -10371,3 +10371,46 @@ example), `routing.test_ai_final` (the Call Log verdict test now reviews a
 No Voice call). Deploy: code only, no migration, no call path touched -
 restart web (it serves the AI Audit page's API). The examples command is a
 new process each run, so it uses the new code from the pull.
+
+## CH-619 - Customer accounts point 3: our own sections refused to customer accounts
+
+Sir, 5 Nov (customer accounts plan, point 3): "Owner-only sections (Owner,
+Carrier Costs, Company Profit, Trust Engine, White Label admin, internal AI
+audit) never appear in customer portals ... (server-side check, not just
+hidden menus)."
+
+The main account is the workspace MAIN_ORGANIZATION_SLUG names (`interns`).
+A login of any other workspace - or of none - is a customer account's login
+and now gets 403 from, whatever its role (a superuser too):
+
+- Owner, Carrier Costs, Company Profit, carrier statements: the whole Owner
+  router (`MainAccountAuth`), so a page added later is covered too; and
+  `require_owner` checks it again.
+- Trust Engine (`/api/kyc/`) and White Label admin (`/api/white-label/`).
+  The public `/api/white-label/config` (a branded site's look, no login) is
+  unchanged.
+- AI Audit and the AI columns: `can_see_ai` is false for them.
+
+`/api/accounts/me` carries `is_main_account` for the portal (frontend
+CH-619 hides the menus and sends those pages back to the Dashboard).
+
+A server with no main account (the slug names no workspace) treats every
+login as main - exactly as before. Our own logins: nothing changes.
+
+Tests: `accounts.test_main_account` (every Owner page refused to a customer
+superuser, writes too; Trust Engine, White Label, AI Audit refused, ours not;
+the public White Label config unaffected; the profile flag; the customer's
+own pages kept; a server with no main account unchanged).
+
+Also, so the whole suite passes when run on a server (in a throwaway
+container with that server's environment), as it does everywhere else:
+- `config/test_settings.py` sets AI_FINAL_ENABLED, RECORDING_BASE_URL and
+  ZERO_SECOND_ANSWER_IS_NOT_CONNECTED back to their defaults. On Server B the
+  live values made 9 tests fail (Telegram alerts, split links, 0-second calls).
+- The CH-615 exposure check is now in the repository
+  (`scripts/exposure_check.py`); its test read it from a path that exists on
+  one machine only. On Server B: `docker compose exec -T web python manage.py
+  shell < scripts/exposure_check.py`.
+
+Deploy: code only, no migration - restart web. Checked on live first (6 Nov):
+the main account is found and no login of ours is outside it.

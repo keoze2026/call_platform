@@ -30,7 +30,7 @@ column, pulled before its migration, breaks every process that restarts
 |---|---|---|---|---|
 | 1 | 1. Tenant isolation | 5-7 Nov | CH-578, CH-580 | In progress |
 | 2 | 5. TFNs kept separate | 8-9 Nov | CH-581 (+ fix) | Live; proof to Sir pending |
-| 3 | 3. Rates and internal data hidden | 10 Nov | CH-582 | Draft (local, CI not run) |
+| 3 | 3. Rates and internal data hidden | 10 Nov | CH-619 | Patch ready (6 Nov); CI on Server B, then deploy |
 | 4 | 11. Isolation tests (then every deploy) | 11-12 Nov | next free ID | Not started |
 | 5 | 2. Fresh portal + 4. Header, search, stats | 13 Nov | next free ID | Not started |
 | 6 | 6. Calls and routing | 14-15 Nov | next free ID | Not started |
@@ -89,10 +89,12 @@ message to Sir for Point 1.
 
 ## Point 3 - Rates and internal data hidden
 
-Draft on a local branch (`ch582`): `is_main_account`, `MainAccountAuth`;
-Owner, White Label, KYC (Trust Engine) and AI Audit refused to customer
-accounts; profile flag `is_main_account`. Left: full CI, the portal part
-(menus and route guard), patch, rehearsal, deploy, proof.
+CH-619 (backend + frontend, 6 Nov): `is_main_account`, `MainAccountAuth`;
+the whole Owner router (Owner, Carrier Costs, Company Profit, statements),
+White Label admin, KYC (Trust Engine) and AI Audit refused to customer
+accounts, any role; profile flag `is_main_account`; the portal hides those
+menus and sends their pages back to the Dashboard. No database change. Left:
+CI on Server B, push, deploy (restart web), proof.
 
 ## Point 11 - Isolation tests
 
