@@ -10695,3 +10695,30 @@ host checks links, deploy/recording_links_nginx.conf step 5); until then
 everything is uploaded and served exactly as before.
 
 Tests: `routing/test_recording_folders.py` (8).
+
+## CH-636 - Customer accounts point 9: no counting ids, and the check that proves it
+
+Sir (point 9): random IDs; no Avortyx internal names, buyer names or our TFNs
+in customer pages, exports or emails. Asked about the brand, 7 Nov: customer
+portals show Avortyx.
+
+Checked on live, 7 Nov (`scripts/point9_check.py`, read only, as every
+customer account login): every page, every download (CSV/Excel read as text)
+and the 28 emails/SMS stored for customer accounts were searched for our
+campaign, buyer and publisher names, our account name, our team's names and
+email addresses, our TFNs, buyers' destination numbers and our recent
+callers. Nothing of ours: the two matches were the Avortyx brand in the
+number-pool website script and the caller profile repeating back the number
+asked for (asked as texora about one of our callers: total_calls 0).
+
+Ids: every record a customer sees has a random id, except one - the number
+pool's call list sent each row's counting number (1, 2, 3...), which told
+any account how many pool calls the whole platform has had. It now sends a
+16-character key derived from the row with the server's key (the portal uses
+it only to tell rows apart). The other tables that still count (guest
+visits, autopilot settings, TFN check events, routing rates, buyer report
+settings, marketplace favourites) never send their id to a customer.
+
+Tests: dni/test_number_pool_design.py (the call list id). The live check is
+in the repository: `docker compose exec -T web python manage.py shell <
+scripts/point9_check.py`.

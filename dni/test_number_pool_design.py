@@ -231,6 +231,11 @@ class NumberPoolDesignTests(TestCase):
         self.assertEqual(page['calls_by_source'], [{'source': 'bing / medicare', 'calls': 1}])
         calls = self.api.get(f"/api/dni/pools/{p['id']}/calls").json()
         self.assertEqual(calls[0]['source'], 'bing / medicare')
+        # CH-636 (customer accounts point 9): no counting number as the row id.
+        self.assertIsInstance(calls[0]['id'], str)
+        self.assertRegex(calls[0]['id'], r'^[0-9a-f]{16}$')
+        self.assertNotEqual(calls[0]['id'], str(pc.id))
+        self.assertEqual(self.api.get(f"/api/dni/pools/{p['id']}/calls").json()[0]['id'], calls[0]['id'])
 
     def test_repeat_caller_is_blocked_on_the_pool_campaign(self):
         self.pool(protection={'max_calls_per_caller_10m': 2})

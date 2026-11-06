@@ -15,6 +15,15 @@ from accounts.models import User
 logger = logging.getLogger(__name__)
 
 
+def public_row_id(kind: str, pk) -> str:
+    """CH-636 (point 9): the id a page shows for a row whose table counts
+    1, 2, 3... - 16 hex characters derived from the row with the server's
+    key: the same row always gets the same one, and it says nothing about how
+    many rows there are."""
+    from django.utils.crypto import salted_hmac
+    return salted_hmac(f'avx.public-id.{kind}', str(pk)).hexdigest()[:16]
+
+
 def cooldown_minutes() -> int:
     """CH-456's server-wide cool-down; since CH-460 each pool has its own
     (DNIPool.cooldown_seconds). Kept for anything still asking."""
@@ -562,7 +571,11 @@ class DNIService:
         for c in rows:
             s = c.session
             out.append({
-                'id': c.id,
+                # CH-636 (customer accounts point 9): not the table's counting
+                # number, which told every account how many pool calls the
+                # whole platform has had. A stable random-looking key instead
+                # (the portal uses it only to tell rows apart).
+                'id': public_row_id('dni-call', c.id),
                 'started_at': c.started_at.isoformat(),
                 'caller': c.caller_id,
                 'number': display(c.number.number) if c.number else display(c.called),

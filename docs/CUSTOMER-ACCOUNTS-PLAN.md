@@ -36,7 +36,7 @@ column, pulled before its migration, breaks every process that restarts
 | 6 | 6. Calls and routing | 14-15 Nov | CH-631, CH-632, next free ID | CH-631 live 6 Nov (routing ignores a link into another account). CH-632 built: the database refuses such links (rehearsal, then live after calling hours). Left: per-customer concurrency limit |
 | 7 | 7. Notifications and bot | 16 Nov | CH-633, next free ID | CH-633 built: our bot commands, AI Telegram messages and the morning report stay ours. Left: customers' own bot |
 | 8 | 8. Recordings and files | 17-18 Nov | CH-634, CH-635 | CH-634 live 7 Nov (signing on): every recording link signed for its holder, valid while the holder has an account (Sir, 7 Nov). CH-635 built: customer accounts' recordings in their own B2 folder. Left: Server A nginx checks links, then folders on |
-| 9 | 9. IDs and branding + 10. Access and audit | 19 Nov | next free IDs | Not started |
+| 9 | 9. IDs and branding + 10. Access and audit | 19 Nov | CH-636, next free IDs | 9: checked on live 7 Nov - nothing of ours in customer pages, downloads or emails; brand stays Avortyx (Sir); the last counting id (number pool calls) replaced (CH-636). 10: not started |
 | 10 | Final isolation run + demo to Sir | 20 Nov | - | Not started |
 
 Change IDs are shared with the rest of the team's work: take the next free
