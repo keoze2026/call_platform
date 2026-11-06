@@ -367,7 +367,9 @@ class RoutingEngine:
         d10 = _d10(number)
         if not d10:
             return None
-        rows = [r for r in Destination.objects.filter(buyer=buyer).order_by('-enabled', '-created_at')
+        # CH-631: only the buyer's own account's lines.
+        rows = [r for r in Destination.objects.filter(buyer=buyer, organization_id=buyer.organization_id)
+                .order_by('-enabled', '-created_at')
                 if _d10(r.tfn) == d10]
         return rows[0] if rows else None
 
@@ -402,7 +404,8 @@ class RoutingEngine:
         from buyers.destination import Destination
 
         rows = list(
-            Destination.objects.filter(buyer=buyer, enabled=True)
+            Destination.objects.filter(buyer=buyer, enabled=True,
+                                       organization_id=buyer.organization_id)   # CH-631
             .order_by('created_at')
         )
         # Duplicate handling (CH-241). The rotation below chose among ALL the
@@ -755,6 +758,15 @@ class RoutingEngine:
             reason = f'buyer already took this caller (duplicates: different)'
         elif destination.buyer_id and str(destination.buyer_id) in call_data.get('blocked_buyers', ()):
             reason = 'this buyer has blocked the caller'
+
+        # CH-631 (customer accounts point 6: "A customer's calls route only to
+        # that customer's destinations"): a rule line whose buyer is in another
+        # account is never used, whatever the data says. The pages cannot make
+        # such a line (CH-624) and none exists (checked on live, 6 Nov); this is
+        # the guard if one ever did.
+        if (reason is None and destination.buyer_id and destination.buyer is not None
+                and destination.buyer.organization_id != destination.organization_id):
+            reason = 'the buyer is in another account'
 
         if reason is None and destination.buyer:
             buyer = destination.buyer

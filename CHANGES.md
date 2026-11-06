@@ -10552,3 +10552,25 @@ left as it is.
 
 Tests: `routing/test_live_ws_partner.py` (3). Code only, no migration -
 restart web (the Live Monitor connection runs in web).
+
+## CH-631 - Customer accounts point 6: routing never crosses accounts
+
+Sir (point 6): "A customer's calls route only to that customer's
+destinations. Failover never crosses accounts."
+
+Routing follows stored links (TFN -> campaign -> rules -> rule lines -> buyer
+-> buyer's destinations), the same on Server B and in Server A's backup plan.
+Checked on live, 6 Nov: of 85 links between account tables, none points into
+another account (the 6 activity-log rows reported belong to hans@gmail.com,
+which has no account at all). The pages cannot make such a link (CH-624).
+
+Now, as a guard if one ever appeared:
+- routing (Server B) never uses a rule line whose buyer is in another account,
+  and looks up a buyer's destinations in the buyer's own account only;
+- Server A's backup plan carries only lines whose buyer is in the rule's own
+  account, and only destinations of the buyer's own account.
+
+Tests: `routing/test_cross_account_routing.py` (3) - a bad link made directly
+in the database is never rung, by B or by A. Code only, no migration.
+Deploy after calling hours: restart web_calls (it routes the calls) and web,
+with a test call before and after.

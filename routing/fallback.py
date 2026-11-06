@@ -44,7 +44,7 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods
 
-from routing.models import CallLog, RoutingRule
+from routing.models import CallLog, RoutingRule, RuleDestination
 
 logger = logging.getLogger(__name__)
 
@@ -231,11 +231,20 @@ def build_plan(now=None):
 
     rules = (RoutingRule.objects.filter(campaign_id__in=campaign_ids, status=RoutingRule.Status.ACTIVE)
              .prefetch_related('destinations').order_by('priority'))
+    # CH-631 (customer accounts point 6: "failover never crosses accounts"):
+    # Server A's plan holds only lines whose buyer is in the rule's own
+    # account, and only destinations of the buyer's own account - as routing
+    # on B (RoutingEngine._destination_refusal).
+    buyer_org = dict(Buyer.objects.filter(
+        id__in=RuleDestination.objects.filter(rule__campaign_id__in=campaign_ids).values('buyer_id'))
+        .values_list('id', 'organization_id'))
     rules_by_campaign = {}
     buyer_ids = set()
     for r in rules:
         first = r.conditions.first()
-        dests = sorted(r.destinations.all(), key=lambda d: (d.priority, d.created_at))
+        dests = sorted((d for d in r.destinations.all()
+                        if not d.buyer_id or buyer_org.get(d.buyer_id) == r.organization_id),
+                       key=lambda d: (d.priority, d.created_at))
         rules_by_campaign.setdefault(r.campaign_id, []).append({
             'id': str(r.id),
             'name': r.name,
@@ -275,7 +284,8 @@ def build_plan(now=None):
     out_buyers = {}
     lines = {}
     for d in Destination.objects.filter(buyer_id__in=buyer_ids).order_by('created_at'):
-        lines.setdefault(d.buyer_id, []).append(d)
+        if d.organization_id == buyer_org.get(d.buyer_id):           # CH-631
+            lines.setdefault(d.buyer_id, []).append(d)
     for b in Buyer.objects.filter(id__in=buyer_ids).select_related('cap'):
         out_buyers[str(b.id)] = {
             'name': b.name,
