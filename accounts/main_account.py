@@ -40,6 +40,15 @@ def is_main_account(user) -> bool:
     return answer
 
 
+def is_main_org(organization_id) -> bool:
+    """The same answer for a workspace id (CH-633: messages the platform sends
+    on its own, with no login behind them). No main account on the server:
+    True, as above."""
+    from accounts.tenancy import main_organization_id
+    main = main_organization_id()
+    return True if main is None else str(organization_id) == str(main)
+
+
 def require_main_account(user) -> None:
     if not is_main_account(user):
         raise HttpError(403, REFUSED)

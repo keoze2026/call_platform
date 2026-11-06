@@ -1231,7 +1231,9 @@ def post(text, chat=None, thread=None, kind='status'):
 
 def allowed_chat(chat_id: str) -> bool:
     """/status and /balance answer only the team: the configured chats, or a
-    staff member who linked their Telegram (admin role or owner)."""
+    staff member who linked their Telegram (admin role or owner) - of OUR
+    account. A customer account's admin is not the team (CH-633, point 7):
+    /status shows our services and /balance sets our carrier balance."""
     if not chat_id:
         return False
     chats = {str(c) for c in (_cfg('STATUS_CHAT_ID', ''), getattr(settings, 'TELEGRAM_SUPPORT_CHAT_ID', ''),
@@ -1241,8 +1243,10 @@ def allowed_chat(chat_id: str) -> bool:
         return True
     from accounts.models import User
     from django.db.models import Q
-    return User.objects.filter(telegram_chat_id=str(chat_id), is_active=True).filter(
-        Q(role='admin') | Q(is_superuser=True)).exists()
+    from accounts.main_account import is_main_account
+    staff = User.objects.filter(telegram_chat_id=str(chat_id), is_active=True).filter(
+        Q(role='admin') | Q(is_superuser=True))
+    return any(is_main_account(u) for u in staff)
 
 
 def set_balance(amount: float, daily_spend=None) -> dict:

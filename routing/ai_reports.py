@@ -44,6 +44,11 @@ def _send(org_id, text) -> int:
     from analytics.models import TeamReportChat
     if not team_report.configured():
         return 0
+    from accounts.main_account import is_main_org
+    if not is_main_org(org_id):
+        # CH-633 (point 7): the AI audit is ours only (CH-619); a customer's
+        # team chat never gets AI messages.
+        return 0
     sent = 0
     for chat in TeamReportChat.objects.filter(organization_id=org_id, enabled=True):
         try:

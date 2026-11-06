@@ -105,6 +105,12 @@ class Command(BaseCommand):
             CallLog.objects.filter(created_at__gte=since)
             .values_list('organization_id', flat=True).distinct()
         )
+        # CH-633 (customer accounts point 7): the morning numbers are ours. A
+        # customer account's calls, money and lines are never added in.
+        from accounts.tenancy import main_organization_id
+        main = main_organization_id()
+        if main is not None:
+            ids = ids.filter(organization_id=main)
         orgs = list(Organization.objects.filter(id__in=list(ids)))
         # Nothing anywhere in a month is itself worth saying, rather than
         # silently reporting on everything.

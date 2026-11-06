@@ -10604,3 +10604,26 @@ skip on PostgreSQL, where the bad link cannot be made any more.
 Deploy after calling hours: rehearsal on a copy of live first, then
 `migrate`, `same_account --prove`, restart web_calls and web, test call
 before and after.
+
+## CH-633 - Customer accounts point 7: our team's messages stay ours
+
+Sir (point 7): "Notifications and bot per account."
+
+Checked 6 Nov: alerts by email and SMS, the bell and pop-ups, the buyer
+Telegram reports and the team report are already per account (each reads
+only its own account's calls; the bell and pop-ups are in the CH-623 sweep).
+Three places were not:
+- The Telegram bot's /status (our services, carrier balance) and /balance
+  (sets our carrier balance) answered any admin who linked their Telegram -
+  a customer account's admin too. Now our account's admins only (and our
+  configured chats, as before).
+- The AI audit's Telegram messages (No Voice alerts, rate alerts, daily
+  summary) went to each account's team chat. The AI audit is ours only
+  (CH-619), so they now go to our team chat only.
+- The morning status report counted every account with calls in 30 days.
+  Now our account only (DAILY_STATUS_ORGS still overrides). Customer
+  accounts have no calls today, so today's figures do not change.
+
+Tests: `accounts/test_point7_team_messages.py` (7). No database change.
+Deploy after calling hours: restart web and celery_worker (the bot answers in
+web; the AI rate alerts and summary run in the worker).

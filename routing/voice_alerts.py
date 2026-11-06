@@ -97,7 +97,12 @@ def send_no_voice(call_ids) -> int:
     for c in calls:
         by_org[c.organization_id].append(c)
     sent = 0
+    from accounts.main_account import is_main_org
     for org_id, rows in by_org.items():
+        if not is_main_org(org_id):
+            # CH-633 (point 7): the AI audit is ours only (CH-619); a
+            # customer's team chat never gets AI messages.
+            continue
         chats = list(TeamReportChat.objects.filter(organization_id=org_id, enabled=True))
         if not chats:
             logger.warning('voice alerts: no team chat connected for workspace %s; %d not sent', org_id, len(rows))
