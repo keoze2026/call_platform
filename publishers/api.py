@@ -1,5 +1,6 @@
 from accounts.permissions import require, Capability
 from ninja import Router, Schema
+from ninja.errors import HttpError
 from django.http import HttpRequest
 from typing import List
 from .schemas import (
@@ -12,6 +13,17 @@ from .services import PublisherService
 from accounts.api import JWTAuth
 
 router = Router(tags=["Publishers"], auth=JWTAuth())
+
+
+def _view_only_for_partners(user):
+    """CH-620 (Sir, 6 Nov: "Like we did under Buyer access - buyer cannot pause
+    from Buyer option. Same push for publisher - publisher cannot pause,
+    publisher access"). As CH-612 for the Buyers section: a publisher (or
+    buyer) login views the Publishers section and changes nothing in it -
+    no pause, no play, no edit, no caps, no delete, no campaign links -
+    whatever its partner switches say."""
+    if getattr(user, 'role', '') in ('buyer', 'publisher'):
+        raise HttpError(403, 'A publisher login can view the Publishers section, not change it.')
 
 
 # Returns a plain dict rather than PublisherOutSchema so the `invite` block
@@ -78,6 +90,7 @@ def get_publisher(request: HttpRequest, publisher_id: str):
 
 @router.patch("/{publisher_id}", response={200: PublisherOutSchema, 400: dict, 404: dict})
 def update_publisher(request: HttpRequest, publisher_id: str, data: UpdatePublisherSchema):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.EDIT)
@@ -91,6 +104,7 @@ def update_publisher(request: HttpRequest, publisher_id: str, data: UpdatePublis
 
 @router.delete("/{publisher_id}", response={200: MessageResponseSchema, 404: dict})
 def delete_publisher(request: HttpRequest, publisher_id: str):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'delete')
     require(request.auth, Capability.DELETE)
@@ -103,6 +117,7 @@ def delete_publisher(request: HttpRequest, publisher_id: str):
 
 @router.post("/{publisher_id}/pause", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def pause_publisher(request: HttpRequest, publisher_id: str):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
@@ -115,6 +130,7 @@ def pause_publisher(request: HttpRequest, publisher_id: str):
 
 @router.post("/{publisher_id}/activate", response={200: MessageResponseSchema, 400: dict, 404: dict})
 def activate_publisher(request: HttpRequest, publisher_id: str):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
@@ -127,6 +143,7 @@ def activate_publisher(request: HttpRequest, publisher_id: str):
 
 @router.patch("/{publisher_id}/cap", response={200: dict, 400: dict, 404: dict})
 def update_cap(request: HttpRequest, publisher_id: str, data: PublisherCapSchema):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.EDIT)
@@ -144,6 +161,7 @@ def update_cap(request: HttpRequest, publisher_id: str, data: PublisherCapSchema
 
 @router.post("/{publisher_id}/campaigns", response={200: dict, 400: dict, 404: dict})
 def assign_campaign(request: HttpRequest, publisher_id: str, data: AssignCampaignSchema):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'edit')
     require(request.auth, Capability.CREATE)
@@ -162,6 +180,7 @@ def assign_campaign(request: HttpRequest, publisher_id: str, data: AssignCampaig
 
 @router.delete("/{publisher_id}/campaigns/{campaign_id}", response={200: MessageResponseSchema, 404: dict})
 def remove_campaign(request: HttpRequest, publisher_id: str, campaign_id: str):
+    _view_only_for_partners(request.auth)   # CH-620
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'traffic-sources', 'delete')
     require(request.auth, Capability.DELETE)

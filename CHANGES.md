@@ -10414,3 +10414,17 @@ container with that server's environment), as it does everywhere else:
 
 Deploy: code only, no migration - restart web. Checked on live first (6 Nov):
 the main account is found and no login of ours is outside it.
+
+## CH-620 - Publisher login: the Publishers section is view only
+
+Sir, 6 Nov: "Like we did under Buyer access - buyer cannot pause from Buyer
+option. Same push for publisher - publisher cannot pause, publisher access."
+
+As CH-612 for the Buyers section. A publisher login could pause and play its
+publisher from the Publishers page. Now a publisher (or buyer) login is
+refused (403) on every change there, whatever its partner switches
+(`_view_only_for_partners` in publishers/api.py): edit, delete, pause,
+activate, caps, campaign link and unlink. Viewing is unchanged. Staff:
+unchanged. The portal shows the section read-only (frontend CH-620).
+
+Tests: `publishers/test_publisher_view_only.py` (2). Code only, no migration.
