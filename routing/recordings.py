@@ -53,20 +53,8 @@ def rebuilt_recording_url(call_log_id) -> str:
     return f'{base}/recordings/{call_log_id}.wav'
 
 
-def public_recording_url(url: str) -> str:
-    """Rewrite a recording URL onto RECORDING_BASE_URL.
-
-    Returns the URL unchanged when the setting is empty, so nothing moves until
-    the replacement domain is actually serving the files.
-    """
-    if not url:
-        return url
-
-    # A value that cannot name a file is reported as no recording rather than
-    # as a link that 404s. A blank cell is honest; a dead link is not.
-    if not is_recording_link(url):
-        return ''
-
+def _base_swapped(url: str) -> str:
+    """The stored link moved onto RECORDING_BASE_URL (unchanged when unset)."""
     base = (getattr(settings, 'RECORDING_BASE_URL', '') or '').strip().rstrip('/')
     if not base:
         return url
@@ -85,3 +73,24 @@ def public_recording_url(url: str) -> str:
         parts.query,
         parts.fragment,
     ))
+
+
+def public_recording_url(url: str, holder: str = None) -> str:
+    """Rewrite a recording URL onto RECORDING_BASE_URL, signed for whoever it
+    is handed to (CH-634, customer accounts point 8; routing/recording_links.py).
+
+    `holder`: who the link is for (recording_links.holder_for). Left out, it is
+    the login of the request being served, or the platform itself outside a
+    request. Signing is off while RECORDING_LINK_SECRET is empty: the link is
+    then exactly what it was before CH-634.
+    """
+    if not url:
+        return url
+
+    # A value that cannot name a file is reported as no recording rather than
+    # as a link that 404s. A blank cell is honest; a dead link is not.
+    if not is_recording_link(url):
+        return ''
+
+    from routing.recording_links import sign
+    return sign(_base_swapped(url), holder)

@@ -211,9 +211,24 @@ def ensure_canary(db, b2):
     db.commit()
 
 
-def fallback_works(base_url):
-    """Does a file that is only in B2 play through the public link now?"""
-    url = f'{base_url.rstrip("/")}/recordings/{CANARY}'
+def signed_query(path, secret, holder='sys'):
+    """CH-634: the query that signs a recording link, the same as
+    routing/recording_links.py on Server B (this script has no Django). Empty
+    without a secret."""
+    if not secret:
+        return ''
+    import hmac
+    mac = hmac.new(secret.encode(), f'{path}|{holder}'.encode(), hashlib.sha256).digest()
+    sig = base64.urlsafe_b64encode(mac).decode().rstrip('=')[:32]
+    return '?' + urllib.parse.urlencode([('a', holder), ('s', sig)])
+
+
+def fallback_works(base_url, secret=''):
+    """Does a file that is only in B2 play through the public link now?
+    Signed when RECORDING_LINK_SECRET is in .env (CH-634): once the
+    recordings host checks links, an unsigned one is refused."""
+    path = f'/recordings/{CANARY}'
+    url = f'{base_url.rstrip("/")}{path}{signed_query(path, secret)}'
     try:
         return _request(url, timeout=30) == CANARY_BODY
     except B2Error as e:
@@ -228,7 +243,9 @@ def write_nginx(b2, reload=True):
     host = urlsplit(b2.download_url).netloc
     text = (f'# Written by scripts/recordings_to_b2.py --nginx (CH-305) at {now()}.\n'
             f'# Renewed daily by cron; do not edit. Read-only token for {PREFIX} in {b2.bucket}.\n'
-            f'rewrite ^/recordings/([A-Za-z0-9_.-]+)\\.(wav|mp3)$ /file/{urllib.parse.quote(b2.bucket)}/{PREFIX}$1.mp3 break;\n'
+            # CH-634: the trailing ? drops the link's own query (its holder and
+            # signature, checked here first) so B2 gets only the file path.
+            f'rewrite ^/recordings/([A-Za-z0-9_.-]+)\\.(wav|mp3)$ /file/{urllib.parse.quote(b2.bucket)}/{PREFIX}$1.mp3? break;\n'
             f'proxy_pass {b2.download_url};\n'
             f'proxy_set_header Host {host};\n'
             f'proxy_set_header Authorization "{token}";\n')
@@ -253,9 +270,9 @@ def write_nginx(b2, reload=True):
     return True
 
 
-def delete_local(db, b2, days, base_url):
+def delete_local(db, b2, days, base_url, secret=''):
     """Remove local MP3s that are safely in B2 and older than `days` (CH-305)."""
-    if not fallback_works(base_url):
+    if not fallback_works(base_url, secret):
         log('B2 fallback is not answering through the public link: nothing deleted this run')
         return 0
     cutoff = time.time() - days * 86400
@@ -420,7 +437,7 @@ def main():
     if a.delete_local_days > 0:
         base = env.get('RECORDING_BASE_URL') or 'https://rec.v0l1.com'
         try:
-            delete_local(db, b2, a.delete_local_days, base)
+            delete_local(db, b2, a.delete_local_days, base, env.get('RECORDING_LINK_SECRET', ''))
         except B2Error as e:
             log(f'delete step stopped: {e}')
     return 1 if failed and not copied else 0

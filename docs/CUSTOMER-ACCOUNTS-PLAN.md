@@ -35,7 +35,7 @@ column, pulled before its migration, breaks every process that restarts
 | 5 | 2. Fresh portal + 4. Header, search, stats | 13 Nov | next free ID | Not started |
 | 6 | 6. Calls and routing | 14-15 Nov | CH-631, CH-632, next free ID | CH-631 live 6 Nov (routing ignores a link into another account). CH-632 built: the database refuses such links (rehearsal, then live after calling hours). Left: per-customer concurrency limit |
 | 7 | 7. Notifications and bot | 16 Nov | CH-633, next free ID | CH-633 built: our bot commands, AI Telegram messages and the morning report stay ours. Left: customers' own bot |
-| 8 | 8. Recordings and files | 17-18 Nov | next free ID | Not started |
+| 8 | 8. Recordings and files | 17-18 Nov | CH-634, next free ID | CH-634 built: every recording link signed for its holder, valid while the holder has an account (Sir, 7 Nov). Then: Server A nginx checks links; customer accounts' own storage folder |
 | 9 | 9. IDs and branding + 10. Access and audit | 19 Nov | next free IDs | Not started |
 | 10 | Final isolation run + demo to Sir | 20 Nov | - | Not started |
 

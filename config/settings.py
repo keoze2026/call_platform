@@ -564,6 +564,11 @@ MEDIA_BASE_URL = config('MEDIA_BASE_URL', default=FRONTEND_URL).rstrip('/')
 # nothing moves until the replacement domain is actually serving the files.
 # The file path is untouched, so existing recordings keep working.
 RECORDING_BASE_URL = config('RECORDING_BASE_URL', default='').strip().rstrip('/')
+# CH-634 (customer accounts point 8): signs every recording link for whoever
+# it is handed to (routing/recording_links.py). Empty: links as before. Made on
+# the server (openssl rand -hex 32), the same value in the recordings host's
+# nginx check; never in chat or the repository.
+RECORDING_LINK_SECRET = config('RECORDING_LINK_SECRET', default='').strip()
 # Every outgoing platform email sends from here, and admin notifications land in
 # PLATFORM_SUPPORT_EMAIL. Both were hardcoded in nine places across four files.
 #

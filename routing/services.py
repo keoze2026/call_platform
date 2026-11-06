@@ -3,6 +3,7 @@ from .models import RoutingRule, RuleCondition, RuleDestination, CallLog
 from .schemas import CreateRoutingRuleSchema, UpdateRoutingRuleSchema
 from accounts.models import User
 from accounts.permissions import scope_queryset
+from routing.recordings import public_recording_url
 
 
 class RoutingService:
@@ -334,7 +335,9 @@ class RoutingService:
             'revenue': str(call.revenue),
             'buyer_payout': str(call.buyer_payout),
             'publisher_payout': str(call.publisher_payout),
-            'recording_url': call.recording_url,
+            # CH-634: the public, signed link like every other page (was the
+            # stored value, which skipped RECORDING_BASE_URL and the signature).
+            'recording_url': public_recording_url(call.recording_url or ''),
             'tags': call.tags,
             'notes': call.notes,
             'created_at': call.created_at.isoformat(),

@@ -1962,6 +1962,10 @@ class AnalyticsService:
                 
         qs = AnalyticsService._base_qs(user, filters).order_by('-created_at')
         writer = csv.writer(PseudoBuffer())
+        # CH-634: the rows are written after the request has ended (a streamed
+        # download), so the links are signed for this login by name.
+        from routing.recording_links import holder_for
+        holder = holder_for(user)
 
         # The day is cut, and the Date column written, in the reader's own zone.
         # It was UTC, so an Eastern reader's export disagreed with the portal
@@ -2039,7 +2043,7 @@ class AnalyticsService:
                 # What this call was charged. Falls back to an estimate only for
                 # calls that predate charging.
                 AnalyticsService._call_cost(r, rate, markup),    # CH-352: one rule
-                public_recording_url(r.recording_url),
+                public_recording_url(r.recording_url, holder),
             ]
             yield writer.writerow([row[i] for i in keep])
 

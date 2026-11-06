@@ -18,7 +18,8 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 SKIP_PREFIXES = ('/static', '/media', '/favicon')
-SKIP_CONTAINS = ('webhook', '/twilio/', '/asterisk')
+# CH-634: the recordings host's link check is a server asking, not a guest.
+SKIP_CONTAINS = ('webhook', '/twilio/', '/asterisk', '/recordings/check')
 
 
 class GuestVisitMiddleware:

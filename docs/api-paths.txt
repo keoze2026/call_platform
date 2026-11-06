@@ -285,6 +285,7 @@ POST /api/publishers/{}/pause
 GET /api/publishers/{}/payouts
 GET /api/publishers/{}/stats
 GET /api/queue/
+ANY /api/recordings/check
 GET /api/referrals/
 POST /api/referrals/invite
 GET /api/referrals/referred-clients

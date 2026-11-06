@@ -186,6 +186,8 @@ def build_reports(report, start, end):
     """[(destination, header, rows, stats)] for each destination of the buyer
     that took calls between start and end."""
     buyer = report.buyer
+    from routing.recording_links import holder_for
+    holder = holder_for(buyer=buyer)
     picked = set(report.included_columns or DEFAULT_COLUMNS)
     cols = [(k, report.column_names.get(k) or label) for k, label in COLUMNS
             if k in picked
@@ -234,7 +236,8 @@ def build_reports(report, start, end):
                 'ttc': ttc,
                 'fail_reason': reason,
                 'revenue': float(c.dynamic_revenue or 0),
-                'recording': public_recording_url(c.recording_url) or '',
+                # CH-634: works while this buyer has its account.
+                'recording': public_recording_url(c.recording_url, holder) or '',
             }
             rows.append([values[k] for k, _ in cols])
         stats = {

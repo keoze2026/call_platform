@@ -10627,3 +10627,41 @@ Three places were not:
 Tests: `accounts/test_point7_team_messages.py` (7). No database change.
 Deploy after calling hours: restart web and celery_worker (the bot answers in
 web; the AI rate alerts and summary run in the worker).
+
+## CH-634 - Customer accounts point 8: recording links that work only while their holder has an account
+
+Sir (point 8): "Recordings: signed, expiring links." Asked how long a link
+should work, 7 Nov: "Till the time user have an account."
+
+Every recording link the platform hands out now names who it was handed to
+and carries a signature (`routing/recording_links.py`):
+`.../recordings/<call>.mp3?a=<holder>&s=<signature>`.
+- A login (portal pages, the API, CSV downloads): works while that login is
+  active and its account is not suspended.
+- A buyer's Telegram report: works while the buyer exists and its account is
+  not suspended.
+- The platform's own checks (status bot, AI audit scripts): always.
+The signature covers the file and the holder, so a link cannot be moved to
+another recording or another person. Links are signed on the way out; nothing
+stored changes.
+
+The calls API (`/api/routing/calls`) handed out the stored link as it was,
+without RECORDING_BASE_URL; it now gives the same public, signed link as
+every other page.
+
+`/api/recordings/check` answers the recordings host: 204 for a valid link,
+403 otherwise (X-Recording-Check says why). The recordings host on Server A
+starts asking it only when its nginx is changed
+(`deploy/recording_links_nginx.conf`), after a watch period. Until then the
+extra part of the link is ignored and every recording plays as before.
+
+`scripts/recordings_to_b2.py` (Server A): the B2 test file is checked with a
+signed link, and B2 is sent only the file path, not the link's signature.
+
+Off until RECORDING_LINK_SECRET is set (made on the server, never in chat).
+`python manage.py recording_links [--url LINK] [--prove]` shows whether
+signing is on and checks a link; `--prove` tries a login's link tampered,
+moved, unsigned, with the login disabled and the account suspended, in one
+transaction that is rolled back.
+
+Tests: `routing/test_recording_links.py` (13).
