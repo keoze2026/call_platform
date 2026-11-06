@@ -10485,3 +10485,29 @@ runs with the whole suite, so before every deploy. Later points add their
 cases here. The plan document is updated (points 1, 3, 5 proven on live).
 
 Test only - no change to the running code.
+
+## CH-624 - Customer accounts point 11: the isolation sweep for every change (+ spam lists fix)
+
+Sir: "run automated isolation tests on every page and API endpoint." CH-623
+covers every page that reads data; this covers every page that changes it.
+
+`accounts/test_isolation_writes.py`: our main account, Test A and Test B,
+each with a campaign, buyer, destination, publisher, TFN, routing rule, call
+and a team login. Each account's admin sends every request that changes data
+(POST, PUT, PATCH, DELETE - every page that needs a login) at another
+account: the other account's record in the address, and every field naming a
+record in the body (filled from the page's own form description) pointing to
+the other account's records. After each request:
+- every row of every other account, in every table, must be exactly as
+  before;
+- nothing of the sending account may now point to another account's record.
+Each request is rolled back before the next; no request leaves the test
+(network connections are refused - no carrier, Telegram or webhook is called).
+
+First run (6 Nov, Server B): 193 pages that change data, 579 requests - one
+finding. A whitelist entry (and, by the same code, a blacklist entry or an
+anonymous-call block) could name another account's campaign. It changed
+nothing of theirs - every spam check is scoped by account - but a row of one
+account pointed into another. Now refused (400 "Campaign not found in this
+account."; `_own_campaign` in spam_protection/api.py). Tests:
+`spam_protection/test_own_campaign.py` (2). Restart web.

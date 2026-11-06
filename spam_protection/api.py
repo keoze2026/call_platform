@@ -19,6 +19,20 @@ from .schemas import (
 router = Router(tags=['Spam & Fraud Protection'], auth=JWTAuth())
 
 
+def _own_campaign(user, campaign_id):
+    """CH-624: a campaign named in a block or whitelist entry must be this
+    account's. The isolation sweep found an entry could be tied to another
+    account's campaign (it changed nothing of theirs - every check is scoped
+    by account - but a row of one account must never point into another)."""
+    if campaign_id is None:
+        return None
+    from campaigns.models import Campaign
+    if not Campaign.objects.filter(id=campaign_id, organization_id=user.organization_id).exists():
+        from ninja.errors import HttpError
+        raise HttpError(400, 'Campaign not found in this account.')
+    return campaign_id
+
+
 def _buyer_member_gate(user):
     """What a buyer member may do here, per the workspace admin's switch.
 
@@ -202,7 +216,7 @@ def create_blacklist(request, payload: BlacklistCreateSchema):
         phone_number=canonical(payload.phone_number or payload.number),
         reason=payload.reason,
         notes=payload.notes,
-        campaign_id=None if (is_member or scoped_publisher) else payload.campaign_id,
+        campaign_id=None if (is_member or scoped_publisher) else _own_campaign(request.auth, payload.campaign_id),
         buyer=scoped_buyer,
         publisher=scoped_publisher,
         expires_at=payload.expires_at,
@@ -337,7 +351,7 @@ def create_whitelist(request, payload: WhitelistCreateSchema):
         organization_id=request.auth.organization_id,
         phone_number=canonical(payload.phone_number or payload.number),
         notes=payload.notes,
-        campaign_id=payload.campaign_id,
+        campaign_id=_own_campaign(request.auth, payload.campaign_id),
         added_by=request.auth,
     )
     return 201, entry
@@ -401,7 +415,7 @@ def create_anonymous_block(request, payload: AnonymousBlockCreateSchema):
     require(request.auth, Capability.CREATE)
     block, _ = AnonymousCallBlock.objects.update_or_create(
         organization_id=request.auth.organization_id,
-        campaign_id=payload.campaign_id,
+        campaign_id=_own_campaign(request.auth, payload.campaign_id),
         defaults={'is_active': payload.is_active}
     )
     return 201, block
