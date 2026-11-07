@@ -39,9 +39,10 @@ class Command(BaseCommand):
         if not limit:
             return
         since = timezone.now() - timedelta(days=max(1, o['days']))
-        # CH-616 (Sir, 6 Nov): "For now train it for NV, rest we will check
-        # and train later" - only verdicts on calls the AI called No Voice.
-        base = (CallLog.objects.filter(ai_reviewed_at__gte=since, ai_label__in=ai_labels.NO_VOICE)
+        # CH-616 (Sir, 6 Nov): "For now train it for NV" - verdicts on No
+        # Voice calls; CH-643 (8 Nov): and on Valid / Caller OK calls, so a
+        # No Voice call the AI missed is shown to it as a mistake.
+        base = (CallLog.objects.filter(ai_reviewed_at__gte=since, ai_label__in=ai_labels.AUDITED)
                 .exclude(ai_review_label='')
                 .order_by('-ai_reviewed_at'))
         # The mistakes teach the most: up to two thirds of the examples.

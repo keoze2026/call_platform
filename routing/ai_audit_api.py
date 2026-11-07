@@ -85,9 +85,10 @@ def _row(c) -> dict:
         'summary': c.ai_summary or '',
         'rule_label': c.ai_rule_label or '',
         'final_by': c.ai_final_by or '',
-        # CH-616 (Sir, 6 Nov): "Only put audit under no voice calls, rest leave
-        # it." Correct / Wrong is given on the three No Voice labels only.
-        'auditable': label in ai_labels.NO_VOICE,
+        # CH-616 (Sir, 6 Nov): Correct / Wrong on the No Voice labels; CH-643
+        # (8 Nov): on Valid and Caller OK too, so a missed No Voice call can be
+        # marked and the AI learns from it.
+        'auditable': label in ai_labels.AUDITED,
         'review_label': c.ai_review_label or '',
         'review_correct': (c.ai_review_label == label) if c.ai_review_label else None,
         'review_note': c.ai_review_note or '',
@@ -102,9 +103,12 @@ def accuracy(user) -> dict:
     CH-616 (Sir, 6 Nov): "Only put audit under no voice calls ... For now
     train it for NV, rest we will check and train later." Only calls the AI
     called No Voice (Dead Caller, Agent Only, Agent + Beep) count. Verdicts
-    given earlier on other labels stay saved on the call; they are not counted."""
+    given earlier on other labels stay saved on the call; they are not counted.
+    CH-643 (8 Nov): Valid and Caller OK count too, so the misses (a No Voice
+    call the AI let through as Valid) lower the %, and `missed` counts them.
+    Verdicts on IVR / Robocall / Voice Found are still not counted."""
     from routing.models import CallLog
-    qs = (CallLog.objects.filter(organization=user.organization, ai_label__in=ai_labels.NO_VOICE,
+    qs = (CallLog.objects.filter(organization=user.organization, ai_label__in=ai_labels.AUDITED,
                                  ai_reviewed_at__gte=timezone.now() - timedelta(days=ACCURACY_DAYS))
           .exclude(ai_review_label=''))
     total = qs.count()
@@ -113,8 +117,10 @@ def accuracy(user) -> dict:
     for row in qs.values('ai_label').annotate(n=Count('id'), ok=Count('id', filter=Q(ai_review_label=F('ai_label')))):
         per[row['ai_label']] = {'reviewed': row['n'], 'correct': row['ok'],
                                 'percent': round(100 * row['ok'] / row['n'], 1) if row['n'] else None}
+    missed = qs.filter(ai_label__in=(ai_labels.VALID, ai_labels.CALLER_OK),
+                       ai_review_label__in=ai_labels.NO_VOICE).count()
     return {'reviewed': total, 'correct': right, 'percent': round(100 * right / total, 1) if total else None,
-            'days': ACCURACY_DAYS, 'per_label': per, 'labels': list(ai_labels.NO_VOICE)}
+            'days': ACCURACY_DAYS, 'per_label': per, 'labels': list(ai_labels.AUDITED), 'missed': missed}
 
 
 @router.get('/status', response={200: dict})
@@ -191,7 +197,7 @@ class ReviewIn(Schema):
 def review(request, call_id: str, body: ReviewIn):
     """Correct: the AI's label stands. Wrong: the right label (required).
     Each verdict counts in the accuracy % and in the threshold report.
-    CH-616: only on a call the AI called No Voice (400 otherwise)."""
+    CH-616 / CH-643: on No Voice, Valid and Caller OK calls (400 otherwise)."""
     from routing.models import CallLog
     user = _staff(request)
     c = CallLog.objects.filter(organization=user.organization, pk=call_id).first()
@@ -199,9 +205,9 @@ def review(request, call_id: str, body: ReviewIn):
         raise HttpError(404, 'Call not found')
     if not c.ai_label:
         raise HttpError(400, 'The AI has not checked this call yet.')
-    if c.ai_label not in ai_labels.NO_VOICE:
-        # CH-616: audit is on No Voice calls only, for now.
-        raise HttpError(400, 'Audit is on No Voice calls only.')
+    if c.ai_label not in ai_labels.AUDITED:
+        # CH-616 / CH-643: No Voice, Valid and Caller OK calls are audited.
+        raise HttpError(400, 'Audit is on No Voice, Valid and Caller spoke calls only.')
     if body.correct:
         label = c.ai_label
     else:

@@ -10776,3 +10776,30 @@ server, so it needs no change.
 BUSINESS-RULES.md section 5 updated. Tests: 4 added to
 `notifications/test_deleted_tfns.py` (Saturday, Friday afternoon and Sunday,
 Friday morning, Monday afternoon). No database change.
+
+## CH-643 - AI Audit: Correct / Wrong on Valid calls too, so the AI learns from its misses
+
+8 Nov. The audit team rate the AI at 50-70%, and their complaints are No Voice
+calls the AI let through ("misses some NV dead caller"; "agent voice present
+and cx voice absent"). Since CH-616 the buttons were on No Voice calls only,
+so a missed No Voice call - labelled Valid - could not be marked: the
+accuracy % never counted it and the LLM never saw it as a mistake. In 30 days
+4 calls were marked in the portal.
+
+- `routing/ai_labels.AUDITED`: No Voice + Valid + Caller spoke - no issue.
+  IVR, Robocall and Voice Found stay without buttons.
+- `/api/ai-audit/calls/{id}/review`: accepted on those labels (400
+  otherwise, "Audit is on No Voice, Valid and Caller spoke calls only.").
+  Wrong still asks for the right label. Rows carry `auditable` for them.
+- `/api/ai-audit/status` accuracy: counts verdicts on those labels; new
+  `missed` = Valid / Caller spoke calls the team marked a No Voice type.
+- `manage.py ai_final_examples`: the LLM's worked examples include those
+  verdicts, mistakes first - so a missed No Voice call teaches it directly.
+- Verdicts given earlier stay as they were; nothing is deleted.
+
+Frontend CH-643 shows the wider wording and the missed count on the AI Audit
+page (the buttons follow `auditable`). BUSINESS-RULES.md section 3.10 updated.
+Tests: `routing.test_ai_labels` (audit on No Voice, Valid and Caller OK; a
+miss; accuracy 6 reviewed / 3 correct / 2 missed), `routing.test_ai_accuracy`
+(examples include Valid / Caller OK verdicts, mistakes first; IVR / Robocall /
+Voice Found never). No migration, no call path touched: restart web.

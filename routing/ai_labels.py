@@ -53,6 +53,12 @@ ROBOCALL = 'robocall'
 CALLER_OK = 'caller_ok'
 LABELS = (VALID, DEAD, AGENT_ONLY, AGENT_BEEP, IVR, ROBOCALL, CALLER_OK)   # what a reviewer can pick
 NO_VOICE = (DEAD, AGENT_ONLY, AGENT_BEEP)
+# CH-643 (8 Nov): the calls the audit team gives Correct / Wrong on. CH-616
+# put it on No Voice calls only; the team's misses - a No Voice call the AI
+# called Valid or "Caller spoke, no issue" - could then not be marked, so the
+# AI never learnt from them. Valid and Caller OK are audited too now; IVR,
+# Robocall and Voice Found still are not.
+AUDITED = NO_VOICE + (VALID, CALLER_OK)
 NAMES = {
     VALID: 'Valid Call',
     DEAD: 'No Voice | Dead Caller',

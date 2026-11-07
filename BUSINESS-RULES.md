@@ -210,6 +210,11 @@ Last updated: 31 Oct 2026.
   Reports with Correct / Wrong for the audit team. What Silero / PANNs said is
   kept. Audio sent out encrypted; AssemblyAI transcripts deleted right after;
   Deepgram opted out of training; at most 5 minutes of a call is sent.
+- CH-616 / CH-643: **Correct / Wrong** is given on No Voice, Valid and
+  "Caller spoke - no issue" calls (CH-643, 8 Nov: so a No Voice call the AI
+  missed can be marked); not on IVR, Robocall or Voice Found. The AI accuracy
+  % and the examples the LLM learns from use those verdicts; "missed" counts
+  Valid / Caller spoke calls the team marked No Voice.
 - CH-553: **Voicemail / IVR** - no human speech and mostly music (PANNs, on
   Server B): music for at least 4 s and 40% of what was heard
   (AI_MUSIC_SECONDS, AI_MUSIC_SHARE). Not one of the three No Voice types: no
