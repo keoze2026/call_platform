@@ -86,6 +86,33 @@ class DeletedTfnNoticeTests(TestCase):
         self.assertEqual(self.notice(et(22, 11, 59))['count'], 1)
         self.assertEqual(self.notice(et(22, 12, 1))['count'], 0)
 
+    # ---- CH-641: Saturday's notice stays until Monday (24 Oct 2026 = Saturday)
+    def test_saturday_retirement_stays_until_monday_noon(self):
+        self.retire_at(et(24, 1, 30))
+        self.assertEqual(self.notice(et(24, 15))['count'], 1)
+        self.assertEqual(self.notice(et(25, 13))['count'], 1)
+        data = self.notice(et(26, 11, 59))
+        self.assertEqual(data['count'], 1)
+        self.assertEqual(data['visible_until'], et(26, 12).isoformat())
+        self.assertEqual(self.notice(et(26, 12, 0))['count'], 0)
+
+    def test_friday_afternoon_and_sunday_stay_until_monday_noon(self):
+        self.retire_at(et(23, 14))
+        self.retire_at(et(25, 9))
+        self.assertEqual(self.notice(et(24, 13))['count'], 1)
+        self.assertEqual(self.notice(et(26, 9))['count'], 2)
+        self.assertEqual(self.notice(et(26, 12, 1))['count'], 0)
+
+    def test_friday_morning_still_drops_at_friday_noon(self):
+        self.retire_at(et(23, 1, 30))
+        self.assertEqual(self.notice(et(23, 11))['count'], 1)
+        self.assertEqual(self.notice(et(23, 12, 1))['count'], 0)
+
+    def test_monday_afternoon_starts_a_normal_day(self):
+        self.retire_at(et(26, 13))
+        self.assertEqual(self.notice(et(27, 11, 59))['count'], 1)
+        self.assertEqual(self.notice(et(27, 12, 1))['count'], 0)
+
     # ---- Seen acknowledges, it does not hide
     def test_seen_keeps_the_list_and_clears_the_count(self):
         self.retire_at(et(21, 1, 30))

@@ -317,7 +317,9 @@ Last updated: 31 Oct 2026.
 - **TFN Expired:** "1 TFN Expired / The following number has expired and is
   no longer receiving calls: 18888910358 / Add a replacement TFN to keep
   calls routing without interruption." No "until 12 PM" line; it clears by
-  itself at 12 PM Eastern (CH-246).
+  itself at 12 PM Eastern (CH-246). Weekends: Saturday's and Sunday's noons
+  do not count, so what is retired from Friday 12 PM to Monday morning stays
+  until Monday 12 PM Eastern (CH-641, Sir, 7 Nov).
 
 ---
 

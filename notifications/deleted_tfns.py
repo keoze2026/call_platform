@@ -6,7 +6,10 @@ Sir, 21 Oct (CH-182): the notice disappeared once someone clicked Seen; keep
 it under notifications until 12 PM Eastern.
 
 So a retired TFN stays listed until the first 12:00 PM Eastern after it was
-retired. The nightly 1:30 AM sweep's numbers therefore stay all morning and
+retired - on a weekday. CH-641 (Sir, 7 Nov: "Saturday's notification stays
+until Monday, as most cx don't login on Sat"): Saturday's and Sunday's noons
+do not count, so what is retired from Friday 12 PM to Monday morning stays
+until Monday 12 PM Eastern. The nightly 1:30 AM sweep's numbers therefore stay all morning and
 drop off at noon by themselves; a number retired after noon stays until noon
 the next day. "Seen" no longer hides anything: it only acknowledges, which
 clears the red count on the bell and the pop-up banner. It is stored per user
@@ -52,20 +55,28 @@ def reason_label(reason: str) -> str:
     return r[:1].upper() + r[1:] if r else 'Retired'
 
 
+def _noon(day):
+    # Built with the zone of the date it falls on, so a DST change is honoured.
+    return datetime.combine(day, KEEP_UNTIL, tzinfo=EASTERN)
+
+
+def _weekday(day) -> bool:
+    return day.weekday() < 5          # Monday-Friday; Saturday and Sunday skipped (CH-641)
+
+
 def window(now=None):
-    """(start, end) of what is listed now: retirements from the last 12:00 PM
-    Eastern up to now, shown until the next 12:00 PM Eastern."""
+    """(start, end) of what is listed now: retirements from the last weekday
+    12:00 PM Eastern up to now, shown until the next weekday 12:00 PM Eastern.
+    Friday afternoon to Monday morning is one window, ending Monday noon."""
     now = now or timezone.now()
     local = now.astimezone(EASTERN)
-    noon_today = datetime.combine(local.date(), KEEP_UNTIL, tzinfo=EASTERN)
-    if local >= noon_today:
-        start, end = noon_today, noon_today + timedelta(days=1)
-    else:
-        start, end = noon_today - timedelta(days=1), noon_today
-    # Built with the zone of the date it falls on, so a DST change is honoured.
-    start = datetime.combine(start.date(), KEEP_UNTIL, tzinfo=EASTERN)
-    end = datetime.combine(end.date(), KEEP_UNTIL, tzinfo=EASTERN)
-    return start, end
+    start = local.date() if local >= _noon(local.date()) else local.date() - timedelta(days=1)
+    while not _weekday(start):
+        start -= timedelta(days=1)
+    end = start + timedelta(days=1)
+    while not _weekday(end):
+        end += timedelta(days=1)
+    return _noon(start), _noon(end)
 
 
 def _seen_at(user):

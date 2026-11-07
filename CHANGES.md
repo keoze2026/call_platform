@@ -10759,3 +10759,20 @@ watch, Server A code, nginx enforcement, folders on; the Point 10 live
 proof; the GitHub runs and the 20 Nov demo), in order, with the commands,
 the working rules and where everything is on the two servers. Documentation
 only.
+
+## CH-641 - TFNs expired notice: Saturday's stays until Monday
+
+Sir, 7 Nov: "Saturday's notification stays until Monday, as most cx don't
+login on Sat".
+
+The notice kept each retired number until the next 12 PM Eastern, whatever
+the day, so numbers retired on Saturday dropped off at noon on Saturday or
+Sunday, before customers were back. Saturday's and Sunday's noons no longer
+count (`notifications/deleted_tfns.window`): what is retired from Friday
+12 PM to Monday morning stays in the bell until Monday 12 PM Eastern.
+Monday to Friday are unchanged. The frontend takes the list from the
+server, so it needs no change.
+
+BUSINESS-RULES.md section 5 updated. Tests: 4 added to
+`notifications/test_deleted_tfns.py` (Saturday, Friday afternoon and Sunday,
+Friday morning, Monday afternoon). No database change.
