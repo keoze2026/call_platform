@@ -244,6 +244,8 @@ def _get_org(org_id):
 def get_organization(request: HttpRequest, org_id: str):
     require_owner(request)
     org = _get_org(org_id)
+    from accounts.owner_audit import OWNER_VIEWED, record
+    record(request, org, OWNER_VIEWED, 'opened the account')    # CH-637, point 10
     billing = _billing_account(org)
     users = [{'id': str(u.id), 'email': u.email, 'role': u.role,
               'is_active': u.is_active,
@@ -295,6 +297,8 @@ def update_organization(request: HttpRequest, org_id: str):
     if not changed:
         return 400, {'detail': 'Nothing to save.'}
     logger.info('owner updated organization %s: %s by %s', org.id, ', '.join(changed), owner.email)
+    from accounts.owner_audit import OWNER_CHANGED, record
+    record(request, org, OWNER_CHANGED, 'changed ' + ', '.join(changed), fields=changed)
     return 200, {'id': str(org.id), 'changed': changed}
 
 
@@ -325,6 +329,9 @@ def _move_balance(request, org_id, payload, direction):
         )
     logger.info('owner %s %s on %s (balance %s -> %s) by %s',
                 direction, amount, org.id, before, account.balance, owner.email)
+    from accounts.owner_audit import OWNER_CHANGED, record
+    record(request, org, OWNER_CHANGED, f'{direction} {amount}', amount=str(signed),
+           balance_before=str(before), balance_after=str(account.balance))
     return 200, {'balance': str(account.balance), 'transaction_id': str(tx.id)}
 
 
@@ -349,6 +356,8 @@ def suspend_organization(request: HttpRequest, org_id: str):
     org.save(update_fields=['is_active', 'updated_at'])
     BillingAccount.objects.filter(organization=org).update(status=BillingAccount.Status.SUSPENDED)
     logger.info('owner SUSPENDED organization %s (%s) by %s', org.name, org.id, owner.email)
+    from accounts.owner_audit import OWNER_CHANGED, record
+    record(request, org, OWNER_CHANGED, 'suspended the account')
     return 200, {'id': str(org.id), 'is_active': False}
 
 
@@ -361,6 +370,8 @@ def activate_organization(request: HttpRequest, org_id: str):
     org.save(update_fields=['is_active', 'updated_at'])
     BillingAccount.objects.filter(organization=org).update(status=BillingAccount.Status.ACTIVE)
     logger.info('owner activated organization %s (%s) by %s', org.name, org.id, owner.email)
+    from accounts.owner_audit import OWNER_CHANGED, record
+    record(request, org, OWNER_CHANGED, 're-activated the account')
     return 200, {'id': str(org.id), 'is_active': True}
 
 
@@ -423,6 +434,8 @@ def _delete_summary(org) -> dict:
 def delete_organization_preview(request: HttpRequest, org_id: str):
     owner = require_owner(request)
     org = _get_org(org_id)
+    from accounts.owner_audit import OWNER_VIEWED, record
+    record(request, org, OWNER_VIEWED, 'opened the delete preview')
     return 200, {
         'id': str(org.id), 'name': org.name, 'slug': org.slug,
         'blocked': _delete_blocker(org, owner) or None,
@@ -442,6 +455,9 @@ def delete_organization(request: HttpRequest, org_id: str, confirm: str = ''):
 
     removed = _delete_summary(org)
     org_id_str, name, slug = str(org.id), org.name, org.slug
+    # Logged before: our row stays; the account's own copy goes with it.
+    from accounts.owner_audit import OWNER_CHANGED, record
+    record(request, org, OWNER_CHANGED, 'deleted the account', removed=removed)
     with db_transaction.atomic():
         org.delete()
     logger.warning('owner DELETED organization %r (%s, slug %r) by %s; removed %s',

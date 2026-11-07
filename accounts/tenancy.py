@@ -91,6 +91,10 @@ def _account_of(row):
 
 def account_for(instance):
     """(the account this row must carry, whether it must replace what is there)."""
+    explicit = getattr(instance, '_avx_account', None)
+    if explicit is not None:
+        # CH-637: an owner audit row written into the account it is about.
+        return explicit, True
     label = instance._meta.label
     if label in PARENT:
         return _account_of(getattr(instance, PARENT[label], None)), True

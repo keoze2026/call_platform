@@ -10722,3 +10722,31 @@ settings, marketplace favourites) never send their id to a customer.
 Tests: dni/test_number_pool_design.py (the call list id). The live check is
 in the repository: `docker compose exec -T web python manage.py shell <
 scripts/point9_check.py`.
+
+## CH-637 - Customer accounts point 10: the owner's views and changes logged, in our log and the account's own
+
+Sir (point 10): roles per account; Sir can view any account, logged; audit
+log per account.
+
+Roles were already per account (each account holds its own copy of the
+built-in roles and its own custom roles). What was missing:
+- The Owner section wrote nothing to any audit log - opening an account,
+  editing it, crediting or debiting it, suspending, re-activating or deleting
+  it went only to the server's text log. Each now writes a row in OUR log
+  (who, which account, what) and one in THAT account's log
+  (`accounts/owner_audit.py`).
+- The account's own log was read by the login that acted, so it could never
+  show what the owner did to it. It is now read by account. Rows written by
+  someone outside the account (the owner) are shown as "Avortyx": never our
+  team member's name, email, address or browser (point 9).
+- A login's own activity list shows only rows of its own account (not the
+  copies an owner action leaves in a customer's log).
+- Our team's Telegram "portal changes" alerts and the 24-hour summary read
+  every account's log: a customer account's changes (its campaign names, its
+  logins) would have reached our team chat. They read our account's log
+  only (points 7 and 10).
+
+Deleting an account: our row is written first and stays; the account's own
+copy goes with the account.
+
+Tests: `accounts/test_owner_audit.py` (7). No database change.

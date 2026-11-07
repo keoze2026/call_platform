@@ -475,7 +475,9 @@ def revoke_api_key(request: HttpRequest, key_id: str):
 
 @router.get("/activity", response=list[ActivityLogSchema])
 def get_activity(request: HttpRequest):
-    logs = ActivityLog.objects.filter(user=request.auth)[:50]
+    # CH-637: its rows in its own account (an owner action also leaves a copy
+    # in the account it was about).
+    logs = ActivityLog.objects.filter(user=request.auth, organization_id=request.auth.organization_id)[:50]
     return [
         {
             "id": str(l.id),
@@ -729,10 +731,16 @@ def list_roles(request: HttpRequest):
 # ── Workspace Activity Log ────────────────────────────────────────────────────
 @router.get("/workspace/activity", response={200: dict})
 def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50):
+    from django.db.models import Q
     from config.pagination import paginate_queryset
     from accounts.models import ActivityLog
+    from accounts.owner_audit import LABELS, PLATFORM_NAME
+    org_id = request.auth.organization_id
+    # CH-637 (point 10): the account's own log - every row it carries,
+    # including what the platform owner did to it (accounts/owner_audit.py).
+    # Rows from before CH-578 carry no account; they are read by their login.
     logs = ActivityLog.objects.filter(
-        user__organization=request.auth.organization
+        Q(organization_id=org_id) | Q(organization__isnull=True, user__organization_id=org_id)
     ).select_related('user').order_by('-created_at')
     # Only the page asked for is read and built. The whole log used to be loaded
     # on every request, which is fine for a few hundred rows and not for the
@@ -741,12 +749,19 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
     data = []
     for log in paged['items']:
         meta = log.metadata if isinstance(log.metadata, dict) else {}
+        # Done by someone outside this account (the platform owner): named
+        # as the platform, never by our team member's name or address.
+        outside = str(log.user.organization_id) != str(org_id)
+        if outside:
+            meta = {k: v for k, v in meta.items() if k not in ('ip', 'email', 'user_agent')}
         data.append({
             'id': str(log.id),
-            'actor_id': str(log.user.id),
-            'actor_name': f"{log.user.first_name} {log.user.last_name}".strip() or log.user.email,
+            # A fixed text, not empty: the portal draws the avatar from it.
+            'actor_id': 'avortyx' if outside else str(log.user.id),
+            'actor_name': PLATFORM_NAME if outside else (
+                f"{log.user.first_name} {log.user.last_name}".strip() or log.user.email),
             'action': log.action,
-            'action_label': log.get_action_display(),
+            'action_label': LABELS.get(log.action) or log.get_action_display(),
             # These were hardcoded empty, so every row showed who and what but
             # never which record - the detail the activity log exists for. The
             # writers put it in metadata, which nothing was reading.
@@ -765,8 +780,8 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
             # create or a delete, where there is no previous value.
             'changes': meta.get('changes') or {},
             'metadata': meta,
-            'ip_address': str(log.ip_address) if log.ip_address else None,
-            'user_agent': (log.user_agent or '')[:200],
+            'ip_address': None if outside else (str(log.ip_address) if log.ip_address else None),
+            'user_agent': '' if outside else (log.user_agent or '')[:200],
             'created_at': log.created_at.isoformat(),
         })
     return 200, {**paged, 'items': data}

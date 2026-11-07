@@ -981,11 +981,20 @@ def _portal_kind(entry):
     return ''
 
 
+def _our_log(qs):
+    """CH-637 (customer accounts points 7 and 10): our team's alerts read our
+    account's log only - a customer account's changes are its own, and the
+    platform owner's actions on it are already in ours."""
+    from accounts.tenancy import main_organization_id
+    main = main_organization_id()
+    return qs if main is None else qs.filter(organization_id=main)
+
+
 def check_portal_admin(h=None):
     from accounts.models import ActivityLog
     since = timezone.now() - timedelta(hours=24)
     counts = {'routing': [0, set()], 'users': [0, set()], 'carrier': [0, set()]}
-    for e in ActivityLog.objects.filter(created_at__gte=since).exclude(action__in=['login', 'logout']) \
+    for e in _our_log(ActivityLog.objects.filter(created_at__gte=since)).exclude(action__in=['login', 'logout']) \
             .select_related('user')[:5000]:
         k = _portal_kind(e)
         if k:
@@ -1042,7 +1051,7 @@ def portal_changes(send) -> int:
         return 0
     from django.utils.dateparse import parse_datetime
     start = parse_datetime(since)
-    qs = (ActivityLog.objects.filter(created_at__gt=start, created_at__lte=now)
+    qs = (_our_log(ActivityLog.objects.filter(created_at__gt=start, created_at__lte=now))
           .exclude(action__in=['login', 'logout']).select_related('user').order_by('created_at'))
     # Changes made through a Campaign Group come as the group's own line
     # (campaigns/groups.py), not one per campaign.

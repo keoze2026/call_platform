@@ -259,6 +259,8 @@ def on_log_save(sender, instance, **kwargs):
     """
     if instance.ip_address and instance.user_agent:
         return
+    if getattr(instance, '_avx_account', None) is not None:
+        return     # CH-637: the account's copy of an owner action carries no address
     request = get_current_request()
     if request is None:
         return
