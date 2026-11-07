@@ -10750,3 +10750,12 @@ Deleting an account: our row is written first and stays; the account's own
 copy goes with the account.
 
 Tests: `accounts/test_owner_audit.py` (7). No database change.
+
+## CH-638 - Customer accounts: where everything stands (hand-over)
+
+`docs/CUSTOMER-ACCOUNTS-PLAN.md` brought up to date (6 Nov, 7:30 PM EST):
+the status of all 11 points, and a hand-over section - what is left (Point 8
+watch, Server A code, nginx enforcement, folders on; the Point 10 live
+proof; the GitHub runs and the 20 Nov demo), in order, with the commands,
+the working rules and where everything is on the two servers. Documentation
+only.
