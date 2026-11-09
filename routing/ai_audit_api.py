@@ -141,7 +141,8 @@ def status(request):
 
 
 @router.get('/calls', response={200: dict})
-def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, page_size: int = 50):
+def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, page_size: int = 50,
+          by: str = '', key: str = ''):
     user = _staff(request)
     try:
         day = datetime.strptime(date, '%Y-%m-%d').date() if date else timezone.now().astimezone(ET).date()
@@ -149,7 +150,7 @@ def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, p
         raise HttpError(400, 'date must be YYYY-MM-DD')
     if label not in FILTERS:
         raise HttpError(400, f'label must be one of: {", ".join(f for f in FILTERS if f)}')
-    qs = _day_qs(user, day)
+    qs = _one_row(_day_qs(user, day), by, key)       # CH-650: one breakdown row or caller
     counts = qs.aggregate(
         total=Count('id'),
         pending=Count('id', filter=Q(ai_checked_at__isnull=True) & ~Q(voice_label='missing')),
@@ -256,6 +257,32 @@ BREAKDOWN_BY = {'publisher': 'publisher__name', 'campaign': 'campaign__name', 'b
                 'tfn': 'called_number', 'hour': 'est_hour'}
 
 
+# CH-650: a breakdown row's key, so its Calls and Evidence buttons show that
+# row's calls: publisher / campaign / buyer by id, TFN by number, hour (EST).
+BREAKDOWN_KEY = {'publisher': 'publisher_id', 'campaign': 'campaign_id', 'buyer': 'buyer_id',
+                 'tfn': 'called_number', 'hour': 'est_hour'}
+
+
+def _one_row(qs, by: str, key: str):
+    """CH-650: the calls of one breakdown row (or of one caller)."""
+    if not by:
+        return qs
+    if by == 'caller':
+        return qs.filter(caller_number=key)
+    if by not in BREAKDOWN_KEY:
+        raise HttpError(400, 'by must be publisher, campaign, buyer, tfn, hour or caller')
+    if by == 'hour':
+        from django.db.models.functions import ExtractHour
+        try:
+            hour = int(key)
+        except ValueError:
+            raise HttpError(400, 'hour must be 0-23')
+        return qs.annotate(est_hour=ExtractHour('created_at', tzinfo=ET)).filter(est_hour=hour)
+    if key in ('', '-'):
+        return qs.filter(**{f'{BREAKDOWN_KEY[by]}__isnull': True}) if by != 'tfn' else qs.filter(called_number='')
+    return qs.filter(**{BREAKDOWN_KEY[by]: key})
+
+
 def _hour_name(h) -> str:
     """0..23 -> "12 AM" .. "11 PM" (Eastern)."""
     if h is None:
@@ -283,19 +310,25 @@ def breakdown(request, date_from: Optional[str] = None, date_to: Optional[str] =
     if by == 'hour':
         from django.db.models.functions import ExtractHour
         qs = qs.annotate(est_hour=ExtractHour('created_at', tzinfo=ET))
-    rows = (qs.values(field)
+    key_field = BREAKDOWN_KEY[by]
+    rows = (qs.values(*dict.fromkeys((field, key_field)))
             .annotate(checked=Count('id'),
                       no_voice=Count('id', filter=Q(ai_label__in=ai_labels.NO_VOICE)),
                       dead_caller=Count('id', filter=Q(ai_label=ai_labels.DEAD)),
                       agent_only=Count('id', filter=Q(ai_label=ai_labels.AGENT_ONLY)),
                       agent_beep=Count('id', filter=Q(ai_label=ai_labels.AGENT_BEEP)),
                       ivr=Count('id', filter=Q(ai_label=ai_labels.IVR)),
+                      # CH-650: robocalls were in "checked" but in no column, so
+                      # the columns did not add up to it (9 Nov: 50 of 1,055).
+                      robocall=Count('id', filter=Q(ai_label=ai_labels.ROBOCALL)),
                       valid=Count('id', filter=Q(ai_label__in=(ai_labels.VALID, ai_labels.CALLER_OK)))))
     items = [{'name': _hour_name(r[field]) if by == 'hour' else (r[field] or '-'),
               'checked': r['checked'], 'no_voice': r['no_voice'],
               'no_voice_pct': round(100.0 * r['no_voice'] / r['checked'], 1) if r['checked'] else None,
               'dead_caller': r['dead_caller'], 'agent_only': r['agent_only'], 'agent_beep': r['agent_beep'],
-              'ivr': r['ivr'], 'valid': r['valid'], **({'hour': r[field]} if by == 'hour' else {})}
+              'ivr': r['ivr'], 'robocall': r['robocall'], 'valid': r['valid'],
+              'key': '' if r[key_field] is None else str(r[key_field]),
+              **({'hour': r[field]} if by == 'hour' else {})}
              for r in rows]
     if by == 'hour':
         items.sort(key=lambda x: -1 if x['hour'] is None else x['hour'])      # the day in order
@@ -338,7 +371,7 @@ def repeat_callers(request, date_from: Optional[str] = None, date_to: Optional[s
 
 @router.get('/evidence', response={200: dict})
 def evidence(request, publisher_id: Optional[str] = None, date_from: Optional[str] = None,
-             date_to: Optional[str] = None):
+             date_to: Optional[str] = None, by: str = '', key: str = ''):
     """No Voice calls of one publisher (or all) with recordings, labels and
     times - the rows of the evidence file."""
     from routing.models import CallLog
@@ -351,6 +384,7 @@ def evidence(request, publisher_id: Optional[str] = None, date_from: Optional[st
           .select_related('campaign', 'publisher', 'buyer').order_by('created_at'))
     if publisher_id:
         qs = qs.filter(publisher_id=publisher_id)
+    qs = _one_row(qs, by, key)                       # CH-650: one breakdown row
     items = []
     for c in qs[:20000]:
         items.append({

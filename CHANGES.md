@@ -10890,3 +10890,23 @@ call ends it appears like any other call.
 
 Tests: `analytics/test_live_in_export.py` (3). No migration; deploy: `web`
 only (any time - calls not affected).
+
+## CH-650 - AI Audit No Voice report: each row's key, Robocall, one row's calls
+
+Sir, 9 Nov: "Under AI audit push this one, with correct data", with his No
+Voice report layout (frontend CH-650).
+
+- `/api/ai-audit/breakdown`: each row has `key` (publisher, campaign or buyer
+  id; the TFN; the hour) and a `robocall` count. Robocalls were counted in
+  "checked" but in no column, so the columns did not add up to it; now dead
+  caller + no beep + agent beeping + IVR + robocall + valid = checked.
+- `/api/ai-audit/calls` and `/api/ai-audit/evidence` take `by` and `key`
+  (`by` = publisher, campaign, buyer, tfn, hour or caller): the calls of one
+  report row or one repeat caller, for the row's "see calls" and "evidence"
+  buttons. An empty key is the row with no publisher / campaign / buyer.
+  Without `by` both answer as before. Main account (audit team) only, as
+  before.
+
+Tests: `routing.test_ai_reports` (+3: columns add up and carry their key;
+one row's calls and evidence, hour and caller; the row with no publisher).
+No migration; deploy: `web` only (any time - calls not affected).

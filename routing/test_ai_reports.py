@@ -218,3 +218,56 @@ class BreakdownTests(AiReportsTests):
         h = (timezone.now() - timedelta(minutes=5)).astimezone(ET).hour
         name = f"{12 if h % 12 == 0 else h % 12} {'AM' if h < 12 else 'PM'}"
         self.assertEqual([(i['name'], i['hour'], i['checked'], i['no_voice']) for i in hours], [(name, h, 3, 2)])
+
+
+class NoVoiceReportTests(AiReportsTests):
+    """CH-650 (Sir, 9 Nov: "Under AI audit push this one, with correct data"):
+    each breakdown row carries its key and a Robocall count, so the columns add
+    up to Checked; the calls list and the evidence file show one row's calls."""
+
+    def test_rows_add_up_and_carry_their_key(self):
+        self.call('dead_caller', publisher=self.ads)
+        self.call('robocall', publisher=self.ads)
+        self.call('valid', publisher=self.ads)
+        day = self.today()
+        items = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&by=publisher').json()['items']
+        ads = next(i for i in items if i['name'] == 'ADS-3')
+        self.assertEqual((ads['key'], ads['checked'], ads['robocall']), (str(self.ads.id), 3, 1))
+        cols = ('dead_caller', 'agent_only', 'agent_beep', 'ivr', 'robocall', 'valid')
+        self.assertEqual(sum(ads[c] for c in cols), ads['checked'])
+        tfn = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&by=tfn').json()['items']
+        self.assertEqual(tfn[0]['key'], '+18334973067')
+        hour = self.api('admin').get(f'/api/ai-audit/breakdown?date_from={day}&by=hour').json()['items']
+        self.assertEqual(hour[0]['key'], str(hour[0]['hour']))
+
+    def test_calls_and_evidence_of_one_row(self):
+        self.call('dead_caller', publisher=self.ads)
+        self.call('valid', publisher=self.ads)
+        self.call('agent_only')                                          # PDSO 1
+        self.call('agent_beep', caller='+15550003333')                   # PDSO 1
+        admin, day = self.api('admin'), self.today()
+        r = admin.get(f'/api/ai-audit/calls?date={day}&by=publisher&key={self.ads.id}').json()
+        self.assertEqual((r['total'], {i['publisher'] for i in r['items']}), (2, {'ADS-3'}))
+        r = admin.get(f'/api/ai-audit/calls?date={day}&label=no_voice&by=publisher&key={self.ads.id}').json()
+        self.assertEqual(r['total'], 1)
+        r = admin.get(f'/api/ai-audit/calls?date={day}&by=caller&key=%2B15550003333').json()
+        self.assertEqual([i['caller'] for i in r['items']], ['+15550003333'])
+        h = (timezone.now() - timedelta(minutes=5)).astimezone(ET).hour
+        self.assertEqual(admin.get(f'/api/ai-audit/calls?date={day}&by=hour&key={h}').json()['total'], 4)
+        self.assertEqual(admin.get(f'/api/ai-audit/calls?date={day}&by=hour&key={(h + 1) % 24}').json()['total'], 0)
+        ev = admin.get(f'/api/ai-audit/evidence?by=publisher&key={self.pdso.id}').json()
+        self.assertEqual((ev['count'], {i['publisher'] for i in ev['items']}), (2, {'PDSO 1'}))
+        ev = admin.get(f'/api/ai-audit/evidence?by=campaign&key={self.campaign.id}').json()
+        self.assertEqual(ev['count'], 3)                                 # No Voice only
+        self.assertEqual(admin.get(f'/api/ai-audit/calls?date={day}&by=x&key=1').status_code, 400)
+        self.assertEqual(admin.get(f'/api/ai-audit/calls?date={day}&by=hour&key=x').status_code, 400)
+
+    def test_a_row_with_no_publisher(self):
+        c = self.call('dead_caller')
+        CallLog.objects.filter(pk=c.pk).update(publisher=None)
+        day = self.today()
+        admin = self.api('admin')
+        items = admin.get(f'/api/ai-audit/breakdown?date_from={day}&by=publisher').json()['items']
+        self.assertEqual([(i['name'], i['key']) for i in items], [('-', '')])
+        r = admin.get(f'/api/ai-audit/calls?date={day}&by=publisher&key=').json()
+        self.assertEqual(r['total'], 1)
