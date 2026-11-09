@@ -10910,3 +10910,11 @@ Voice report layout (frontend CH-650).
 Tests: `routing.test_ai_reports` (+3: columns add up and carry their key;
 one row's calls and evidence, hour and caller; the row with no publisher).
 No migration; deploy: `web` only (any time - calls not affected).
+
+## CH-652 - Handover 10 Nov: Server B moved to 147.93.7.36, customer portal status
+
+`docs/HANDOVER-10-Nov.md`: where everything stands after the night of 9-10 Nov -
+Server B moved to the new server (147.93.7.36, `avx-web2`; old B stopped, kept
+until 17 Nov), what changed on Server A and Cloudflare, the tests that passed,
+the customer portal isolation points, the AI audit, and the open items. Docs
+only: no code, no deploy.
