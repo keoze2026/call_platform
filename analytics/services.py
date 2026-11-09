@@ -1996,14 +1996,42 @@ class AnalyticsService:
         # this client's own rate and markup.
         rate, markup = AnalyticsService._billing_rate(user.organization)
 
+        def caller_shown(raw_caller):
+            clean = raw_caller.lstrip('+')
+            if clean.startswith('1') and len(clean) == 11:
+                clean = clean[1:]
+            return caller_word(raw_caller) or clean   # "TFN Test" (CH-344)
+
+        # CH-649 (Sir, 9 Nov: "Live call should also come in excel with 0 sec
+        # until its live"): the screen's total is finished calls plus the calls
+        # still live, so the file lists both. The live ones come first (they are
+        # the newest), as "In progress", 0 seconds and no money until they end;
+        # then they are written like any other call. Same live rule and dates as
+        # the total on screen (_live_qs), so the two counts always agree. The
+        # export had 1,135 rows while the screen said 1,176: 41 calls were live.
+        live_calls = (AnalyticsService._live_qs(user, filters)
+                      .select_related('campaign', 'buyer', 'publisher').order_by('-created_at'))
+        for c in live_calls.iterator(chunk_size=500):
+            dest_number = c.destination_number or ''
+            row = [
+                timezone.localtime(c.created_at, tz).strftime('%Y-%m-%d %H:%M:%S'),
+                str(c.id),
+                caller_shown(c.caller_number or ''), c.caller_state or '', c.carrier or '', c.called_number or '',
+                c.campaign.name if c.campaign_id else '', c.buyer.name if c.buyer_id else '',
+                dest_names.get((str(c.buyer_id), dest_number)) or dest_names.get(dest_number, ''), dest_number,
+                c.publisher.name if c.publisher_id else '',
+                'In progress', '',
+                0, '',
+                'No', 'No', 'Yes' if c.is_duplicate else 'No',
+                0, 0, 0, 0, 0, '',
+            ]
+            yield writer.writerow([row[i] for i in keep])
+
         for r in qs.iterator(chunk_size=2000):
             secs = int(r.duration_seconds or 0)
             billed_minutes = -(-secs // 60) if secs > 0 else 0   # ceiling division
             raw_caller = r.caller_number or ''
-            clean_caller = raw_caller.lstrip('+')
-            if clean_caller.startswith('1') and len(clean_caller) == 11:
-                clean_caller = clean_caller[1:]
-            clean_caller = caller_word(raw_caller) or clean_caller   # "TFN Test" (CH-344)
+            clean_caller = caller_shown(raw_caller)
             dest_number = getattr(r, 'destination_number', '') or ''
 
             # Time to connect: how long the caller waited before a buyer picked

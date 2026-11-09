@@ -10869,3 +10869,24 @@ publishers the same, other lists unchanged); `routing.test_failover` (+1: the
 copy follows the call to the next buyer; none is made early). No migration.
 Deploy: `web` (reports) and `web_calls` (the next-buyer step) - `web_calls`
 after calling hours, test call before and after.
+
+## CH-649 - The export lists live calls too (0 seconds until they end)
+
+Sir, 9 Nov: "Total calls 1176 but when you export excel you will see 1136 -
+check this issue" and "Live call should also come in excel with 0 sec until
+its live".
+
+The screen's total is finished calls plus the calls still live; the export
+(`analytics/services.export_csv`, behind the portal's Excel file) listed only
+finished ones. At that moment 41 calls were live: 1,176 - 41 = 1,135 rows
+(Excel's 1,136 counted the header). No call was missing.
+
+Now the export lists the live calls first, as "In progress", 0 seconds, no
+money (revenue, payout, profit, billed minutes, cost 0), then every finished
+call as before. Same live rule and dates as the screen's total (`_live_qs`:
+live statuses, not ended, under 4 hours old; a status filter other than live
+leaves them out), so the file's count always equals the screen's. When a
+call ends it appears like any other call.
+
+Tests: `analytics/test_live_in_export.py` (3). No migration; deploy: `web`
+only (any time - calls not affected).
