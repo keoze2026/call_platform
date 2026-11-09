@@ -73,7 +73,12 @@ our_ids |= {str(i) for i in Publisher.objects.filter(organization_id=main).value
 
 from accounts.models import Organization  # noqa: E402
 our_org = Organization.objects.filter(id=main).first()
-if our_org and len(norm(our_org.name)) >= 3:
+# CH-653: "Avortyx" is the platform's brand, which customer accounts use too
+# (Sir, 7 Nov: the brand stays Avortyx) - the owner's visits in a customer's
+# own log are shown as "Avortyx" (point 10), and the tracking script carries
+# the brand. Our account's name counts only when it is not the brand.
+BRAND = 'avortyx'
+if our_org and len(norm(our_org.name)) >= 3 and norm(our_org.name) != BRAND:
     names[norm(our_org.name)] = 'our account name'
 for first, last, email in User.objects.filter(organization_id=main).values_list('first_name', 'last_name', 'email'):
     full = norm(f'{first} {last}')
@@ -223,7 +228,17 @@ for user in logins:
                     continue
                 codes[r.status_code] += 1
                 if r.status_code == 200 and 'json' in r.get('Content-Type', '') and rid.encode() in r.content:
-                    got.append((path, kind))
+                    # CH-653: a page that only repeats what it was asked for
+                    # ("caller_number": <the id typed in>, "total_calls": 0)
+                    # opened nothing: count it only when our id is somewhere
+                    # other than the echo of the address's own parameter.
+                    param = re.search(r'\{([^}]+)\}', path).group(1)
+                    try:
+                        hits = [w for w, v in walk(json.loads(r.content)) if rid in v]
+                    except ValueError:
+                        hits = ['?']
+                    if any(w.rsplit('.', 1)[-1] != param for w in hits):
+                        got.append((path, kind))
     total += len(got)
     print(f'== {user.organization.slug} login: answers {dict(codes)} -> {len(got)} of our records opened')
     for path, kind in got[:30]:

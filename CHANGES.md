@@ -10918,3 +10918,33 @@ Server B moved to the new server (147.93.7.36, `avx-web2`; old B stopped, kept
 until 17 Nov), what changed on Server A and Cloudflare, the tests that passed,
 the customer portal isolation points, the AI audit, and the open items. Docs
 only: no code, no deploy.
+
+## CH-653 - Isolation re-check after the server move: two false alarms in the checker removed, re-check script added
+
+10 Nov, first isolation re-check on the new Server B (147.93.7.36). Every
+point held: owner sections refused 10/10, 0 of our TFNs, campaigns, buyers or
+publishers on texora's pages, TFN pools right (174 ours, all Main),
+`same_account --prove` 16/16, `recording_links --prove` 7/7, owner visits
+logged in both logs. `scripts/point9_check.py` reported 9 items; all 9 were
+the checker's own mistakes, not data of ours:
+
+- 5 x `/api/analytics/caller-profile/{caller_number}`: the page looks only in
+  the login's own account and, finding nothing, repeats what it was asked
+  (`"caller_number": <the id typed in>, "total_calls": 0`). The checker typed
+  our record ids in and counted the echo as "opened". It shows since CH-622
+  (the page used to fail with 500). Now a hit counts only when our id is
+  somewhere other than the echo of the address's own parameter.
+- 6 x `/api/accounts/workspace/activity` and 1 x `/api/dni/avx-dni.js`: the
+  word "Avortyx" - the owner's visits shown as "Avortyx" in the customer's own
+  log (point 10, by design) and the brand in the tracking script. Avortyx is
+  the platform's brand for customer accounts too (Sir, 7 Nov), so our
+  account's name is looked for only when it is not the brand.
+
+`scripts/isolation_recheck.py` (new, read-only): points 1, 3, 5 and 2/4 in
+one run - every table's rows without an account (only logins with no account,
+hans@gmail.com, and their own activity rows are allowed), TFNs per account and
+pool, the 10 owner-only sections as each customer login (403 expected), and
+8 customer pages scanned for our TFNs and names.
+
+Scripts only: no code the portal runs, no deploy (a `git pull` on Server B
+puts them in place).
