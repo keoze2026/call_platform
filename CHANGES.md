@@ -10839,3 +10839,33 @@ rule (`notifications/deleted_tfns.py`) is unchanged. Server B: 1,452 tests OK.
 - `docs/CUSTOMER-ACCOUNTS-PLAN.md`: Point 8 done, with what was found and
   the backups; `docs/HANDOVER.md`: servers (Server A, the old server kept as
   a backup), CH-643 to CH-646 states. Next free change ID: CH-647.
+
+## CH-648 - No client sees another client's call: the report copy follows the call, and the call decides
+
+Sir, 9 Nov: "18889022495 this TFN belongs to BOP - how is it showing in A49?"
+"There is no way any client can see anyone else report or tfn. No way at
+all - fix our setting accordingly."
+
+What happened (9 Nov, 11:01 AM EST, L-10, caller 17169133430): the call rang
+A49's line, which did not answer, and the same call moved on to BOP's line
+(CH-514, next buyer). Its report copy (CallRecord) had been written while it
+sat on A49 and was not rewritten when the call went live again, so A49's
+login listed BOP's call - with BOP's number while it was live. Checked the
+last 3 days on live: 2 copies differed from their call; this one was shown to
+the wrong buyer and was corrected by hand (label only, nothing deleted).
+
+- `accounts/permissions.scope_queryset`: for report rows, a buyer or
+  publisher login sees a row only when the call itself (CallLog) is theirs
+  too (`_the_call_agrees`). Every report, chart, drill-down, export and the
+  buyer API go through it. A row with no call behind it keeps its own buyer.
+  Staff unchanged; other lists unchanged.
+- `routing/asterisk_handler.route_next`: when the call moves to the next
+  buyer, an existing report copy moves with it - buyer and number - by one
+  update on its id (`_report_copy_follows`).
+
+Tests: `accounts/test_call_copy_guard.py` (5: a copy left behind is not shown
+to the buyer it names, own calls shown, a row with no call keeps its buyer,
+publishers the same, other lists unchanged); `routing.test_failover` (+1: the
+copy follows the call to the next buyer; none is made early). No migration.
+Deploy: `web` (reports) and `web_calls` (the next-buyer step) - `web_calls`
+after calling hours, test call before and after.

@@ -188,11 +188,36 @@ def scope_queryset(user, qs, buyer_field='buyer', publisher_field='publisher'):
     if role == 'buyer':
         if buyer_field is None or not getattr(user, 'buyer_id', None):
             return qs.none()
-        return qs.filter(**{buyer_field: user.buyer_id})
+        return _the_call_agrees(qs.filter(**{buyer_field: user.buyer_id}), 'buyer_id', user.buyer_id)
 
     if role == 'publisher':
         if publisher_field is None or not getattr(user, 'publisher_id', None):
             return qs.none()
-        return qs.filter(**{publisher_field: user.publisher_id})
+        return _the_call_agrees(qs.filter(**{publisher_field: user.publisher_id}),
+                                'publisher_id', user.publisher_id)
 
     return qs
+
+
+def _the_call_agrees(qs, field, value):
+    """CH-648 (Sir, 9 Nov: "There is no way any client can see anyone else
+    report or tfn. No way at all"): a report row (CallRecord) is shown to a
+    buyer or publisher only when the call itself (CallLog, the source the row
+    is copied from) is theirs too.
+
+    On 9 Nov a caller rang A49's line, which did not answer, and the same call
+    moved on to BOP's line (CH-514). The report copy kept "A49" from the miss,
+    so A49 saw the call - with BOP's number while it was live. Whatever leaves
+    a copy behind its call, the copy alone never decides who sees it.
+
+    A row with no call behind it (an old import) keeps its own buyer, as before.
+    Other querysets (CallLog itself, campaigns, buyers) are returned unchanged.
+    """
+    from analytics.models import CallRecord
+    if qs.model is not CallRecord:
+        return qs
+    from django.db.models import Exists, OuterRef
+
+    from routing.models import CallLog
+    calls = CallLog.objects.filter(pk=OuterRef('pk'))
+    return qs.filter(Exists(calls.filter(**{field: value})) | ~Exists(calls))

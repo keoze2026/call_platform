@@ -612,7 +612,9 @@ def route_next(request):
         failover.record_miss(call_log, dial_status, dialed)
         logger.info('call %s: %s missed (%s), trying the next buyer',
                     call_log.id, call_log.destination_number, dial_status)
-        return _send_to_destination(call_log, decision, trace, campaign)
+        response = _send_to_destination(call_log, decision, trace, campaign)
+        _report_copy_follows(call_log)
+        return response
     finally:
         key = getattr(request, '_route_lock_key', None)
         if key:
@@ -620,6 +622,23 @@ def route_next(request):
                 cache.delete(key)
             except Exception:
                 logger.exception('could not release %s', key)
+
+
+def _report_copy_follows(call_log):
+    """CH-648: the call has moved to the next buyer, so its report copy, if one
+    was already written, moves with it. On 9 Nov the copy kept the buyer that
+    missed (A49) while the call went on to BOP, and A49 saw the call. One update
+    by primary key, only when the copy names another buyer; the call goes on
+    whatever happens here."""
+    try:
+        from analytics.models import CallRecord
+        CallRecord.objects.filter(id=call_log.id).exclude(buyer_id=call_log.buyer_id).update(
+            buyer_id=call_log.buyer_id,
+            buyer_name=call_log.buyer.name if call_log.buyer_id else '',
+            destination_number=call_log.destination_number or '',
+        )
+    except Exception:
+        logger.exception('call %s: report copy not moved to the next buyer', call_log.id)
 
 
 @csrf_exempt

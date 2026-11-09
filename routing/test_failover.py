@@ -95,6 +95,24 @@ class FailoverTests(TestCase):
         # One visible row for the caller's call.
         self.assertEqual(CallLog.objects.filter(retry_hidden=False).count(), 1)
 
+    def test_report_copy_moves_with_the_call_to_the_next_buyer(self):
+        # CH-648 (9 Nov): a report copy written while the call sat on the
+        # buyer that missed (Q06) must not stay there when the call moves on.
+        from analytics.models import CallRecord
+        first = self.dial()
+        call = CallLog.objects.get(id=first['call_log_id'])
+        CallRecord.objects.create(id=call.id, organization=self.org, campaign=self.campaign,
+                                  campaign_name='C-07', buyer_id=self.buyers['Q06'].id, buyer_name='Q06',
+                                  caller_number=call.caller_number, called_number=TFN,
+                                  destination_number=A, status='no_answer', started_at=timezone.now())
+        self.next(first)
+        self.assertEqual(CallRecord.objects.filter(id=call.id).values_list(
+            'buyer_id', 'buyer_name', 'destination_number').get(), (self.buyers['R48'].id, 'R48', B))
+        # No copy yet: none is made here (the end of the call writes it).
+        second = self.dial()
+        self.next(second)
+        self.assertFalse(CallRecord.objects.filter(id=second['call_log_id']).exists())
+
     def test_caller_hung_up_or_answered_nothing_more(self):
         first = self.dial()
         self.assertEqual(self.next(first, 'CANCEL')['action'], 'hangup')
