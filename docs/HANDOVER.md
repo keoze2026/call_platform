@@ -1,13 +1,13 @@
 # Hand-over - where everything stands
 
-**Read this first.** Status as of **9 Nov 2026, 5:10 AM EST** (1:10 PM
+**Read this first.** Status as of **9 Nov 2026, 8:00 AM EST** (4:00 PM
 Nairobi). One page for all open work. Details of the customer accounts work
 (points 8, 10, 11 with their commands) stay in
 [CUSTOMER-ACCOUNTS-PLAN.md](CUSTOMER-ACCOUNTS-PLAN.md), section "Where
 everything stands".
 
-Change IDs are shared by both repositories. Last used: **CH-644** (this
-file). Next free: **CH-645**.
+Change IDs are shared by both repositories. Last used: **CH-646**. Next
+free: **CH-647**.
 
 ---
 
@@ -61,9 +61,10 @@ file). Next free: **CH-645**.
 
 | Where | What |
 |---|---|
-| Server A `avx-calls` 13.140.236.148 (private 10.20.0.1) | Asterisk, Kamailio, nginx for rec.v0l1.com. No docker. Code at CH-577 (`0d9cf4f6`), behind master - safe to pull (CUSTOMER-ACCOUNTS-PLAN A2). Contabo VDS XL: 16 threads, 62 GB RAM, 464 GB disk |
+| Server A `avx-calls` 13.140.236.148 (private 10.20.0.1) | Asterisk, Kamailio, nginx for rec.v0l1.com (recording links enforced, check over the private link to B:8001, since 9 Nov). No docker. Code at CH-645 (pulled 9 Nov). `.env` has RECORDING_LINK_SECRET and RECORDING_FOLDERS=1. Contabo VDS XL: 16 threads, 62 GB RAM, 464 GB disk |
 | Server B `avx-web` 13.140.236.153 (private 10.20.0.2) | `/opt/call_platform`, docker compose: web, web_calls, celery_worker, celery_beat, postgres, redis, pgbouncer. Host crons: `voice_check.py --loop 55`, `ai_final.py --loop 55`, `host_watch.py`. Contabo VDS XXL: 24 threads, 94 GB RAM, 697 GB disk |
-| Server A -> B | ssh only through `/usr/local/bin/avx-from-a` (mark_late_answers, mark_late_answers_check, recordings_to_mp3) |
+| Server A -> B | ssh only through `/usr/local/bin/avx-from-a` (mark_late_answers, mark_late_answers_check, recordings_to_mp3, recording_folders). Port 8001 on 10.20.0.2 (web_calls) for host status and the recording-link check |
+| Old server `vmi3333575` 156.67.25.167 | The single server before the 2 Nov move, **kept as a backup** (user, 9 Nov: leave it). Asterisk, Kamailio, nginx active; code at CH-460; no link secret; its own copier cron still runs (its unsigned canary check gets 403 - harmless). Do not pull it without a plan: it may run the old portal and database |
 | PC "Hidden" | `C:\Users\Hidden\koeze\call_platform` (master), `C:\Users\Hidden\koeze\Avortyx` (main) |
 | PC "Dynasoft" | `C:\Users\Dynasoft\Online_Job\call_platform` (master), `C:\Users\Dynasoft\Online_Job\Avortyx` (main) |
 
@@ -86,7 +87,13 @@ Code backup (one zip, both repos, committed files only - no `.env`,
 | CH-641 | backend | TFNs expired notice: what is retired Fri 12 PM - Mon morning stays in the bell until Mon 12 PM EST; weekdays unchanged (Sir, 7 Nov) | Pushed (`1ed0229`) before the Server B test result came back. **Confirm the test output is OK and that it was deployed** (`docker compose restart web`) |
 | CH-642 | frontend | Reports, Publisher tab: campaign names next to publishers come from the report's own calls, not today's Phone Numbers list | Pushed, live, proven (6 Nov report shows H-04, H-09, H-05, L-13) |
 | CH-643 | backend + frontend | AI Audit: Correct / Wrong also on Valid and "Caller spoke, no issue" calls; accuracy % counts them; new "missed" count (Valid marked No Voice); the LLM's examples include them, mistakes first | Patches sent 9 Nov. **Not yet tested / pushed / deployed** - see 4.1 |
-| CH-644 | backend | This file | - |
+| CH-644 | backend | This file | Pushed |
+| CH-645 | backend | Test fix for CH-641 (Sunday's number was retired before the Saturday check; the rule unchanged). Made in another session | Pushed; Server B full suite OK (1,452); deployed with CH-641/643/644 on 9 Nov ~6:15 AM EST |
+| CH-646 | backend | Docs: Point 8 done (A1-A4) and the recording check over the private link (deploy file, plans) | - |
+
+CH-643 status update: pushed (both repos) and deployed 9 Nov ~6:15 AM EST
+(Server B `git pull` + `restart web`). The AI Audit screenshot for Sir and
+`AI_FINAL_SKIP_CALLER_SECONDS=0` (Sir's OK) were not confirmed in chat.
 
 ## 4. Open work, in order
 
@@ -223,9 +230,8 @@ deploy, proof; the isolation sweep grows with every new page.
 
 ### 4.5 Customer accounts leftovers
 
-See CUSTOMER-ACCOUNTS-PLAN.md: A1-A4 (Point 8: watch unsigned plays, pull
-Server A, copy the link secret by hand, nginx enforcement after hours,
-account folders on), B (Point 10 live proof: owner opens texora's fees form),
+**Point 8 is done (9 Nov)** - see CUSTOMER-ACCOUNTS-PLAN.md section A.
+Still open there: B (Point 10 live proof: owner opens texora's fees form),
 C (Point 11: green "Isolation screens" run, "Robot check" red-step log,
 20 Nov demo), D (CH-580 row-level security with the other developer; Server
 A bulk-download alert waits for a grep).

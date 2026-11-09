@@ -10816,3 +10816,26 @@ the status bot, customer accounts leftovers, the 6 Nov report problems, the
 data accuracy standard, and facts worth knowing (TFN expiry, balances to
 watch, prices). `docs/CUSTOMER-ACCOUNTS-PLAN.md` points to it; next free
 change ID CH-645. Documentation only.
+
+## CH-645 - Test fix: CH-641's Friday/Sunday test (made in another session, 9 Nov)
+
+`notifications/test_deleted_tfns.py`: the test retired Sunday's number before
+checking Saturday, so Saturday already saw a number "from the future" (2 != 1
+on Server B). The Sunday retirement now comes after the Saturday check. The
+rule (`notifications/deleted_tfns.py`) is unchanged. Server B: 1,452 tests OK.
+
+## CH-646 - Point 8 done: recording links enforced, account folders on, check over the private link
+
+9 Nov, Server A and B (no app code changed):
+
+- Recording links are enforced on rec.v0l1.com (CH-634 steps 1-4): unsigned
+  403, signed 200, forged 403. Account folders are on (CH-635 step 5): both
+  test files play through the B2 fallback.
+- The link check goes to Server B over the private link
+  (`http://10.20.0.2:8001/api/recordings/check`, the web_calls container), not
+  `https://avortyx.io`: through Cloudflare a check for a Python player (the
+  copier's fallback test) was refused 403 while browsers passed.
+  `deploy/recording_links_nginx.conf` updated to match.
+- `docs/CUSTOMER-ACCOUNTS-PLAN.md`: Point 8 done, with what was found and
+  the backups; `docs/HANDOVER.md`: servers (Server A, the old server kept as
+  a backup), CH-643 to CH-646 states. Next free change ID: CH-647.

@@ -39,14 +39,14 @@ hand-over - what is left, in what order, with the commands - is the section
 | 5 | TFNs kept separate | CH-581 (+ fix) | Done, proven on live 6 Nov |
 | 6 | Calls and routing | CH-631, CH-632 | Done, proven on live 6 Nov (`same_account --prove`: 16 as expected, 0 problems). Concurrency: Sir, 6 Nov - no per-customer limit ("as much as cx wants"; think of 1000 CC overall past 20 customers) |
 | 7 | Notifications and bot | CH-633 | Done, live 7 Nov: bot /status and /balance answer our admins only; AI Telegram messages and the morning report are ours only. Brand stays Avortyx (Sir), so customers use our bot with their own data; their own bot only if Sir asks |
-| 8 | Recordings | CH-634, CH-635 | Signed links LIVE and proven 7 Nov (`recording_links --prove`: 7/7). Account folders deployed but OFF. **Left: watch, Server A code, nginx enforcement, folders on - see below** |
+| 8 | Recordings | CH-634, CH-635, CH-646 | **Done, live 9 Nov.** Signed links (7 Nov); Server A enforces them (unsigned 403, signed 200, forged 403); account folders ON (both test files 200 through the B2 fallback). See A below |
 | 9 | Random IDs, nothing internal | CH-636 | Done, live 7 Nov. Checked on live (`scripts/point9_check.py`): pages, downloads, emails - nothing of ours. Brand stays Avortyx (Sir, 7 Nov) |
 | 10 | Roles and audit | CH-637 | Live 7 Nov. Roles already per account. Owner views/changes logged in our log and the account's own (shown as "Avortyx"). **Left: the live proof row** (owner opens texora's fees form) |
 | 11 | Isolation tests + demo | CH-623, CH-624, CH-625, CH-627-629 | API read/write sweeps run with every test run (Server B CI and GitHub). **Left: a green "Isolation screens" run on GitHub; the 20 Nov demo** |
 
 Change IDs are shared with the rest of the team's work: take the next free
-number on both repositories. Last used: **CH-644** (docs/HANDOVER.md, 9 Nov).
-Next free: **CH-645**.
+number on both repositories. Last used: **CH-646** (9 Nov).
+Next free: **CH-647**.
 
 ## Point 1 - Tenant isolation
 
@@ -162,7 +162,32 @@ proven on live. Points 8, 10 and 11 have the steps below left, in this
 order. Every step names where it runs. Nothing here is urgent during calling
 hours: all of it is after calling hours unless it says "any time".
 
-### A. Point 8 - recordings (the main thing left)
+### A. Point 8 - recordings (DONE 9 Nov 2026)
+
+Done on 9 Nov, in this order (times EST):
+
+- A1: unsigned plays since signing were the copier's own canary check and
+  portal tabs opened before 6 Nov 6:27 PM (all 127 recordings were of calls
+  before signing). Nothing hands out unsigned links.
+- A2: Server A pulled to CH-645; RECORDING_LINK_SECRET copied B -> A from the
+  PC through ssh (the value never shown). PowerShell added a CR to the line:
+  removed with `sed -i '/^RECORDING_LINK_SECRET=/s/\r$//'`; checked by
+  matching sha256 of the line on both servers.
+- A3 (~7:19 AM): steps 1-4 of deploy/recording_links_nginx.conf. Backup
+  /root/rec.v0l1.com.bak-20261109-131906. Proof: unsigned 403, signed 200,
+  forged 403.
+- A4 (~7:37 AM): avx-from-a got `recording_folders` (backup in /root);
+  Server A `.env` RECORDING_FOLDERS=1 and the copier cron line given
+  MANAGE= (backups /root/env-A.bak-20261109-133739,
+  /root/crontab-A.bak-20261109-133739); `recordings_to_b2.py --nginx`.
+  Proof: both canaries (top and folder) 200.
+- CH-646 (~7:47 AM): the check moved to the private link (Cloudflare refused
+  the copier's Python check). Copier's 7:50 AM run: both canaries 200.
+- The old server 156.67.25.167 (kept as a backup, user 9 Nov) still runs its
+  own copier with old code: its unsigned canary check now gets 403. Harmless;
+  left as it is.
+
+The original steps, kept for reference:
 
 What is live: every recording link the platform hands out is signed for the
 login (or buyer) it was given to (`?a=<holder>&s=<signature>`,
