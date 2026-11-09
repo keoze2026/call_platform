@@ -45,8 +45,8 @@ hand-over - what is left, in what order, with the commands - is the section
 | 11 | Isolation tests + demo | CH-623, CH-624, CH-625, CH-627-629 | API read/write sweeps run with every test run (Server B CI and GitHub). **Left: a green "Isolation screens" run on GitHub; the 20 Nov demo** |
 
 Change IDs are shared with the rest of the team's work: take the next free
-number on both repositories. Last used: backend **CH-638** (this hand-over),
-frontend **CH-629**. Next free: **CH-639**.
+number on both repositories. Last used: **CH-644** (docs/HANDOVER.md, 9 Nov).
+Next free: **CH-645**.
 
 ## Point 1 - Tenant isolation
 
@@ -152,6 +152,10 @@ Each adds its own cases to the isolation sweep in the same patch.
   after calling hours, with a test call before and after.
 
 ## Where everything stands (hand-over, 6 Nov 2026, 7:30 PM EST)
+
+**All open work (AI audit, clients portal, standby server, status bot,
+report problems) is in [HANDOVER.md](HANDOVER.md) - read that first.** This
+section keeps the customer accounts steps.
 
 Read this first if you pick the work up. Points 1-7 and 9 are done and
 proven on live. Points 8, 10 and 11 have the steps below left, in this

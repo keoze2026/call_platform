@@ -10803,3 +10803,16 @@ Tests: `routing.test_ai_labels` (audit on No Voice, Valid and Caller OK; a
 miss; accuracy 6 reviewed / 3 correct / 2 missed), `routing.test_ai_accuracy`
 (examples include Valid / Caller OK verdicts, mistakes first; IVR / Robocall /
 Voice Found never). No migration, no call path touched: restart web.
+
+## CH-644 - Hand-over: where everything stands (9 Nov)
+
+`docs/HANDOVER.md`: one "read this first" page for whoever picks the work
+up - how the work is done (patches, tests on Server B, push, after-hours
+deploy, Sir's rules, no secrets), servers and both PCs' folders, the code
+backup zip, the state of CH-638 to CH-643, and the open work in order: AI
+audit accuracy (the 6-8 Nov findings and the steps left), the clients portal
+plan (Sir, 9 Nov), the AWS standby (approved estimate, 600-call test first),
+the status bot, customer accounts leftovers, the 6 Nov report problems, the
+data accuracy standard, and facts worth knowing (TFN expiry, balances to
+watch, prices). `docs/CUSTOMER-ACCOUNTS-PLAN.md` points to it; next free
+change ID CH-645. Documentation only.
