@@ -98,8 +98,10 @@ class DeletedTfnNoticeTests(TestCase):
 
     def test_friday_afternoon_and_sunday_stay_until_monday_noon(self):
         self.retire_at(et(23, 14))
-        self.retire_at(et(25, 9))
         self.assertEqual(self.notice(et(24, 13))['count'], 1)
+        # Sunday's number is retired after the Saturday check: a number
+        # retired "in the future" would otherwise already count on Saturday.
+        self.retire_at(et(25, 9))
         self.assertEqual(self.notice(et(26, 9))['count'], 2)
         self.assertEqual(self.notice(et(26, 12, 1))['count'], 0)
 
