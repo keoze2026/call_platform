@@ -349,6 +349,8 @@ GET /api/stats/tfn/{}
 POST /api/support/chat
 GET /api/support/chat/{}
 POST /api/support/chat/{}
+POST /api/support/chat/{}/image
+GET /api/support/chat/{}/image/{}
 POST /api/support/chat/{}/webhook
 POST /api/support/telegram-webhook
 POST /api/team-report-bot/webhook

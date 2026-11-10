@@ -1,4 +1,5 @@
-from ninja import Router, Schema
+from ninja import File, Form, Router, Schema
+from ninja.files import UploadedFile
 from django.conf import settings
 import logging
 logger = logging.getLogger(__name__)
@@ -119,7 +120,9 @@ def get_messages(request, session_id: str):
     from support.models import SupportSession, SupportMessage
     try:
         session = SupportSession.objects.get(id=session_id)
-        messages = SupportMessage.objects.filter(session=session)
+        # CH-654: the pictures themselves are never loaded here - only where to get them.
+        messages = SupportMessage.objects.filter(session=session).defer('image')
+        from support.images import url_of
         return 200, {
             'session_id': str(session.id),
             'status': session.status,
@@ -128,6 +131,7 @@ def get_messages(request, session_id: str):
                     'id': str(m.id),
                     'sender': m.sender,
                     'message': m.message,
+                    'image_url': url_of(m),
                     'created_at': m.created_at.isoformat(),
                 }
                 for m in messages
@@ -135,6 +139,68 @@ def get_messages(request, session_id: str):
         }
     except SupportSession.DoesNotExist:
         return 404, {"detail": "Session not found"}
+
+
+def _uuid(value: str) -> bool:
+    import uuid
+    try:
+        uuid.UUID(str(value))
+        return True
+    except ValueError:
+        return False
+
+
+@router.post("/chat/{session_id}/image", auth=None, response={200: dict, 404: dict, 413: dict, 415: dict})
+def send_image(request, session_id: str, image: UploadedFile = File(...), message: str = Form('')):
+    """CH-654: the visitor's picture (pasted or picked), up to 2 MB, with an
+    optional line of text. Kept with the chat and sent to the support group
+    as a photo. Same limit as a text message (the same counter)."""
+    from django_ratelimit.decorators import is_ratelimited
+    from support import images
+    from support.models import SupportMessage, SupportSession
+    if is_ratelimited(request, group='support_chat_msg', key='config.ratelimit.client_ip',
+                      rate=getattr(settings, 'SUPPORT_MESSAGE_RATE', '30/m'),
+                      method='POST', increment=True):
+        return 404, {"detail": "Too many messages. Please slow down."}
+    session = SupportSession.objects.filter(id=session_id).first() if _uuid(session_id) else None
+    if session is None:
+        return 404, {"detail": "Session not found"}
+    if (image.size or 0) > images.MAX_BYTES:
+        return 413, {"detail": images.TOO_BIG}
+    data = image.read(images.MAX_BYTES + 1)
+    if len(data) > images.MAX_BYTES:
+        return 413, {"detail": images.TOO_BIG}
+    kind = images.kind_of(data)
+    if not kind:
+        return 415, {"detail": images.NOT_A_PICTURE}
+    text = (message or '').strip()[:4000]
+    first = not session.messages.exists()
+    m = SupportMessage.objects.create(session=session, sender='visitor', message=text,
+                                      image=data, image_type=kind)
+    if not images.to_telegram(data, kind, images.caption_for(session, text, first)):
+        logger.warning('support picture saved but not sent to telegram: session=%s', session.id)
+    return 200, {"message": "Picture sent", "id": str(m.id), "image_url": images.url_of(m)}
+
+
+@router.get("/chat/{session_id}/image/{message_id}", auth=None)
+def get_image(request, session_id: str, message_id: str):
+    """CH-654: one picture of a chat. Like the transcript, the session's own
+    id is the key; the picture is sent as what it was checked to be, never
+    run as a page."""
+    from django.http import HttpResponse
+    from support.models import SupportMessage
+    if not (_uuid(session_id) and _uuid(message_id)):
+        return HttpResponse(status=404)
+    m = (SupportMessage.objects.filter(id=message_id, session_id=session_id)
+         .exclude(image_type='').only('image', 'image_type').first())
+    if m is None or m.image is None:
+        return HttpResponse(status=404)
+    response = HttpResponse(bytes(m.image), content_type=m.image_type)
+    response['Content-Disposition'] = 'inline'
+    response['X-Content-Type-Options'] = 'nosniff'
+    response['Cache-Control'] = 'private, max-age=86400'
+    response['Content-Security-Policy'] = "default-src 'none'"
+    return response
 
 
 @router.post("/chat/{session_id}/webhook", auth=None, response={200: dict, 403: dict})

@@ -235,6 +235,32 @@ def _handle_support_reply(text: str) -> None:
     logger.info('support reply saved for session %s', session.id)
 
 
+def _handle_support_picture(message: dict) -> bool:
+    """CH-654: the team answering with a photo (or a picture sent as a file):
+    its caption is the session's 8 characters, a space, then the text (the
+    text may be left out). The picture goes into the customer's chat."""
+    if not (message.get('photo') or message.get('document')):
+        return False
+    caption = (message.get('caption') or '').strip()
+    prefix, _, text = caption.partition(' ')
+    if len(prefix) != 8:
+        return False
+    from support.images import from_telegram
+    from support.models import SupportMessage, SupportSession
+    session = SupportSession.objects.filter(id__startswith=prefix).first()
+    if session is None:
+        return False
+    picture = from_telegram(message)
+    if picture is None:
+        logger.warning('support picture reply for %s: no picture we could take', session.id)
+        return True
+    data, kind = picture
+    SupportMessage.objects.create(session=session, sender='agent', message=text.strip(),
+                                  image=data, image_type=kind)
+    logger.info('support picture reply saved for session %s', session.id)
+    return True
+
+
 @router.post("/telegram-webhook", auth=None, response={200: dict})
 def telegram_webhook(request: HttpRequest):
     # Always answer 200: a non-200 makes Telegram retry the same update forever.
@@ -255,6 +281,7 @@ def telegram_webhook(request: HttpRequest):
         text = (message.get('text') or '').strip()
 
         if not text:
+            _handle_support_picture(message)          # CH-654
             return 200, {"ok": True}
 
         chat_id = str(message.get('chat', {}).get('id', '') or '')

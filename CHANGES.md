@@ -10948,3 +10948,31 @@ pool, the 10 owner-only sections as each customer login (403 expected), and
 
 Scripts only: no code the portal runs, no deploy (a `git pull` on Server B
 puts them in place).
+
+## CH-654 - Support chat: pictures (paste or attach, up to 2 MB)
+
+10 Nov: someone in the support chat can send a picture - paste it while
+typing, or attach a file - up to 2 MB.
+
+- `POST /api/support/chat/{session}/image` (no login, like the chat itself;
+  the same per-IP limit as a text message): one picture and an optional line
+  of text. Only real pictures are taken - PNG, JPG, GIF, WEBP - recognised
+  from the file's own first bytes, never its name or claimed type (an SVG, a
+  PDF or a renamed file gets 415); over 2 MB gets 413.
+- Kept with the message (`support_messages.image`, `image_type`; migration
+  `support/0003`, two new columns, instant), in the database so the nightly
+  backup has it like the text. The transcript never loads the pictures; each
+  message says where its picture is (`image_url`).
+- `GET /api/support/chat/{session}/image/{message}`: the picture, only under
+  its own chat (the chat's id is the key, as for the transcript), sent as the
+  type it was checked to be, `nosniff`, never run as a page.
+- The support group gets it in Telegram as a photo (a GIF, or a photo
+  Telegram refuses, as a file) with the usual "To reply, send" line; the
+  name and text in the caption are made HTML-safe.
+- The team can answer with a photo too: caption `<8 characters> <text>` (the
+  text may be left out). The largest size Telegram offers that fits 2 MB is
+  fetched and put in the customer's chat.
+
+Tests: `support/test_pictures.py` (8). docs/api-paths.txt: the two new
+addresses. Migration: yes (two columns). Deploy: `git pull`, `migrate`,
+restart `web` (any time - calls not affected).

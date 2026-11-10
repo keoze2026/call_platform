@@ -35,7 +35,13 @@ class SupportMessage(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     session = models.ForeignKey(SupportSession, on_delete=models.CASCADE, related_name='messages')
     sender = models.CharField(max_length=20, choices=Sender.choices)
-    message = models.TextField()
+    message = models.TextField(blank=True)
+    # CH-654: a picture with the message (pasted or picked in the portal's
+    # chat, or a photo the team answered with in Telegram), up to 2 MB. Kept
+    # here, not on disk, so the nightly database backup has it like the text.
+    # Never loaded with the transcript (defer); served on its own address.
+    image = models.BinaryField(null=True, blank=True, editable=False)
+    image_type = models.CharField(max_length=20, blank=True, default='')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
