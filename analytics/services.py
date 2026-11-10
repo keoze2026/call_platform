@@ -159,6 +159,13 @@ ANSWERED = Q(status__in=['completed', 'in_progress'])
 # follows the buyer's conversion. Our own view is unchanged.
 # Every report surface reads `converted_view`, which _base_qs sets: the call's
 # conversion for us and buyers, this one for a publisher login.
+# CH-659: Qualified in every grouped tab is the call's own verdict
+# (`is_qualified`: answered, and the caller had no ANSWERED call to the
+# campaign inside its window - CH-230). These counts still read the old rule,
+# "not Repeated"; since CH-230 Repeated counts ANY earlier call, so a caller
+# missed first and answered later was Qualified on Dialed but not on Campaign
+# (DS, 9 Nov: H-04 Campaign 57, Dialed 62).
+QUALIFIED = Q(is_qualified=True)
 CONVERTED_VIEW = Q(converted_view=True)
 PAID_VIEW = CONVERTED_VIEW & (Q(payout__gt=0) | Q(campaign__payout_amount__gt=0))
 
@@ -795,7 +802,7 @@ class AnalyticsService:
             .annotate(
                 campaign_name=Max('campaign_name'),
                 total_calls=Count('id'),
-                qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
+                qualified_calls=Count('id', filter=QUALIFIED),
                 converted_calls=Count('id', filter=CONVERTED_VIEW),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
@@ -1324,7 +1331,7 @@ class AnalyticsService:
             .values('carrier')
             .annotate(
                 total_calls=Count('id'),
-                qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
+                qualified_calls=Count('id', filter=QUALIFIED),
                 converted_calls=Count('id', filter=CONVERTED_VIEW),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 total_payout=Coalesce(Sum('dynamic_payout'), Decimal('0')),
@@ -1559,7 +1566,7 @@ class AnalyticsService:
             .annotate(
                 publisher_name=Max('publisher_name'),
                 total_calls=Count('id'),
-                qualified_calls=Count('id', filter=Q(status__in=[CallRecord.Status.COMPLETED, CallRecord.Status.IN_PROGRESS]) & ~Q(is_duplicate=True)),
+                qualified_calls=Count('id', filter=QUALIFIED),
                 converted=Count('id', filter=CONVERTED_VIEW),
                 total_revenue=Coalesce(Sum('dynamic_revenue'), Decimal('0')),
                 spam_count=Count('id', filter=Q(is_spam=True)),

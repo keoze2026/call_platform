@@ -11149,3 +11149,24 @@ every policy uses the sub-selects. No migration, no new address.
 Deploy: `web` (stats fix, any time). The new policies take effect with
 `python manage.py rls --apply` - after hours (it briefly locks each table) -
 then measure with the rules, then switch the rules back on.
+
+## CH-659 - Qualified is the same number on every Reports tab
+
+DS, 9 Nov: H-04 showed Qualified 57 on the Campaign tab and 62 on Dialed for
+the same day.
+
+Two rules were in use. Dialed (and every tab the page adds up from the calls,
+and every drill-down) counts each call's own verdict, `is_qualified`:
+answered, and the caller had no ANSWERED call to the campaign inside its
+window (CH-230). The Campaign, Publisher and Caller Profile tabs are counted on
+the server and still used the rule from before CH-230, "answered and not
+Repeated". Since CH-230 Repeated counts ANY earlier call, so a caller missed
+first and answered on the next call was Qualified on Dialed but not on
+Campaign.
+
+All three now count `is_qualified` (`QUALIFIED` in analytics/services.py), the
+same calls the Qualified drill-down lists. Nothing stored changes; only the
+three totals.
+
+Tests: `analytics/test_qualified_same_everywhere.py` (1). No migration.
+Deploy: `web` only (any time).
