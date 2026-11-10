@@ -256,6 +256,8 @@ def apply_fix(call: CallLog, rc: RevoCall) -> bool:
     call.tags = tags
     note = f'Answered at Hangup (Revo report): Revo call {rc.id}, "{rc.status}", {rc.duration}s, TTC {rc.ttc}s.'
     call.notes = f'{call.notes}\n{note}'.strip() if call.notes else note
+    from routing.recordings import completed_recording_url
+    call.recording_url = completed_recording_url(call)   # CH-661
     settle_call_money(call, True, duration)  # saves the row; Reports mirror it
     try:
         from tasks import retire_used_number

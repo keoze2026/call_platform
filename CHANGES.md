@@ -11185,3 +11185,35 @@ reported the next morning as "Campaign tab, Qualified differs from its calls
 Read-only check; nothing is changed. Tests: `analytics/test_guard.py` (+1).
 No migration. Deploy: `web` (the Guard runs from the worker's hourly job; it
 picks it up on its next restart - after hours).
+
+## CH-661 - Every Completed call has a recording
+
+Sir, 10 Nov: "any complete call should have a recording". DD-00: +15632100386
+on Q04, 10:40 AM ET, Completed 1 second (the buyer answered during the cancel
+hold, after the caller hung up), no recording. Since 9 Nov, 46 of 83 calls
+Completed 1 second had none.
+
+Two gaps:
+
+- A call made Completed after its hang-up got no link: the dialplan's link is
+  dropped at a hang-up nobody answered, and the paths that complete it later -
+  the cancel hold's report after the hang-up and a late answer (CH-296,
+  CH-225, `late_answer.mark`), Revo's log (CH-290, `revo_sync.apply_fix`) and
+  `force_complete` (CH-226) - added it only with PAID_MISSED_RECORDING, which
+  was never switched on. Each now keeps the call's own link
+  (`routing.recordings.completed_recording_url`: its link, or the one built
+  from the call id; none when the campaign records nothing).
+- The file of such a call is a WAV header with no audio (44 bytes): the caller
+  left before anyone spoke. `scripts/recordings_to_mp3.sh` (Server A) now makes
+  each such file 1 second of silence - the truth of that call - once it is 15
+  minutes old and not open, keeping its time, and converts it to MP3 like any
+  recording. Checked here on a copy of the 44-byte file: MP3 of 1.15 s; a file
+  under 15 minutes old or still open is left alone.
+
+Past calls: after Server A has made the silences, `repair_recordings
+--from-list` gives every Completed call with no link the link to its file.
+
+Tests: `routing/test_completed_recording.py` (4). No migration.
+Deploy (after hours): backend `web` and `celery` (the cancel hold report is a
+web request; Revo sync and late answers run as commands). Server A: copy
+`scripts/recordings_to_mp3.sh` over the one the cron runs (backup first).

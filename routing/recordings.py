@@ -53,6 +53,26 @@ def rebuilt_recording_url(call_log_id) -> str:
     return f'{base}/recordings/{call_log_id}.wav'
 
 
+def completed_recording_url(call) -> str:
+    """The link a Completed call keeps: its own, or the one built from its id.
+
+    CH-661 (Sir, 10 Nov: "any complete call should have a recording"). A call
+    made Completed after its hang-up - the buyer's answer caught by the cancel
+    hold (CH-296), a late answer (CH-225), Revo's log (CH-290) or force_complete
+    (CH-226) - got no link, because the dialplan's link is dropped at a hang-up
+    nobody answered. The file is always there, <call-id>.wav: Server A records
+    from the moment the buyer is dialled (CH-535), and a call that recorded
+    nothing becomes 1 second of silence (scripts/recordings_to_mp3.sh), so the
+    link always plays. A campaign with recording off gets none.
+    """
+    if getattr(call, 'recording_url', ''):
+        return call.recording_url
+    campaign = getattr(call, 'campaign', None)
+    if campaign is not None and not getattr(campaign, 'recording_enabled', True):
+        return ''
+    return rebuilt_recording_url(call.id)
+
+
 def _base_swapped(url: str) -> str:
     """The stored link moved onto RECORDING_BASE_URL (unchanged when unset)."""
     base = (getattr(settings, 'RECORDING_BASE_URL', '') or '').strip().rstrip('/')

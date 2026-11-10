@@ -32,6 +32,7 @@ DIR="${RECORDINGS_DIR:-/var/spool/asterisk/recordings}"
 APP="${APP_DIR:-/opt/call_platform}"
 BATCH="${BATCH:-100}"           # files per run; the backlog clears over a few hours
 MIN_AGE_MIN="${MIN_AGE_MIN:-5}" # untouched this long = the call is over
+SILENCE_MIN_AGE_MIN="${SILENCE_MIN_AGE_MIN:-15}" # CH-661: an empty file this old is a finished call
 BITRATE="${BITRATE:-24k}"       # phone audio is 8 kHz mono; 24k keeps the voice clear
 MANAGE="${MANAGE:-docker compose exec -T web python manage.py}"
 DRY_RUN="${DRY_RUN:-}"
@@ -46,6 +47,29 @@ command -v ffmpeg >/dev/null || { echo "$(date -Is) ffmpeg not installed: apt-ge
 # headers can carry no length at all, so reading the header alone ("ffprobe
 # duration") gives N/A and every file failed the check (CH-282).
 secs() { nice -n 19 ffmpeg -nostdin -v error -i "$1" -f null -progress pipe:1 - 2>/dev/null | awk -F= '/^out_time_us=/{if ($2 ~ /^[0-9]+$/) t=$2} END{printf "%d", t/1000000}'; }
+
+# CH-661 (Sir, 10 Nov: "any complete call should have a recording"): a call
+# that recorded nothing - the caller gone before anyone spoke, e.g. a buyer's
+# answer caught by the cancel hold - leaves a WAV header with no audio (44
+# bytes) that plays nothing. It becomes 1 second of silence, the truth of that
+# call, keeping its time, and is converted below like any other recording.
+silenced=0
+while IFS= read -r -d '' wav; do
+    # Still open (a call ringing a long time writes nothing yet): never touched.
+    if command -v fuser >/dev/null && fuser -s "$wav" 2>/dev/null; then continue; fi
+    if [ -n "$DRY_RUN" ]; then
+        echo "would make 1 second of silence: $wav"
+        continue
+    fi
+    if nice -n 19 ffmpeg -nostdin -v error -y -f lavfi -i anullsrc=r=8000:cl=mono -t 1 \
+            -c:a pcm_s16le -f wav "$wav.part" && touch -r "$wav" "$wav.part" && chmod 644 "$wav.part" \
+            && mv -f "$wav.part" "$wav"; then
+        silenced=$((silenced+1))
+    else
+        echo "$(date -Is) could not make silence for $wav" >&2; rm -f "$wav.part"
+    fi
+done < <(find "$DIR" -maxdepth 1 -type f -name '*.wav' -mmin +"$SILENCE_MIN_AGE_MIN" -size -2k -print0 | head -z -n "$BATCH")
+[ $silenced -gt 0 ] && echo "$(date -Is) $silenced empty recordings made 1 second of silence"
 
 converted=()
 failed=0
@@ -75,8 +99,8 @@ while IFS= read -r -d '' wav; do
     converted+=("$id")
 done < <(find "$DIR" -maxdepth 1 -type f -name '*.wav' -mmin +"$MIN_AGE_MIN" -size +2k -print0 | head -z -n "$BATCH")
 # -size +2k: a WAV of a few bytes is a header with no audio (a call that
-# recorded nothing). There is nothing to convert or save, so it is left alone
-# and never takes a place in the batch (CH-282).
+# recorded nothing). Since CH-661 those are made 1 second of silence above
+# first (16 KB), so here they are converted like any recording.
 
 [ -n "$DRY_RUN" ] && exit 0
 [ ${#converted[@]} -eq 0 ] && { [ $failed -gt 0 ] && echo "$(date -Is) nothing converted, $failed failed"; exit 0; }

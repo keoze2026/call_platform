@@ -93,6 +93,8 @@ class Command(BaseCommand):
             call.answered_at = ended - timedelta(seconds=seconds)
             if call.ring_seconds is None:
                 call.ring_seconds = max(0, int((call.answered_at - call.created_at).total_seconds()))
+            from routing.recordings import completed_recording_url
+            call.recording_url = completed_recording_url(call)   # CH-661
             settle_call_money(call, True, seconds)
             try:
                 from tasks import retire_used_number
