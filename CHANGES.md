@@ -11107,3 +11107,12 @@ own words already were; the comment the AI writes for each call (one line,
 
 Tests: `routing/test_ai_translate.py` (4). docs/api-paths.txt: the new
 address. No migration; deploy: `web` only (any time).
+
+## CH-657 - Handover 10 Nov, 12:45 PM Nairobi (docs only)
+
+`docs/HANDOVER-10-Nov.md` rewritten for the next shift (ZDFRS): servers after
+the move, code heads (backend `e1c08a38`, frontend `0ad13c6`), how to watch
+and switch back row-level security, customer accounts all 11 points with the
+one-block proof, what else was done on 10 Nov, and the open items (failover
+drill to redo, AI labels and RLS watch this morning, old B cancel on 17 Nov,
+docs with the new IP, key rotation). Docs only: no code, no deploy.
