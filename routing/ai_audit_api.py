@@ -140,6 +140,37 @@ def status(request):
     }
 
 
+class TranslateIn(Schema):
+    lang: str
+    ids: list[str] = []
+
+
+@router.post('/translate', response={200: dict})
+def translate_comments(request, payload: TranslateIn):
+    """CH-656: the AI's comments of these calls in the reader's language
+    (ru, ja, zh). Read from the calls themselves - never text sent in - and
+    only calls of the reader's own account. {call id: translated comment};
+    a comment that could not be translated is left out (the page shows it in
+    English)."""
+    from routing.ai_translate import LANGS, MAX_ITEMS, translate
+    from routing.models import CallLog
+    user = _staff(request)
+    if payload.lang not in LANGS:
+        return 200, {'lang': payload.lang, 'items': {}}
+    import uuid
+    ids = []
+    for i in payload.ids[:MAX_ITEMS]:
+        try:
+            ids.append(uuid.UUID(str(i)))
+        except ValueError:
+            continue
+    rows = dict(CallLog.objects.filter(organization=user.organization, id__in=ids)
+                .exclude(ai_summary='').values_list('id', 'ai_summary'))
+    done = translate(payload.lang, list(rows.values()))
+    return 200, {'lang': payload.lang,
+                 'items': {str(i): done[text] for i, text in rows.items() if text in done}}
+
+
 @router.get('/calls', response={200: dict})
 def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, page_size: int = 50,
           by: str = '', key: str = ''):

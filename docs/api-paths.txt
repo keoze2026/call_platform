@@ -55,6 +55,7 @@ POST /api/ai-audit/calls/{}/review
 GET /api/ai-audit/evidence
 GET /api/ai-audit/repeat-callers
 GET /api/ai-audit/status
+POST /api/ai-audit/translate
 GET /api/ai/anomalies/
 POST /api/ai/autopilot/
 GET /api/ai/autopilot/config/

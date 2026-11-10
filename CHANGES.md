@@ -11089,3 +11089,21 @@ affect our own calls."
 Tests: `routing/test_account_call_limit.py` (8). Migration: yes (one column).
 Deploy: after calling hours (routing changes): `git pull`, `migrate`, restart
 `web` and `web_calls`, test call before and after.
+
+## CH-656 - AI Audit in the reader's language: the AI's comments too
+
+10 Nov: on the AI Audit page "everything should be translated". The page's
+own words already were; the comment the AI writes for each call (one line,
+`ai_summary`) is English.
+
+- `POST /api/ai-audit/translate` (AI Audit team only, like the page):
+  `{lang: ru|ja|zh, ids: [call ids]}` -> `{items: {call id: comment in that
+  language}}`. The comments are read from the calls of the reader's own
+  account - never text sent in. Translated by the same LLM the AI audit uses
+  (`AI_LLM_MODEL`, `ANTHROPIC_API_KEY`), 40 notes per question, and each kept
+  90 days, so a comment is translated only once. Any failure (no key,
+  timeout, an answer that does not fit) returns nothing for it and the page
+  shows the English (`routing/ai_translate.py`).
+
+Tests: `routing/test_ai_translate.py` (4). docs/api-paths.txt: the new
+address. No migration; deploy: `web` only (any time).
