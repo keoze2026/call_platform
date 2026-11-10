@@ -11170,3 +11170,18 @@ three totals.
 
 Tests: `analytics/test_qualified_same_everywhere.py` (1). No migration.
 Deploy: `web` only (any time).
+
+## CH-660 - Avortyx Guard checks Qualified on every tab, every morning
+
+After CH-659, asked: "Confirm that this will never recur." The daily Guard
+check (6 AM ET, yesterday, Telegram) already compared each Campaign /
+Publisher / Buyer row with its calls added up one by one, for calls and Cost
+(CH-354 "Tabs agree"). It now compares Qualified too: each row's Qualified
+against the calls' own verdict (`is_qualified`, what Dialed and the
+drill-downs count). A tab counting Qualified by any other rule again is
+reported the next morning as "Campaign tab, Qualified differs from its calls
+(Dialed) on N rows. H-04: 57 vs 62".
+
+Read-only check; nothing is changed. Tests: `analytics/test_guard.py` (+1).
+No migration. Deploy: `web` (the Guard runs from the worker's hourly job; it
+picks it up on its next restart - after hours).

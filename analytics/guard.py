@@ -240,7 +240,8 @@ TABS = (('campaign', 'Campaign', 'get_campaign_performance', 'campaign_id'),
 
 def check_tabs(day) -> Finding:
     """Each summary row = its calls added up one by one (what Dialed, Date
-    and the drill-downs show), for Cost and calls, on a finished day."""
+    and the drill-downs show), for Cost, calls and Qualified (CH-660), on a
+    finished day."""
     from accounts.models import Organization
     from analytics.models import CallRecord
     from analytics.services import AnalyticsService as A
@@ -257,28 +258,38 @@ def check_tabs(day) -> Finding:
         flt = SimpleNamespace(date_from=day.isoformat(), date_to=day.isoformat(), timezone='America/New_York',
                               limit=100000, offset=0, granularity='day')
         rate, markup = A._billing_rate(org)
-        per = {k: defaultdict(lambda: [0, Decimal('0')]) for k, *_ in TABS}
+        per = {k: defaultdict(lambda: [0, Decimal('0'), 0]) for k, *_ in TABS}
         rows = A._base_qs(user, flt).values('campaign_id', 'publisher_id', 'buyer_id', 'platform_cost',
-                                            'duration_seconds', 'twilio_call_sid')
+                                            'duration_seconds', 'twilio_call_sid', 'is_qualified')
         for r in rows.iterator(chunk_size=2000):
             cost = A._call_cost(SimpleNamespace(**r), rate, markup)
             for key, _, _, col in TABS:
                 if r[col]:
                     per[key][str(r[col])][0] += 1
                     per[key][str(r[col])][1] += cost
+                    per[key][str(r[col])][2] += 1 if r['is_qualified'] else 0
         for key, label, fn, col in TABS:
-            bad = []
+            bad, qual = [], []
             for row in getattr(A, fn)(user, flt):
                 ent = str(row.get(col) or '')
-                calls, cost = per[key].get(ent, [0, Decimal('0')])
+                calls, cost, qualified = per[key].get(ent, [0, Decimal('0'), 0])
                 shown_cost = Decimal(str(row.get('total_cost') or 0))
                 shown_calls = int(row.get('total_calls') or 0)
                 if abs(shown_cost - cost) > TAB_TOLERANCE or shown_calls != calls:
                     name = row.get(f'{key}_name') or ent[:8]
                     bad.append(f'{name}: {shown_calls} calls ${shown_cost:.2f} vs {calls} calls ${cost:.2f}')
+                # CH-660 (DS, 9 Nov: H-04 Qualified 57 on Campaign, 62 on
+                # Dialed): a tab that counts Qualified by another rule than the
+                # calls' own verdict is reported the next morning.
+                if 'qualified_calls' in row and int(row.get('qualified_calls') or 0) != qualified:
+                    name = row.get(f'{key}_name') or ent[:8]
+                    qual.append(f'{name}: {int(row.get("qualified_calls") or 0)} vs {qualified}')
             if bad:
                 f.lines.append(f'{org.name} {label} tab, {len(bad)} rows differ from their calls. '
                                + '; '.join(bad[:SAMPLES]))
+            if qual:
+                f.lines.append(f'{org.name} {label} tab, Qualified differs from its calls (Dialed) on '
+                               f'{len(qual)} rows. ' + '; '.join(qual[:SAMPLES]))
     return f
 
 

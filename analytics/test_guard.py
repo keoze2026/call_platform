@@ -107,6 +107,20 @@ class GuardTests(TestCase):
         self.assertIn('Campaign tab', f.lines[0])
         self.assertIn('C-13: 2 calls $0.90 vs 2 calls $1.80', f.lines[0])
 
+    def test_a_tab_counting_qualified_by_another_rule_is_caught(self):
+        # CH-660: missed first, answered next - Qualified on Dialed (its own
+        # verdict), and Repeated. The pre-CH-659 Campaign rule left it out.
+        c = self.call()
+        CallRecord.objects.filter(pk=c.pk).update(is_qualified=True, is_duplicate=True)
+        self.assertTrue(self.by_key(tabs=True)['tabs'].ok)
+        from django.db.models import Q
+        old_rule = Q(status__in=['completed', 'in_progress']) & ~Q(is_duplicate=True)
+        with mock.patch('analytics.services.QUALIFIED', old_rule):
+            f = self.by_key(tabs=True)['tabs']
+        self.assertFalse(f.ok)
+        self.assertIn('Campaign tab, Qualified differs from its calls (Dialed) on 1 rows. C-13: 0 vs 1',
+                      '\n'.join(f.lines))
+
     def test_a_broken_check_never_stops_the_others(self):
         self.call(shown='0')
         with mock.patch('analytics.guard.check_tfns', side_effect=RuntimeError('db away')):
