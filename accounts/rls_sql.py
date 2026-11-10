@@ -21,8 +21,14 @@ from django.conf import settings
 
 POLICY = 'avx_account'
 SETTING = "current_setting('avx.org', true)"
-IS_SYSTEM = f"{SETTING} = '*'"
-ACCOUNT = f"(case when {SETTING} ~ '^[0-9a-f]{{8}}-[0-9a-f-]{{27}}$' then {SETTING}::uuid end)"
+# CH-658: each part is a sub-select, so PostgreSQL works it out ONCE per query
+# (an InitPlan) and compares every row with the result. Written plainly, the
+# setting was read and the pattern matched again for every row scanned: on
+# 10 Nov a 60,000-row activity log scan took 0.62 s instead of 0.01 s, and
+# the bot's /api/stats/destinations (255 such scans) passed its 30 s limit.
+# Same rule, same rows visible - only when it is worked out changes.
+IS_SYSTEM = f"(select {SETTING} = '*')"
+ACCOUNT = f"(select case when {SETTING} ~ '^[0-9a-f]{{8}}-[0-9a-f-]{{27}}$' then {SETTING}::uuid end)"
 RATES_TABLE = 'phone_numbers_routingrate'
 
 

@@ -11116,3 +11116,36 @@ and switch back row-level security, customer accounts all 11 points with the
 one-block proof, what else was done on 10 Nov, and the open items (failover
 drill to redo, AI labels and RLS watch this morning, old B cancel on 17 Nov,
 docs with the new IP, key rotation). Docs only: no code, no deploy.
+
+## CH-658 - The bot's destinations timed out under the database rules
+
+10 Nov, about 8:00 AM EST: the Avortyx AI bot's `/getccupdate` failed
+("timeout of 30000ms exceeded") and members reported slow logins. Server B's
+nginx log: `GET /api/stats/destinations` -> 499 (the bot gave up at 30 s).
+The portal was switched back to the main login (rules off, CH-580's way back)
+and both worked again. Measured on Server B, the same request for the main
+account: without the rules 2.9 s (264 queries), with the rules 92.4 s (262);
+each of 255 activity-log searches took 0.62 s instead of 0.01 s.
+
+Two causes, both fixed:
+
+- `/api/stats/destinations` searched the activity log once per line for who
+  last switched it (CH-200): 255 lines, 255 full scans. It now reads that once
+  for all lines (`last_switches`), as the Destinations page already did. Same
+  answer per line.
+- Every row-level security policy read the `avx.org` setting and matched its
+  pattern again for every row scanned. Each part is now a sub-select, which
+  PostgreSQL works out once per query (`accounts/rls_sql.py`). Same rule, same
+  rows visible. Measured on a 60,000-row copy of the activity log as
+  `avx_portal`: 127 ms before, 23 ms after (23 ms with no rules); count of all
+  rows 220 ms -> 7 ms; another account, no account and a bad value still see
+  0 rows, system sees all.
+
+Measure: `scripts/bot_speed_check.py` (read-only, both ways, one connection).
+
+Tests: `analytics/test_bot_destinations_speed.py` (3): the number of queries
+does not grow with the lines, one activity-log read, who switched still shown,
+every policy uses the sub-selects. No migration, no new address.
+Deploy: `web` (stats fix, any time). The new policies take effect with
+`python manage.py rls --apply` - after hours (it briefly locks each table) -
+then measure with the rules, then switch the rules back on.

@@ -201,6 +201,10 @@ def destinations(request: HttpRequest, date_from: str = None, date_to: str = Non
     # on their natural windows so each number stays true to its cap.
     tfns = [d.tfn for d in dests if d.tfn]
     counts = gather_destination_counts(request.auth.organization, tfns)
+    # CH-658: who last switched each line, read once for all of them (as the
+    # Destinations page does) - not one activity-log search per line.
+    from buyers.destination_switches import last_switches
+    switches = last_switches([d.id for d in dests])
 
     # The requested window, one grouped query - same day-cut convention as
     # format_destination: the reader's timezone, defaulting to today.
@@ -238,7 +242,7 @@ def destinations(request: HttpRequest, date_from: str = None, date_to: str = Non
             n += incoming.get((None, d.tfn), 0)
         if has_calls and n == 0:
             continue
-        row = format_destination(d, counts=counts)
+        row = format_destination(d, counts=counts, switches=switches)
         row['incoming_calls'] = n
         rows.append(mask_partner_money(request.auth, row))
     return 200, rows
