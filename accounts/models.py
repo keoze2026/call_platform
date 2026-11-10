@@ -12,6 +12,10 @@ class Organization(models.Model):
     name = models.CharField(max_length=255)
     slug = models.SlugField(unique=True)
     is_active = models.BooleanField(default=True)
+    # CH-655 (customer accounts point 6): the most calls a customer account may
+    # have live at once, so its traffic can never affect our own calls. Set by
+    # the platform owner; 0 = no limit. Never applies to our main account.
+    max_concurrent_calls = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

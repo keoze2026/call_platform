@@ -87,6 +87,11 @@ def _billing_account(org, user=None):
     return account
 
 
+def _is_main(org) -> bool:
+    from accounts.main_account import is_main_org
+    return is_main_org(org.id)
+
+
 def _money(value, field):
     try:
         amount = Decimal(str(value))
@@ -110,6 +115,7 @@ def _org_row(org, billing, calls_today, revenue_today):
         'markup_percent': str(billing.markup_percent) if billing else None,
         'monthly_portal_fee': str(billing.monthly_portal_fee) if billing else None,
         'billing_status': billing.status if billing else None,
+        'max_concurrent_calls': org.max_concurrent_calls,          # CH-655
         'calls_today': calls_today,
         'revenue_today': str(revenue_today),
     }
@@ -257,6 +263,10 @@ def get_organization(request: HttpRequest, org_id: str):
     return 200, {
         'id': str(org.id), 'name': org.name, 'slug': org.slug,
         'is_active': org.is_active, 'created_at': org.created_at.isoformat(),
+        # CH-655 (point 6): the most calls this account may have live at once
+        # (0 = no limit); our main account is never limited.
+        'max_concurrent_calls': org.max_concurrent_calls,
+        'is_main_account': _is_main(org),
         'billing': {
             'balance': str(billing.balance),
             'status': billing.status,
@@ -286,6 +296,21 @@ def update_organization(request: HttpRequest, org_id: str):
         org.name = name
         org.save(update_fields=['name', 'updated_at'])
         changed.append('name')
+
+    # CH-655 (customer accounts point 6): the account's limit on live calls.
+    if 'max_concurrent_calls' in body:
+        try:
+            limit = int(str(body['max_concurrent_calls']).strip() or 0)
+        except (TypeError, ValueError):
+            return 400, {'detail': 'The call limit must be a whole number (0 = no limit).'}
+        if limit < 0 or limit > 10000:
+            return 400, {'detail': 'The call limit must be between 0 (no limit) and 10000.'}
+        if limit and _is_main(org):
+            return 400, {'detail': 'Our own account has no call limit.'}
+        if limit != org.max_concurrent_calls:
+            org.max_concurrent_calls = limit
+            org.save(update_fields=['max_concurrent_calls', 'updated_at'])
+            changed.append('max_concurrent_calls')
 
     billing = _billing_account(org)
     billing_changed = []

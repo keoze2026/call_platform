@@ -341,6 +341,35 @@ class RoutingEngine:
 
         return None
 
+    ACCOUNT_LIMIT_LABEL = 'Account call limit reached'
+
+    @staticmethod
+    def check_account_concurrency(campaign, current_sid=None):
+        """CH-655 (customer accounts point 6): a customer account may have at
+        most `max_concurrent_calls` calls live at once (0 = no limit), so its
+        traffic can never affect our own calls. Our main account is never
+        limited. Live = open and under four hours old, counted like the
+        campaign cap, without the call being routed."""
+        org = getattr(campaign, 'organization', None)
+        limit = getattr(org, 'max_concurrent_calls', 0) or 0
+        if limit <= 0:
+            return None
+        from accounts.main_account import is_main_org
+        if is_main_org(org.id):
+            return None
+        from datetime import timedelta
+        live_qs = CallLog.objects.filter(
+            organization_id=org.id,
+            status__in=[CallLog.Status.IN_PROGRESS, CallLog.Status.RINGING],
+            ended_at__isnull=True,
+            created_at__gte=timezone.now() - timedelta(hours=4),
+        )
+        if current_sid:
+            live_qs = live_qs.exclude(twilio_call_sid=current_sid)
+        if live_qs.count() >= limit:
+            return RoutingEngine.ACCOUNT_LIMIT_LABEL
+        return None
+
     @staticmethod
     def check_buyer_caps(buyer) -> bool:
         """The buyer's own daily and monthly caps (CH-396: on the buyer's day,
@@ -988,6 +1017,14 @@ class RoutingEngine:
             if trace: trace.step('campaign_cap', False, cap_reason.lower())
             return {'destination': None, 'rule': None, 'error': cap_reason}
         if trace: trace.step('campaign_cap', True)
+
+        # CH-655: the customer account's own limit on live calls.
+        limit_reason = RoutingEngine.check_account_concurrency(
+            campaign, current_sid=call_data.get('twilio_call_sid'))
+        if limit_reason:
+            if trace: trace.step('account_limit', False, limit_reason.lower())
+            return {'destination': None, 'rule': None, 'error': limit_reason}
+        if trace: trace.step('account_limit', True)
 
         # Funds check runs last of the guardrails — it is the most expensive, and
         # there is no point pricing a call the other rules would have dropped.

@@ -11064,3 +11064,28 @@ only with the rules. Fixed:
 
 Tests: `accounts/test_rls.py` (21). Deploy after calling hours: only `web`
 is recreated.
+
+## CH-655 - Customer accounts point 6: a per-customer limit on live calls
+
+Point 6: "Set per-customer concurrency limits, so customer traffic can never
+affect our own calls."
+
+- `organizations.max_concurrent_calls` (migration `accounts/0017`, one column
+  with a default: instant): the most calls a customer account may have live
+  at once. 0 = no limit (every account today). Our main account is never
+  limited, whatever the field says.
+- Routing (`RoutingEngine.check_account_concurrency`, right after the
+  campaign caps): a call to a customer account already at its limit is
+  refused with "Account call limit reached", like a full campaign cap. Live =
+  ringing or in progress, not ended, under 4 hours old, the call being routed
+  not counted - the same rule as the campaign concurrency cap.
+- Owner page: the account's limit is read and set in the account's Rates &
+  fees form (`GET/PATCH /api/owner/organizations/{id}`: `max_concurrent_calls`,
+  0-10000; a limit on our own account is refused). Every change is in both
+  audit logs (point 10).
+- Not in Server A's backup routing yet (it applies buyer and campaign limits
+  while Server B is down); the limit applies whenever Server B routes.
+
+Tests: `routing/test_account_call_limit.py` (8). Migration: yes (one column).
+Deploy: after calling hours (routing changes): `git pull`, `migrate`, restart
+`web` and `web_calls`, test call before and after.
