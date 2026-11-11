@@ -299,7 +299,7 @@ class PhoneNumberService:
         phone_number.released_at = phone_number.released_at or timezone.now()
         phone_number.campaign = None
         phone_number.publisher = None
-        # Point 5: a customer's number goes to quarantine; ours stays main.
+        # Point 5: a customer's number goes to trash for good (CH-665); ours stays main.
         from phone_numbers.pools import on_release
         on_release(phone_number)
         phone_number.save()
@@ -385,6 +385,16 @@ class PhoneNumberService:
                 called_number=phone_number.number,
                 status__in=['in_progress', 'ringing', 'initiated']
             ).count()
+        # CH-665: a number bought from the stock keeps our carrier (for our
+        # costs) but the customer never sees it - only the number's type.
+        carrier = None
+        if phone_number.carrier_id:
+            try:
+                carrier = phone_number.carrier
+            except Exception:                       # hidden from this login
+                carrier = None
+            if carrier is not None and carrier.organization_id != phone_number.organization_id:
+                carrier = None
         return {
             'live': live_calls_count,
             'id': str(phone_number.id),
@@ -397,13 +407,13 @@ class PhoneNumberService:
             'vendor': phone_number.vendor,
             # Who carries the traffic, as opposed to who the number was bought
             # from. vendor has never been able to answer that.
-            'carrier_id': str(phone_number.carrier_id) if phone_number.carrier_id else None,
-            'carrier_name': phone_number.carrier.name if phone_number.carrier_id else '',
-            'carrier_code': phone_number.carrier.code if phone_number.carrier_id else '',
+            'carrier_id': str(carrier.id) if carrier else None,
+            'carrier_name': carrier.name if carrier else '',
+            'carrier_code': carrier.code if carrier else '',
             # The owner's Risk column (CH-135, CH-141): the carrier's own
             # setting when it has one, otherwise High when any retirement
             # rule can take the number and Low when nothing ever expires it.
-            'risk': phone_number.carrier.risk if phone_number.carrier_id else 'low',
+            'risk': carrier.risk if carrier else (phone_number.sale_risk or 'low'),
             'assigned_at': phone_number.assigned_at.isoformat() if phone_number.assigned_at else None,
             'expires_at': phone_number.expires_at.isoformat() if phone_number.expires_at else None,
             'used_at': phone_number.used_at.isoformat() if phone_number.used_at else None,

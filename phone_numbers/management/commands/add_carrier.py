@@ -34,13 +34,17 @@ class Command(BaseCommand):
         parser.add_argument('--list', action='store_true')
 
     def handle(self, *args, **o):
+        from django.conf import settings
+        # CH-665: the stock account holds numbers for sale and never has
+        # carriers of its own; it is not one of the accounts to pick from.
+        accounts = Organization.objects.exclude(slug=getattr(settings, 'TFN_STOCK_SLUG', '') or None)
         if o['org']:
-            org = Organization.objects.filter(name=o['org']).first()
+            org = accounts.filter(name=o['org']).first()
             if not org:
                 self.stderr.write(self.style.ERROR(f'No organization named {o["org"]}'))
                 return
         else:
-            orgs = list(Organization.objects.all()[:5])
+            orgs = list(accounts[:5])
             if len(orgs) != 1:
                 self.stderr.write(self.style.ERROR(
                     'More than one organization exists, so --org is required: '

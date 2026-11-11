@@ -176,12 +176,14 @@ class BillingService:
         try:
             account = BillingAccount.objects.only(
                 'per_minute_rate', 'markup_percent',
-                'recording_fee_per_minute', 'voip_shield_fee_per_call',
+                'recording_fee_per_minute', 'voip_shield_fee_per_call', 'bill_exact_seconds',
             ).get(organization=organization)
         except BillingAccount.DoesNotExist:
             return Decimal('0.00')
 
-        minutes = Decimal(math.ceil(duration_seconds / 60))
+        # CH-665: an account billed for exact seconds pays 90 s as 1.5 minutes.
+        minutes = (Decimal(duration_seconds) / Decimal(60) if account.bill_exact_seconds
+                   else Decimal(math.ceil(duration_seconds / 60)))
         rate = Decimal(account.per_minute_rate or 0)
         markup = Decimal(account.markup_percent or 0) / Decimal('100')
 

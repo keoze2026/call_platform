@@ -859,6 +859,16 @@ MAIN_ORGANIZATION_SLUG = config('MAIN_ORGANIZATION_SLUG', default='interns')
 # Customer accounts point 5: days a TFN released by a customer stays in
 # quarantine before another customer account may take it (Sir to confirm).
 TFN_QUARANTINE_DAYS = config('TFN_QUARANTINE_DAYS', default=30, cast=int)
+# CH-665 (Sir, 11 Nov): customers buy tracking numbers only from our stock
+# bucket - XOLO and Freedom numbers we buy and upload - never from Twilio.
+# The stock is held by its own internal account (this slug), never ours.
+TFN_STOCK_SLUG = config('TFN_STOCK_SLUG', default='tfn-stock')
+# An account's type decides which stock it sees, and its prices: per number
+# (one time, when bought) and per minute (exact seconds, until Sir asks).
+CUSTOMER_TFN_PRICES = {
+    'high': {'number': '20.00', 'minute': '0.0400'},
+    'low': {'number': '10.00', 'minute': '0.0350'},
+}
 
 TELEGRAM_BOT_TOKEN = config('TELEGRAM_BOT_TOKEN', default='')
 TELEGRAM_CHAT_ID = config('TELEGRAM_CHAT_ID', default='')

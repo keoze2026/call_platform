@@ -35,6 +35,9 @@ class BillingAccount(models.Model):
         max_digits=10, decimal_places=4, default=Decimal('0.0450'),
         help_text='What this client is charged per minute of call time'
     )
+    # CH-665: High / Low Risk customer accounts are charged for the exact
+    # seconds of a call (no rounding up) until Sir asks otherwise.
+    bill_exact_seconds = models.BooleanField(default=False)
     markup_percent = models.DecimalField(
         max_digits=6, decimal_places=2, default=Decimal('0.00'),
         help_text='Percentage added on top of the per-minute rate. 0 = no markup'

@@ -11268,3 +11268,48 @@ boxes in one compact line each (name and count side by side).
 
 Tests: `routing/test_ai_audit_search.py` (2). No migration, no new address.
 Deploy: `web` (any time), with the frontend patch.
+
+## CH-665 - Customers buy tracking numbers only from our stock
+
+11 Nov: "We can't give them Twilio. We have to give them high risk and low
+risk only. If someone has a high risk account they can only see - buy high
+risk; low risk account, only low risk." "We will buy from XOLO and Freedom
+and upload in our stock bucket." High Risk $20 a number, $0.040 a minute;
+Low Risk $10, $0.035 a minute; one time, until changed; not rounded (exact
+seconds). "Once a TFN is retired it goes to trash. Never merge any customer
+details to anyone ever." Freedom numbers are High Risk.
+
+- **Stock account** (`TFN_STOCK_SLUG`, default `tfn-stock`, made by migration
+  0024): holds the numbers for sale, pool `stock`, each with its type
+  (`sale_risk`, from its carrier). Never our account's numbers; never
+  listed as a customer on the Owner page.
+- **Account type** (`Organization.tfn_risk`: High Risk / Low Risk / not set),
+  set by the owner (Owner › account › PATCH `tfn_risk`). Setting it fills
+  that account's prices ($20 + $0.040, or $10 + $0.035; still editable) and
+  bills its calls by the exact second (`BillingAccount.bill_exact_seconds`).
+  Our own account has no type.
+- **Customer Numbers page:** `GET /api/numbers/stock` lists only the stock of
+  the account's type, with its price; `POST /api/numbers/stock/{id}/buy`
+  moves that number to the account and takes the price from its balance
+  (refused when the balance is short; nothing moves). Search, Twilio
+  purchase and import of own numbers are refused for customer accounts.
+  The customer never sees our carrier's name or code.
+- **Pools** (`phone_numbers/pools.py` and the database trigger, same rules):
+  a number changes account only once, from the stock to one customer. A
+  customer's released or retired number goes to `trash` for good: never
+  another customer, never our account, never back in use (numbers already
+  in quarantine before this change are the same).
+- `import_tfns --carrier XHR|XLR|KMQ --numbers ... --stock`: into the stock.
+  `GET /api/owner/tfn-stock`: per type and carrier, for sale and sold.
+- `tfn_pools --prove` tries two more wrong moves (stock number into our
+  account; sold or trashed number to another account); isolation recheck
+  point 5 checks the stock.
+
+Tests: `phone_numbers/test_tfn_stock.py` (12), `phone_numbers/test_pools.py`
+(updated). Migrations: accounts 0018, billing 0011, phone_numbers 0024, 0025
+(re-installs the trigger).
+Deploy (after hours, test call before and after): `git pull`, `docker compose
+up -d --build web web_calls celery_worker celery_beat`, `python manage.py
+migrate`, `python manage.py tfn_pools --prove`. Then: KMQ `risk_override`
+high if it reads low; numbers into the stock with `import_tfns --stock`; each
+customer account's type on the Owner page.

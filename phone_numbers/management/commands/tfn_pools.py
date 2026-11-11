@@ -2,9 +2,11 @@
 
     python manage.py tfn_pools            TFNs per account and pool (changes nothing)
     python manage.py tfn_pools --prove    also: try to move one of our TFNs to another
-                                          account and out of the main pool, inside a
-                                          transaction that is rolled back; both must be
-                                          refused by the database (PostgreSQL)
+                                          account and out of the main pool, a stock TFN
+                                          into our account, and a customer's TFN to
+                                          another account (CH-665), inside a transaction
+                                          that is rolled back; all must be refused by
+                                          the database (PostgreSQL)
 """
 from django.core.management.base import BaseCommand
 from django.db import connection, transaction
@@ -43,11 +45,25 @@ class Command(BaseCommand):
         if not ours or not other:
             self.stdout.write('nothing to prove with (no main TFN or no second account)')
             return
-        for label, sql, params in (
-                (f'move {ours.number} to account {other.slug}',
-                 'update phone_numbers set organization_id = %s where id = %s', [other.id, ours.id]),
-                (f'take {ours.number} out of the main pool',
-                 "update phone_numbers set pool = 'inventory' where id = %s", [ours.id])):
+        tries = [
+            (f'move {ours.number} to account {other.slug}',
+             'update phone_numbers set organization_id = %s where id = %s', [other.id, ours.id]),
+            (f'take {ours.number} out of the main pool',
+             "update phone_numbers set pool = 'inventory' where id = %s", [ours.id])]
+        # CH-665: the stock never comes to us, and a sold number never moves on.
+        stocked = PhoneNumber.objects.filter(pool='stock').first()
+        if stocked:
+            tries.append((f'move stock {stocked.number} into our account',
+                          "update phone_numbers set organization_id = %s, pool = 'main' where id = %s",
+                          [ours.organization_id, stocked.id]))
+        sold = PhoneNumber.objects.filter(pool__in=('inventory', 'trash')).first()
+        if sold:
+            elsewhere = Organization.objects.exclude(id__in=[sold.organization_id, ours.organization_id]).first()
+            if elsewhere:
+                tries.append((f'move {sold.number} ({sold.pool}) to account {elsewhere.slug}',
+                              "update phone_numbers set organization_id = %s, pool = 'inventory' where id = %s",
+                              [elsewhere.id, sold.id]))
+        for label, sql, params in tries:
             try:
                 with transaction.atomic():
                     with connection.cursor() as c:

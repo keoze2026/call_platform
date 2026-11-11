@@ -236,6 +236,8 @@ GET /api/numbers/check/today
 POST /api/numbers/import
 POST /api/numbers/purchase
 POST /api/numbers/search
+GET /api/numbers/stock
+POST /api/numbers/stock/{}/buy
 GET /api/numbers/tests/recent
 GET /api/numbers/tests/{}
 GET /api/numbers/{}
@@ -267,6 +269,7 @@ POST /api/owner/organizations/{}/suspend
 GET /api/owner/ping
 GET /api/owner/routing-cost
 PATCH /api/owner/routing-cost/rate
+GET /api/owner/tfn-stock
 GET /api/public/tfn-check/{}
 POST /api/public/tfn-check/{}
 GET /api/public/tfn-check/{}/today

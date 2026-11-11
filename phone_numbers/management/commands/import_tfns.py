@@ -7,6 +7,11 @@ platform, under the right carrier, with that carrier's terms on them.
     python manage.py import_tfns --org Avortyx --carrier KMQ --numbers 18337417216,18337415406
     python manage.py import_tfns --org Avortyx --carrier KMQ --file /opt/call_platform/tfns.txt
     python manage.py import_tfns --org Avortyx --carrier KMQ --file /opt/call_platform/tfns.txt --campaign "23 JUNE"
+    python manage.py import_tfns --org Avortyx --carrier XHR --numbers 18660000000 --stock
+
+--stock (CH-665): into the stock bucket customers buy from - never our own
+numbers - with the carrier's type (High / Low Risk). --org names our account,
+whose carrier it is.
 
 The expiry comes from the carrier's own `lifetime_hours`, so a 24-hour carrier
 needs saying once, on the carrier, not on every number.
@@ -37,6 +42,7 @@ class Command(BaseCommand):
         parser.add_argument('--file', default='', help='One number per line')
         parser.add_argument('--campaign', default='', help='Put them on this campaign')
         parser.add_argument('--name', default='TFN Non DID')
+        parser.add_argument('--stock', action='store_true', help='Into the stock customers buy from (CH-665)')
         parser.add_argument('--dry-run', action='store_true')
 
     def handle(self, *args, **o):
@@ -65,6 +71,20 @@ class Command(BaseCommand):
         if not numbers:
             self.stderr.write(self.style.ERROR('No numbers given. Use --numbers or --file.'))
             return
+
+        if o['stock']:
+            from phone_numbers import pools
+            if o['campaign']:
+                self.stderr.write(self.style.ERROR('Stock numbers have no campaign: the customer who buys one sets it.'))
+                return
+            if carrier.risk not in ('high', 'low'):
+                self.stderr.write(self.style.ERROR(f'{carrier.code} has no High / Low Risk type.'))
+                return
+            if not pools.stock_organization_id():
+                self.stderr.write(self.style.ERROR('There is no stock account: run the migrations first.'))
+                return
+            self.stdout.write(f'Into the STOCK for {carrier.risk.upper()} RISK customer accounts '
+                              f'(never our own numbers)')
 
         campaign = None
         if o['campaign']:
@@ -99,6 +119,12 @@ class Command(BaseCommand):
 
             self.stdout.write(f'  {number}  added')
             if o['dry_run']:
+                added += 1
+                continue
+
+            if o['stock']:
+                from phone_numbers import stock
+                stock.put_in_stock(carrier, number, o['name'])
                 added += 1
                 continue
 

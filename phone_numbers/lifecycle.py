@@ -199,7 +199,7 @@ def retire(number: PhoneNumber, why: str, call_id: str = '', notify: bool = True
     number.released_at = number.released_at or now
     number.campaign = None
     number.publisher = None
-    # Point 5: a customer's number goes to quarantine; ours stays main.
+    # Point 5: a customer's number goes to trash for good (CH-665); ours stays main.
     from phone_numbers.pools import on_release
     fields += on_release(number)
     if why == 'used' and not number.used_at:

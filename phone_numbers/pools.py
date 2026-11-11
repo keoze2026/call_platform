@@ -3,38 +3,41 @@
 Sir, 5 Nov:
   - "Main-account TFNs are locked in an internal pool: never listed, sold,
     released or assigned to customers."
-  - "Customers buy only from a separate customer inventory pool (fresh
-    numbers from the carrier)."
   - "A TFN belongs to exactly one account at a time."
-  - "Numbers released by a customer go into quarantine before any reuse, and
-    are never moved into our main pool."
+Sir, 11 Nov (CH-665):
+  - Customers buy only from our stock bucket - XOLO and Freedom numbers we buy
+    and upload - High Risk accounts only High Risk numbers, Low Risk only Low.
+  - "Once a TFN is retired it goes to trash. Never merge any customer details
+    to anyone ever."
 
 Every TFN is in one pool:
 
   main        our own numbers. Only in our main account, never leave it, never
-              change pool. (All 174 on 5 Nov.) Released by us: still main.
-  inventory   numbers a customer account holds, bought fresh from the carrier.
-  quarantine  released by a customer: no account may take the number until
-              `quarantine_until` (settings.TFN_QUARANTINE_DAYS after the
-              release). Then, and only then, it may go to another customer
-              account, as inventory - never to main.
+              change pool. Released by us: still main.
+  stock       for sale: held by the stock account (settings.TFN_STOCK_SLUG),
+              never ours. Leaves it once, to one customer, as inventory.
+  inventory   numbers a customer account holds.
+  trash       released or retired by a customer: stays in that account for
+              its history, and never moves to any account again.
+  quarantine  (before CH-665) released by a customer; now as final as trash.
 
 One account at a time: `number` is unique across the platform (one row per
-number), and the row's account changes only out of quarantine.
+number). The only move between accounts is stock -> one customer.
 
 The rules are checked twice: here on every save (a clear error for the
 portal), and in the database itself by a trigger (`avx_tfn_pool_guard`,
-migration 0023), which no code path can go around.
+migrations 0023 and 0025), which no code path can go around.
 """
-from datetime import timedelta
-
 from django.conf import settings
-from django.utils import timezone
 
 MAIN = 'main'
+STOCK = 'stock'
 INVENTORY = 'inventory'
+TRASH = 'trash'
 QUARANTINE = 'quarantine'
-CHOICES = [(MAIN, 'Main (internal, locked)'), (INVENTORY, 'Customer inventory'), (QUARANTINE, 'Quarantine')]
+CHOICES = [(MAIN, 'Main (internal, locked)'), (STOCK, 'Stock (for sale)'), (INVENTORY, 'Customer inventory'),
+           (TRASH, 'Trash (retired, never reused)'), (QUARANTINE, 'Quarantine (before CH-665)')]
+POOLS = tuple(p for p, _ in CHOICES)
 
 
 class PoolError(ValueError):
@@ -44,6 +47,17 @@ class PoolError(ValueError):
 def _main():
     from accounts.tenancy import main_organization_id
     return main_organization_id()
+
+
+def stock_organization_id():
+    """The account that holds the stock, or None when there is none."""
+    slug = getattr(settings, 'TFN_STOCK_SLUG', '')
+    if not slug:
+        return None
+    from accounts.models import Organization
+    from accounts import rls
+    with rls.system():
+        return Organization.objects.filter(slug=slug).values_list('id', flat=True).first()
 
 
 def _old(number):
@@ -56,45 +70,48 @@ def _old(number):
         from contextlib import nullcontext
         scope = nullcontext()
     with scope:
-        return type(number).objects.filter(pk=number.pk).values(
-            'pool', 'organization_id', 'quarantine_until').first()
+        return type(number).objects.filter(pk=number.pk).values('pool', 'organization_id').first()
 
 
 def before_save(number) -> list:
     """Fill the pool of a new number and refuse what the rules forbid.
     Returns the fields it set."""
     set_fields = []
-    main = _main()
+    main, stock = _main(), stock_organization_id()
     if not number.pool:
-        number.pool = MAIN if main and number.organization_id == main else INVENTORY
+        number.pool = (MAIN if main and number.organization_id == main
+                       else STOCK if stock and number.organization_id == stock else INVENTORY)
         set_fields.append('pool')
-    if number.pool not in (MAIN, INVENTORY, QUARANTINE):
+    if number.pool not in POOLS:
         raise PoolError(f'unknown pool {number.pool!r}')
     if number.pool == MAIN and number.organization_id != main:
         raise PoolError(f'{number.number}: a main-pool TFN belongs to the main account only')
     if main and number.pool != MAIN and number.organization_id == main:
         raise PoolError(f'{number.number}: the main account holds main-pool TFNs only')
+    if number.pool == STOCK and number.organization_id != stock:
+        raise PoolError(f'{number.number}: a stock TFN belongs to the stock account only')
+    if stock and number.pool != STOCK and number.organization_id == stock:
+        raise PoolError(f'{number.number}: the stock account holds stock TFNs only')
     old = _old(number)
     if old:
         if old['pool'] == MAIN and number.pool != MAIN:
             raise PoolError(f'{number.number}: a main-pool TFN never leaves the main pool')
+        if old['pool'] in (TRASH, QUARANTINE) and number.pool not in (TRASH, QUARANTINE):
+            raise PoolError(f'{number.number}: a trashed TFN is never used again')
         if old['organization_id'] != number.organization_id:
-            free = (old['pool'] == QUARANTINE and old['quarantine_until'] is not None
-                    and old['quarantine_until'] <= timezone.now() and number.pool == INVENTORY)
-            if not free:
-                raise PoolError(f'{number.number}: a TFN changes account only after its quarantine')
+            sold = old['pool'] == STOCK and number.pool == INVENTORY
+            if not sold:
+                raise PoolError(f'{number.number}: a TFN changes account only once, from the stock to one customer')
     return set_fields
 
 
 def on_release(number) -> list:
-    """A customer's number goes to quarantine when it is released or retired;
-    ours stays main. Returns the fields it set."""
+    """A customer's number goes to trash when it is released or retired, for
+    good; ours stays main. Returns the fields it set."""
     if number.pool != INVENTORY:
         return []
-    days = int(getattr(settings, 'TFN_QUARANTINE_DAYS', 30))
-    number.pool = QUARANTINE
-    number.quarantine_until = timezone.now() + timedelta(days=days)
-    return ['pool', 'quarantine_until']
+    number.pool = TRASH
+    return ['pool']
 
 
 def fill_existing(apps, schema_editor):
@@ -108,25 +125,29 @@ def fill_existing(apps, schema_editor):
     numbers.update(pool=INVENTORY)
 
 
-def trigger_sql(main_slug: str) -> list:
+def trigger_sql(main_slug: str, stock_slug: str = '') -> list:
     # No '%' anywhere in this SQL: Django's migration runner sends it through
     # the driver with parameters, and the driver reads every '%' as a
     # placeholder (rehearsal on a copy of live, 5 Nov: 0023 failed with
     # "IndexError: tuple index out of range"). So the messages are built with
     # || instead of RAISE's '%' format.
-    if '%' in main_slug:
-        raise ValueError('the main account slug cannot contain %')
+    if '%' in main_slug or '%' in stock_slug:
+        raise ValueError('an account slug cannot contain %')
     slug = main_slug.replace("'", "''")
+    sslug = (stock_slug or '').replace("'", "''")
     return [
         f"""create or replace function avx_tfn_pool_guard() returns trigger
 language plpgsql security definer set search_path = public as $fn$
-declare main uuid;
+declare main uuid; stock uuid;
 begin
   select id into main from organizations where slug = '{slug}';
+  select id into stock from organizations where slug = '{sslug}';
   if NEW.pool is null or NEW.pool = '' then
-    NEW.pool := case when main is not null and NEW.organization_id = main then '{MAIN}' else '{INVENTORY}' end;
+    NEW.pool := case when main is not null and NEW.organization_id = main then '{MAIN}'
+                     when stock is not null and NEW.organization_id = stock then '{STOCK}'
+                     else '{INVENTORY}' end;
   end if;
-  if NEW.pool not in ('{MAIN}', '{INVENTORY}', '{QUARANTINE}') then
+  if NEW.pool not in ('{MAIN}', '{STOCK}', '{INVENTORY}', '{TRASH}', '{QUARANTINE}') then
     raise exception using message = 'TFN ' || NEW.number || ': unknown pool ' || coalesce(NEW.pool, '(none)');
   end if;
   if NEW.pool = '{MAIN}' and NEW.organization_id is distinct from main then
@@ -135,14 +156,22 @@ begin
   if NEW.pool <> '{MAIN}' and main is not null and NEW.organization_id = main then
     raise exception using message = 'TFN ' || NEW.number || ': the main account holds main-pool TFNs only';
   end if;
+  if NEW.pool = '{STOCK}' and NEW.organization_id is distinct from stock then
+    raise exception using message = 'TFN ' || NEW.number || ': a stock TFN belongs to the stock account only';
+  end if;
+  if NEW.pool <> '{STOCK}' and stock is not null and NEW.organization_id = stock then
+    raise exception using message = 'TFN ' || NEW.number || ': the stock account holds stock TFNs only';
+  end if;
   if TG_OP = 'UPDATE' then
     if OLD.pool = '{MAIN}' and NEW.pool <> '{MAIN}' then
       raise exception using message = 'TFN ' || NEW.number || ': a main-pool TFN never leaves the main pool';
     end if;
-    if NEW.organization_id is distinct from OLD.organization_id and not (
-        OLD.pool = '{QUARANTINE}' and OLD.quarantine_until is not null
-        and OLD.quarantine_until <= now() and NEW.pool = '{INVENTORY}') then
-      raise exception using message = 'TFN ' || NEW.number || ': a TFN changes account only after its quarantine';
+    if OLD.pool in ('{TRASH}', '{QUARANTINE}') and NEW.pool not in ('{TRASH}', '{QUARANTINE}') then
+      raise exception using message = 'TFN ' || NEW.number || ': a trashed TFN is never used again';
+    end if;
+    if NEW.organization_id is distinct from OLD.organization_id
+       and not (OLD.pool = '{STOCK}' and NEW.pool = '{INVENTORY}') then
+      raise exception using message = 'TFN ' || NEW.number || ': a TFN changes account only once, from the stock to one customer';
     end if;
   end if;
   return NEW;
@@ -157,7 +186,8 @@ def install_trigger(apps, schema_editor):
     """Migration 0023 (PostgreSQL only)."""
     if schema_editor.connection.vendor != 'postgresql':
         return
-    for stmt in trigger_sql(getattr(settings, 'MAIN_ORGANIZATION_SLUG', '')):
+    for stmt in trigger_sql(getattr(settings, 'MAIN_ORGANIZATION_SLUG', ''),
+                            getattr(settings, 'TFN_STOCK_SLUG', '')):
         schema_editor.execute(stmt)
 
 

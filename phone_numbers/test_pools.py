@@ -52,34 +52,36 @@ class PoolTests(TestCase):
         with self.assertRaisesMessage(pools.PoolError, 'main account only'):
             n.save()
 
-    def test_a_customer_tfn_changes_account_only_after_quarantine(self):
+    def test_a_customer_tfn_never_moves_to_another_account(self):
         n = self.tfn(self.cust, '+18880000002')
         n.organization = self.other
-        with self.assertRaisesMessage(pools.PoolError, 'only after its quarantine'):
+        with self.assertRaisesMessage(pools.PoolError, 'only once, from the stock to one customer'):
             n.save()
 
-    def test_a_customer_release_goes_to_quarantine(self):
+    def test_a_customer_release_goes_to_trash_for_good(self):
+        # CH-665 (Sir, 11 Nov): "Once a TFN is retired it goes to trash. Never
+        # merge any customer details to anyone ever."
         u = User.objects.create(username='c@x.io', email='c@x.io', organization=self.cust, role='admin')
         n = self.tfn(self.cust, '+18880000002')
         PhoneNumberService.release_number(str(n.id), u)
         n.refresh_from_db()
-        self.assertEqual((n.status, n.pool), ('released', pools.QUARANTINE))
-        days = (n.quarantine_until - timezone.now()).days
-        self.assertIn(days, (29, 30))
-        # Still in quarantine: no other account may take it.
+        self.assertEqual((n.status, n.pool, n.organization_id), ('released', pools.TRASH, self.cust.id))
+        # Never again: not to another customer, not to us, not back in use.
+        for org, pool in ((self.other, pools.INVENTORY), (self.main, pools.MAIN), (self.cust, pools.INVENTORY)):
+            n = PhoneNumber.objects.get(pk=n.pk)
+            n.organization, n.pool, n.status = org, pool, 'active'
+            with self.assertRaises(pools.PoolError):
+                n.save()
+        self.assertEqual(PhoneNumber.objects.get(pk=n.pk).pool, pools.TRASH)
+
+    def test_a_number_in_quarantine_before_ch665_is_never_reused_either(self):
+        n = self.tfn(self.cust, '+18880000002')
+        PhoneNumber.objects.filter(pk=n.pk).update(pool=pools.QUARANTINE,
+                                                   quarantine_until=timezone.now() - timedelta(days=1))
+        n = PhoneNumber.objects.get(pk=n.pk)
         n.organization, n.pool = self.other, pools.INVENTORY
         with self.assertRaises(pools.PoolError):
             n.save()
-        # After the quarantine: another customer, as inventory - never main.
-        PhoneNumber.objects.filter(pk=n.pk).update(quarantine_until=timezone.now() - timedelta(days=1))
-        n = PhoneNumber.objects.get(pk=n.pk)
-        n.organization, n.pool = self.main, pools.MAIN
-        with self.assertRaises(pools.PoolError):
-            n.save()
-        n = PhoneNumber.objects.get(pk=n.pk)
-        n.organization, n.pool, n.status = self.other, pools.INVENTORY, 'active'
-        n.save()
-        self.assertEqual(PhoneNumber.objects.get(pk=n.pk).organization_id, self.other.id)
 
     def test_our_release_stays_main(self):
         u = User.objects.create(username='m@x.io', email='m@x.io', organization=self.main, role='admin')
@@ -88,13 +90,12 @@ class PoolTests(TestCase):
         n.refresh_from_db()
         self.assertEqual((n.status, n.pool, n.quarantine_until), ('released', pools.MAIN, None))
 
-    def test_a_retired_customer_tfn_goes_to_quarantine(self):
+    def test_a_retired_customer_tfn_goes_to_trash(self):
         n = self.tfn(self.cust, '+18880000002')
         with mock.patch('phone_numbers.lifecycle._notify'):
             self.assertTrue(retire(n, 'used'))
         n.refresh_from_db()
-        self.assertEqual(n.pool, pools.QUARANTINE)
-        self.assertIsNotNone(n.quarantine_until)
+        self.assertEqual(n.pool, pools.TRASH)
 
     def test_a_number_already_in_the_platform_cannot_be_imported_by_a_customer(self):
         self.tfn(self.main, '+18880000001')
@@ -113,9 +114,10 @@ class PoolTests(TestCase):
         self.assertEqual((a.pool, b.pool), (pools.MAIN, pools.INVENTORY))
 
     def test_the_trigger_holds_the_same_rules(self):
-        sql = '\n'.join(pools.trigger_sql('interns'))
-        for words in ('main account only', 'never leaves the main pool', 'only after its quarantine',
-                      "slug = 'interns'", 'security definer'):
+        sql = '\n'.join(pools.trigger_sql('interns', 'tfn-stock'))
+        for words in ('main account only', 'never leaves the main pool', 'only once, from the stock to one customer',
+                      'a trashed TFN is never used again', 'stock account only', "slug = 'interns'",
+                      "slug = 'tfn-stock'", 'security definer'):
             self.assertIn(words, sql)
         # The migration runner reads '%' as a parameter placeholder (rehearsal, 5 Nov).
         self.assertNotIn('%', sql)

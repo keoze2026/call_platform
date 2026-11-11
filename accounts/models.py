@@ -16,6 +16,10 @@ class Organization(models.Model):
     # have live at once, so its traffic can never affect our own calls. Set by
     # the platform owner; 0 = no limit. Never applies to our main account.
     max_concurrent_calls = models.PositiveIntegerField(default=0)
+    # CH-665 (Sir, 11 Nov): a customer account is High Risk or Low Risk; it
+    # sees and buys only stock numbers of that type. Set by the owner.
+    tfn_risk = models.CharField(max_length=4, blank=True, default='',
+                                choices=[('', 'Not set'), ('high', 'High Risk'), ('low', 'Low Risk')])
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     

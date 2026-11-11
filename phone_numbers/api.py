@@ -17,12 +17,23 @@ from accounts.api import JWTAuth
 router = Router(tags=["Phone Numbers"], auth=JWTAuth())
 carriers_router = Router(tags=["Carriers"], auth=JWTAuth())
 
+STOCK_ONLY = 'Tracking numbers are bought from the Avortyx stock on this page.'
+
+
+def _stock_only(user):
+    """CH-665 (Sir, 11 Nov): customers never buy from Twilio or add numbers
+    of their own - only from our stock. Our main account keeps both."""
+    from accounts.tenancy import main_organization_id
+    if getattr(user, 'organization_id', None) != main_organization_id():
+        raise HttpError(400, STOCK_ONLY)
+
 
 @router.post("/search", response={200: List[AvailableNumberSchema], 400: dict})
 def search_numbers(request: HttpRequest, data: SearchNumberSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
+    _stock_only(request.auth)                      # CH-665
     try:
         numbers = PhoneNumberService.search_available_numbers(data, request.auth)
         return 200, numbers
@@ -35,6 +46,7 @@ def purchase_number(request: HttpRequest, data: PurchaseNumberSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
+    _stock_only(request.auth)                      # CH-665
     try:
         phone_number = PhoneNumberService.purchase_number(data, request.auth)
         trunk_warning = getattr(phone_number, 'trunk_warning', None)
@@ -51,6 +63,7 @@ def import_number(request: HttpRequest, data: PurchaseNumberSchema):
     from accounts.workspace_permissions import require_perm
     require_perm(request.auth, 'tracking-numbers', 'edit')
     require(request.auth, Capability.CREATE)
+    _stock_only(request.auth)                      # CH-665
     try:
         phone_number = PhoneNumberService.import_existing_number(data, request.auth)
         phone_number = PhoneNumberService.get_number(str(phone_number.id), request.auth)
@@ -146,6 +159,32 @@ def _test_out(t) -> dict:
         'created_at': t.created_at.isoformat(),
         'steps': list(t.steps or []),
     }
+
+
+# CH-665: a customer account's own type of stock, and buying one number.
+# Before "/{number_id}", which would otherwise take "stock" as a number id.
+@router.get("/stock", response={200: dict, 400: dict})
+def stock_offer(request: HttpRequest, limit: int = 200):
+    from accounts.workspace_permissions import require_perm
+    from phone_numbers import stock
+    require_perm(request.auth, 'tracking-numbers', 'view')
+    try:
+        return 200, stock.offer(request.auth, limit)
+    except stock.StockError as e:
+        return 400, {"detail": str(e)}
+
+
+@router.post("/stock/{number_id}/buy", response={201: PhoneNumberOutSchema, 400: dict})
+def stock_buy(request: HttpRequest, number_id: str):
+    from accounts.workspace_permissions import require_perm
+    from phone_numbers import stock
+    require_perm(request.auth, 'tracking-numbers', 'edit')
+    require(request.auth, Capability.CREATE)
+    try:
+        number = stock.buy(request.auth, number_id)
+    except stock.StockError as e:
+        return 400, {"detail": str(e)}
+    return 201, PhoneNumberService.format_number(PhoneNumberService.get_number(str(number.id), request.auth))
 
 
 @router.get("/tests/recent", response={200: List[TfnTestOutSchema]})

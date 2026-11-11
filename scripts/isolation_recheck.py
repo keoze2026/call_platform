@@ -32,7 +32,8 @@ def line(ok, text):
 
 
 main = Organization.objects.get(slug=settings.MAIN_ORGANIZATION_SLUG)
-customers = list(Organization.objects.exclude(pk=main.pk).order_by('slug'))
+customers = list(Organization.objects.exclude(pk=main.pk).exclude(slug=getattr(settings, 'TFN_STOCK_SLUG', '') or None)
+                 .order_by('slug'))   # CH-665: the stock account is not a customer
 print(f'Main account: {main.slug} | customer accounts: {", ".join(o.slug for o in customers) or "none"}')
 
 # ── Point 1: every row has an account ────────────────────────────────────────
@@ -63,14 +64,17 @@ line(not others and stray_activity == 0,
 
 # ── Point 5: TFN pools ───────────────────────────────────────────────────────
 pools = {}
+stock_id = Organization.objects.filter(slug=getattr(settings, 'TFN_STOCK_SLUG', '') or None).values_list('id', flat=True).first()
 for org_id, pool in PhoneNumber.objects.values_list('organization_id', 'pool'):
-    key = ('main' if org_id == main.pk else 'customer', pool or '(empty)')
+    key = ('main' if org_id == main.pk else 'stock' if org_id == stock_id else 'customer', pool or '(empty)')
     pools[key] = pools.get(key, 0) + 1
 print('     TFNs by account and pool:', ', '.join(f'{a}/{p}={n}' for (a, p), n in sorted(pools.items())))
 line(not any(a == 'customer' and p == 'main' for (a, p) in pools),
      'Point 5: no customer account holds a Main (ours) TFN')
 line(not any(a == 'main' and p != 'main' for (a, p) in pools),
      'Point 5: every one of our TFNs is in the Main pool')
+line(not any((a == 'stock') != (p == 'stock') for (a, p) in pools),
+     'Point 5: the stock holds only numbers for sale, and only the stock does (CH-665)')
 
 # ── Points 3 and 2/4: as each customer login ────────────────────────────────
 ours = set()

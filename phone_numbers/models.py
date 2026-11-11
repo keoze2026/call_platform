@@ -111,13 +111,21 @@ class PhoneNumber(models.Model):
     # Owner-only, like every carrier cost.
     tfn_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     # Customer accounts point 5 (phone_numbers/pools.py): main (ours, locked),
-    # inventory (a customer's) or quarantine (released by a customer, until
-    # quarantine_until). Filled on save; checked here and by a database trigger.
+    # stock (for sale, CH-665), inventory (a customer's), trash (released or
+    # retired by a customer, never reused) - quarantine before CH-665. Filled
+    # on save; checked here and by a database trigger.
     pool = models.CharField(max_length=12, choices=[('main', 'Main (internal, locked)'),
+                                                    ('stock', 'Stock (for sale)'),
                                                     ('inventory', 'Customer inventory'),
-                                                    ('quarantine', 'Quarantine')],
+                                                    ('trash', 'Trash (retired, never reused)'),
+                                                    ('quarantine', 'Quarantine (before CH-665)')],
                             blank=True, default='', db_index=True)
     quarantine_until = models.DateTimeField(null=True, blank=True)
+    # CH-665: High or Low Risk, given when a number is put in the stock (from
+    # its carrier) and kept after it is sold: a customer account sees and buys
+    # only its own type, and is never shown our carrier.
+    sale_risk = models.CharField(max_length=4, blank=True, default='',
+                                 choices=[('', ''), ('high', 'High Risk'), ('low', 'Low Risk')])
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

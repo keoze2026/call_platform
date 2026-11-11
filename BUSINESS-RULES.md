@@ -35,6 +35,22 @@ Last updated: 31 Oct 2026.
   Never give an owner login to a customer's workspace: its calls would no
   longer be refused for balance.
 
+### 1.1a Tracking numbers for customers — CH-665 (Sir, 11 Nov)
+- Customers buy numbers **only from our stock** — never Twilio, never their
+  own. We buy from XOLO and Freedom and put them in the stock.
+- Each customer account is **High Risk** or **Low Risk** (set on the Owner
+  page). It sees and buys **only its own type**.
+
+| Type | Per number (one time) | Per minute |
+|---|---|---|
+| High Risk (XOLO High Risk, Freedom) | **$20** | **$0.040** |
+| Low Risk | **$10** | **$0.035** |
+
+- Minutes are **exact seconds**, not rounded up, until Sir says otherwise.
+- A number goes from the stock to **one** customer, once. Released or
+  retired, it goes to **trash for good**: never to anyone else, never to our
+  account. Never merge any customer details to anyone.
+
 ### 1.2 What carriers charge us — CH-254 (Owner › Carrier Costs)
 | Carrier | Per TFN / month | Monthly charge | Per minute |
 |---|---|---|---|

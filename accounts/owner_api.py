@@ -116,6 +116,7 @@ def _org_row(org, billing, calls_today, revenue_today):
         'monthly_portal_fee': str(billing.monthly_portal_fee) if billing else None,
         'billing_status': billing.status if billing else None,
         'max_concurrent_calls': org.max_concurrent_calls,          # CH-655
+        'tfn_risk': org.tfn_risk,                                  # CH-665
         'calls_today': calls_today,
         'revenue_today': str(revenue_today),
     }
@@ -131,7 +132,10 @@ def list_organizations(request: HttpRequest, search: str = '', page: int = 1, pa
     from analytics.models import CallRecord
     from config.pagination import paginate_list
 
-    orgs = Organization.objects.annotate(user_count=Count('users', distinct=True)).order_by('name')
+    from django.conf import settings
+    # CH-665: the stock account holds numbers for sale, not a customer.
+    orgs = (Organization.objects.exclude(slug=getattr(settings, 'TFN_STOCK_SLUG', '') or None)
+            .annotate(user_count=Count('users', distinct=True)).order_by('name'))
     if search:
         orgs = orgs.filter(Q(name__icontains=search) | Q(slug__icontains=search))
     orgs = list(orgs)
@@ -267,6 +271,9 @@ def get_organization(request: HttpRequest, org_id: str):
         # (0 = no limit); our main account is never limited.
         'max_concurrent_calls': org.max_concurrent_calls,
         'is_main_account': _is_main(org),
+        # CH-665: High / Low Risk - which stock numbers this account buys.
+        'tfn_risk': org.tfn_risk,
+        'bill_exact_seconds': billing.bill_exact_seconds,
         'billing': {
             'balance': str(billing.balance),
             'status': billing.status,
@@ -311,6 +318,17 @@ def update_organization(request: HttpRequest, org_id: str):
             org.max_concurrent_calls = limit
             org.save(update_fields=['max_concurrent_calls', 'updated_at'])
             changed.append('max_concurrent_calls')
+
+    # CH-665: the account's type - which stock numbers it buys. Fills Sir's
+    # prices (number and minute) and exact-second billing; the price fields
+    # sent with it below still win, so a special price can be given.
+    if 'tfn_risk' in body:
+        from phone_numbers import stock
+        _billing_account(org, owner)
+        try:
+            changed += stock.set_type(org, str(body.get('tfn_risk') or ''))
+        except stock.StockError as e:
+            return 400, {'detail': str(e)}
 
     billing = _billing_account(org)
     billing_changed = []
@@ -523,3 +541,11 @@ def list_guest_visits(request: HttpRequest, day: str = '', q: str = '',
     result = paginate_list(rows, page, page_size)
     result['summary'] = {'total_hits': totals['hits'] or 0, 'distinct_ips': distinct_ips}
     return 200, result
+
+
+@owner_router.get("/tfn-stock", response={200: dict})
+def tfn_stock(request: HttpRequest):
+    """CH-665: the stock bucket - numbers for sale and sold, per type and carrier."""
+    require_owner(request)
+    from phone_numbers import stock
+    return 200, {'rows': stock.summary()}
