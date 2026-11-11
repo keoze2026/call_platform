@@ -99,6 +99,28 @@ BEEP_MIN_RUN, BEEP_MAX_RUN = 3, 62      # windows: 0.1 s .. 2 s
 # after, for jitter) and the caller side is under ECHO_RATIO of the agent's
 # loudness then. A real caller talks louder than an echo, and mostly when the
 # agent is quiet, so his speech still counts.
+# CH-662 (10 Nov, recordings listened to: callers the audit team heard came out
+# "caller 0.0 s"). Two causes, measured on those calls' own files:
+#  - a very quiet caller side (-57 dB mean against about -26 dB on normal
+#    calls): Silero hears speech but too weakly to count. VOICE_QUIET_GAIN=1:
+#    a side under QUIET_DBFS that reads as no speech is listened to again,
+#    raised to TARGET_DBFS (at most MAX_GAIN_DB louder); the louder reading
+#    counts only when it finds more speech. Loud sides are never changed.
+#  - a weak, choppy caller (packet loss): speech windows in short bursts,
+#    none 8 in a row (0.25 s), so none counted. VOICE_SOFT=1: Silero's own
+#    way of reading its scores (its get_speech_timestamps) - speech starts at
+#    THRESHOLD, carries on while the score stays at SOFT_LOW or more, and a
+#    dip of up to SOFT_GAP windows (~0.1 s) does not end it; a piece still
+#    has to last MIN_RUN windows to count.
+# Both off by default: with them off every number is exactly as before.
+# `--compare` shows old against new per call, saving nothing.
+SOFT = os.environ.get('VOICE_SOFT', '0') == '1'
+SOFT_LOW = float(os.environ.get('VOICE_SOFT_LOW', '0.35'))
+SOFT_GAP = int(os.environ.get('VOICE_SOFT_GAP', '3'))
+QUIET_GAIN = os.environ.get('VOICE_QUIET_GAIN', '0') == '1'
+QUIET_DBFS = float(os.environ.get('VOICE_QUIET_DBFS', '-35'))
+TARGET_DBFS = float(os.environ.get('VOICE_TARGET_DBFS', '-20'))
+MAX_GAIN_DB = float(os.environ.get('VOICE_MAX_GAIN_DB', '30'))
 ECHO_LAG = float(os.environ.get('ECHO_LAG', '0.5'))          # seconds
 ECHO_RATIO = float(os.environ.get('ECHO_RATIO', '0.35'))     # about -9 dB
 
@@ -128,6 +150,47 @@ def sound_of(pcm16):
 
 def log(msg):
     print(f"{time.strftime('%Y-%m-%dT%H:%M:%S%z')} {msg}", flush=True)
+
+
+def speech_mask(probs):
+    """Which windows are speech, from Silero's score per window (CH-662).
+
+    Off (default): windows at THRESHOLD or more, in runs of MIN_RUN - as
+    before. VOICE_SOFT=1: Silero's own reading (see SOFT above)."""
+    n = len(probs)
+    mask = [False] * n
+    i = 0
+    while i < n:
+        if probs[i] < THRESHOLD:
+            i += 1
+            continue
+        end, j, gap = i + 1, i + 1, 0
+        while j < n:
+            if probs[j] >= (SOFT_LOW if SOFT else THRESHOLD):
+                end, gap = j + 1, 0
+            else:
+                gap += 1
+                if not SOFT or gap > SOFT_GAP:
+                    break
+            j += 1
+        if end - i >= MIN_RUN:
+            mask[i:end] = [True] * (end - i)
+        i = end
+    return mask
+
+
+def quiet_gain(np, rms):
+    """How much louder a quiet side is listened to again (CH-662): 1 for a
+    side at QUIET_DBFS or louder, else up to TARGET_DBFS, at most MAX_GAIN_DB."""
+    if not len(rms):
+        return 1.0
+    level = float(np.percentile(rms, 95))
+    if level <= 0:
+        return 1.0
+    db = 20 * np.log10(level)
+    if db >= QUIET_DBFS:
+        return 1.0
+    return float(min(10 ** ((TARGET_DBFS - db) / 20), 10 ** (MAX_GAIN_DB / 20)))
 
 
 class Vad:
@@ -161,31 +224,41 @@ class Vad:
         'rms'), for the echo check of a split call (never sent on)."""
         np = self.np
         audio = np.frombuffer(pcm16, dtype=np.int16).astype(np.float32) / 32768.0
-        state = np.zeros((2, 1, 128), dtype=np.float32)
-        context = np.zeros((1, CONTEXT), dtype=np.float32)
-        sr = np.array(SR, dtype=np.int64)
-        windows, run, first = 0, 0, None
-        probs = []
-        for i, start in enumerate(range(0, len(audio) - CHUNK + 1, CHUNK)):
-            x = np.concatenate([context, audio[start:start + CHUNK].reshape(1, CHUNK)], axis=1)
-            out, state = self.session.run(None, {'input': x, 'state': state, 'sr': sr})
-            context = x[:, -CONTEXT:]
-            probs.append(float(out[0][0]))
-            if float(out[0][0]) >= THRESHOLD:
-                run += 1
-                if run == MIN_RUN and first is None:
-                    first = round((i - MIN_RUN + 1) * CHUNK / SR, 2)
-            else:
-                windows += run if run >= MIN_RUN else 0
-                run = 0
-        windows += run if run >= MIN_RUN else 0
+        probs = self.scores(audio)
+        mask = speech_mask(probs)
         no_data = bool(len(audio) == 0 or float(np.max(np.abs(audio))) < 2.0 / 32768)
         n = len(probs)
         rms = (np.sqrt(np.mean(audio[:n * CHUNK].reshape(n, CHUNK) ** 2, axis=1)) if n
                else np.zeros(0, dtype=np.float32))
-        return {'speech': round(windows * CHUNK / SR, 2), 'audio': round(len(audio) / SR, 2),
-                'beep': beep_seconds(np, audio, probs), 'first': first, 'no_data': no_data,
-                'probs': probs, 'rms': rms}
+        heard = probs
+        # CH-662: a quiet side that reads as no speech is listened to again,
+        # louder. The loudness ('rms') stays the real one, for the echo check.
+        if QUIET_GAIN and n and not no_data and sum(mask) * CHUNK / SR < SPEECH_GATE:
+            gain = quiet_gain(np, rms)
+            if gain > 1:
+                louder = self.scores(np.clip(audio * gain, -1.0, 1.0))
+                louder_mask = speech_mask(louder)
+                if sum(louder_mask) > sum(mask):
+                    heard, mask = louder, louder_mask
+        first = next((i for i, f in enumerate(mask) if f), None)
+        return {'speech': round(sum(mask) * CHUNK / SR, 2), 'audio': round(len(audio) / SR, 2),
+                'beep': beep_seconds(np, audio, probs),
+                'first': round(first * CHUNK / SR, 2) if first is not None else None,
+                'no_data': no_data, 'probs': heard, 'rms': rms}
+
+    def scores(self, audio):
+        """Silero's speech score for each CHUNK window of float audio."""
+        np = self.np
+        state = np.zeros((2, 1, 128), dtype=np.float32)
+        context = np.zeros((1, CONTEXT), dtype=np.float32)
+        sr = np.array(SR, dtype=np.int64)
+        probs = []
+        for start in range(0, len(audio) - CHUNK + 1, CHUNK):
+            x = np.concatenate([context, audio[start:start + CHUNK].reshape(1, CHUNK)], axis=1)
+            out, state = self.session.run(None, {'input': x, 'state': state, 'sr': sr})
+            context = x[:, -CONTEXT:]
+            probs.append(float(out[0][0]))
+        return probs
 
 
 def echo_free(np, caller_probs, caller_rms, agent_probs, agent_rms):
@@ -198,7 +271,9 @@ def echo_free(np, caller_probs, caller_rms, agent_probs, agent_rms):
     n = min(nc, na)
     cp = np.asarray(caller_probs, dtype=np.float32)
     cr = np.asarray(caller_rms, dtype=np.float32)
-    caller_speech = cp >= THRESHOLD
+    # CH-662: with VOICE_SOFT the caller's scores are read Silero's way;
+    # off, exactly as before.
+    caller_speech = np.asarray(speech_mask(caller_probs), dtype=bool) if SOFT else cp >= THRESHOLD
     echo = np.zeros(nc, dtype=bool)
     if n:
         ap = np.asarray(agent_probs, dtype=np.float32)[na - n:]
@@ -414,6 +489,9 @@ def main():
     # dead_caller, once PANNs is installed: IVR calls become Voicemail / IVR).
     ap.add_argument('--recheck', metavar='AI_LABEL', default='')
     ap.add_argument('--days', type=int, default=DAYS)
+    # CH-662: old reading against new (quiet gain + soft speech) per call,
+    # with --recheck AI_LABEL; nothing is saved.
+    ap.add_argument('--compare', action='store_true')
     ap.add_argument('--loop', type=int, default=0,
                     help='keep checking for this many seconds (CH-547: cron every minute with --loop 55)')
     o = ap.parse_args()
@@ -438,6 +516,11 @@ def main():
         return 1
 
     vad = None
+    if o.compare:
+        if not o.recheck:
+            log('--compare needs --recheck AI_LABEL')
+            return 1
+        return compare(o, Vad(MODEL))
     if not o.loop or o.recheck:
         vad = Vad(MODEL)
         return one_pass(o, vad, f'--min-age {MIN_AGE_MIN}')[1]
@@ -451,6 +534,39 @@ def main():
         if not done:
             time.sleep(LOOP_PAUSE)
     return failed
+
+
+def compare(o, vad):
+    """CH-662: each call's caller and agent speech read the old way and the
+    new way (quiet gain + soft speech), and whether the caller crosses the
+    SPEECH_GATE line - the calls whose label would change. Saves nothing."""
+    global SOFT, QUIET_GAIN
+    p = manage(['voice_pending', '--limit', str(o.limit), '--days', str(o.days), '--ai-label', o.recheck])
+    if p.returncode != 0:
+        log(f'voice_pending failed: {p.stderr.strip()[-300:]}')
+        return 1
+    items = [json.loads(x) for x in p.stdout.splitlines() if x.strip().startswith('{')]
+    was = (SOFT, QUIET_GAIN)
+    seen = changed = 0
+    try:
+        for item in items:
+            SOFT, QUIET_GAIN = False, False
+            old = split_sides(vad, item)
+            SOFT, QUIET_GAIN = True, True
+            new = split_sides(vad, item)
+            if old is None or new is None:
+                continue
+            seen += 1
+            flip = (old['caller_speech'] < SPEECH_GATE) != (new['caller_speech'] < SPEECH_GATE)
+            changed += flip
+            print(f"{item['id']} {item.get('caller') or ''} | caller {old['caller_speech']:.1f}s -> {new['caller_speech']:.1f}s | "
+                  f"agent {old['agent_speech']:.1f}s -> {new['agent_speech']:.1f}s"
+                  + (' | CHANGES: caller now speaks' if flip and new['caller_speech'] >= SPEECH_GATE
+                     else ' | CHANGES: caller now silent' if flip else ''), flush=True)
+    finally:
+        SOFT, QUIET_GAIN = was
+    log(f'{o.recheck}: {seen} calls with both sides compared, {changed} would change - nothing saved')
+    return 0
 
 
 def one_pass(o, vad, age_arg):

@@ -11217,3 +11217,40 @@ Tests: `routing/test_completed_recording.py` (4). No migration.
 Deploy (after hours): backend `web` and `celery` (the cancel hold report is a
 web request; Revo sync and late answers run as commands). Server A: copy
 `scripts/recordings_to_mp3.sh` over the one the cron runs (backup first).
+
+## CH-662 - No Voice AI: quiet and choppy callers are heard
+
+10 Nov: the No Voice AI was said to be wrong on about 40% of calls. Only 4
+calls were marked in the portal (all correct), so recordings were listened
+to: of 4 calls the voice detector read "caller 0.0 s", the caller had spoken
+on 3. Measured on those calls' own caller files (Server A, split):
+
+- 12103090004: caller side -57 dB mean (normal calls -20 to -31 dB). Silero
+  hears speech but too weakly to count (0.4 s). Raised to a normal level:
+  1.4 s - the caller is found.
+- 13603579372: weak, choppy speech - 76 windows of "maybe speech" (0.3+),
+  20 at 0.5+, never 8 in a row (longest 6), so none counted.
+- 13607907171 (background voices, no caller): stays under 1 s either way.
+- 3 normal calls: unchanged.
+
+`scripts/voice_check/voice_check.py`, both off by default (every number as
+before):
+- VOICE_QUIET_GAIN=1: a side under -35 dBFS (95th-percentile window
+  loudness) that reads as no speech is listened to again raised to -20 dBFS
+  (at most 30 dB); the louder reading counts only when it finds more speech.
+  The loudness used by the echo check (CH-594) stays the real one.
+- VOICE_SOFT=1: Silero's own way of reading its scores (as its
+  get_speech_timestamps): speech starts at 0.5, carries on while the score
+  stays at 0.35 or more, a dip of up to 3 windows (~0.1 s) does not end it; a
+  piece still has to last 8 windows. Used by the echo check too.
+- `--compare --recheck AI_LABEL [--days N] [--limit N]`: each call's caller
+  and agent speech the old way and the new way, and the calls whose label
+  would change (the caller crossing VOICE_MIN_SECONDS). Saves nothing.
+
+Switching on (after the comparison and the audit team's check of the calls
+that change): add `VOICE_QUIET_GAIN=1 VOICE_SOFT=1` in front of the
+voice_check line in Server B's crontab. Off again: remove them.
+
+Tests: `routing/test_voice_soft.py` (5). No migration. Deploy: `git pull` on
+Server B (the voice check runs from the folder); nothing changes until the
+two settings are switched on.
