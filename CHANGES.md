@@ -11356,3 +11356,35 @@ Tests: `routing/test_popup_audit.py`, `routing/test_ai_labels.py`,
 No migration. Deploy: `git pull` (the ai_final script runs from the folder),
 `docker compose up -d --build web` (web only). New calls only; no old label
 is changed.
+
+## CH-669 - Support chat: greetings only ("hi") are blocked
+
+12 Nov: "For any visitor who is texting Hi Hi every time with nothing to say:
+if he/she says Hi more than 3 times without adding a word or the help he
+needs, prevent him from sending more chats to our system." 24 hours; greeting
+again within the 24 hours - for good. No further greetings, but a real
+question still gets through. Nobody blocks or unblocks: the system knows the
+same person. Only when someone is blocked: his location and device in the
+Non Priority group.
+
+- The same person: the same chat, OR the same browser (a random id the chat
+  keeps in the browser - sent by the portal and website chats), OR the same
+  internet address. (Each new chat has a new code: 3 "Hi" on 11-12 Nov were
+  3 new chats.)
+- A greeting: greeting words only - "hi", "hiii", "hello", "hey there",
+  "good morning sir", "hi team" - or nothing readable (an emoji, "?").
+  Anything else is a real message: always sent; it starts the count again.
+- Greetings 1-3 (within 24 h, since the last real message): sent as before.
+  The 4th: kept, marked held, not sent to the team; the visitor sees "Please
+  tell us what you need help with."; greetings blocked 24 h. A greeting
+  within the 24 h (or a 4th again after them): blocked for good.
+- Non Priority group on each block: name, email, chat code, location (city,
+  region, country and provider from the IP - ipinfo.io, approximate, not
+  GPS) and device ("Chrome 130 on Windows 10/11").
+- Nothing deleted: every held greeting stays with its chat.
+
+Settings: SUPPORT_GREETING_LIMIT (3), SUPPORT_GREETING_BLOCK_HOURS (24),
+IPINFO_TOKEN (optional). Migration: support 0004 (columns only).
+Tests: `support/test_greetings.py`. Frontend (Avortyx, same CH): the browser
+id, and the notice in both chats.
+Deploy: `git pull`, `docker compose up -d --build web`, `migrate` (web only).

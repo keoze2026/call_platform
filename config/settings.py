@@ -877,6 +877,14 @@ MEDIA_ROOT = BASE_DIR / 'media'
 MEDIA_URL = f'{MEDIA_BASE_URL}/media/'
 
 TELEGRAM_SUPPORT_CHAT_ID = config('TELEGRAM_SUPPORT_CHAT_ID', default='')
+# CH-669 (12 Nov): a support chat visitor who sends greetings only ("hi") more
+# than SUPPORT_GREETING_LIMIT times: greetings are not sent to the team for
+# SUPPORT_GREETING_BLOCK_HOURS; greeting again within them - for good. Real
+# questions always go. On a block, location (from the IP) and device go to
+# the Non Priority topic. IPINFO_TOKEN optional (ipinfo.io, free without).
+SUPPORT_GREETING_LIMIT = config('SUPPORT_GREETING_LIMIT', default=3, cast=int)
+SUPPORT_GREETING_BLOCK_HOURS = config('SUPPORT_GREETING_BLOCK_HOURS', default=24, cast=int)
+IPINFO_TOKEN = config('IPINFO_TOKEN', default='')
 # Forum topics inside the support group (the bot dev's suggestion): customer
 # support chatter in one thread, system notifications in another. Empty =
 # no topics, everything lands in the group root, exactly as before.

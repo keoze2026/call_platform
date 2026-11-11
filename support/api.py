@@ -12,10 +12,22 @@ class StartSessionSchema(Schema):
     name: str = ''
     email: str = ''
     message: str
+    # CH-669: the browser's own random id (kept in that browser), so the same
+    # person is known in a new chat.
+    browser_id: str = ''
 
 
 class SendMessageSchema(Schema):
     message: str
+    browser_id: str = ''
+
+
+def _who(request, browser_id='') -> dict:
+    """CH-669: internet address, browser id and browser of the visitor."""
+    from config.ratelimit import client_ip
+    return {'client_ip': (client_ip(None, request) or '')[:45],
+            'browser_id': (browser_id or '').strip()[:64],
+            'user_agent': (request.META.get('HTTP_USER_AGENT') or '')[:300]}
 
 
 def send_telegram_support(text, session_id):
@@ -52,12 +64,21 @@ def start_chat(request, payload: StartSessionSchema):
     session = SupportSession.objects.create(
         name=payload.name,
         email=payload.email,
+        **_who(request, payload.browser_id),
     )
+    # CH-669: greetings only, more than SUPPORT_GREETING_LIMIT times: kept,
+    # not sent to the team.
+    from support import greetings
+    greeting, held = greetings.check(session, payload.message)
     SupportMessage.objects.create(
         session=session,
         sender='visitor',
         message=payload.message,
+        greeting=greeting,
+        held=held,
     )
+    if held:
+        return 201, {'session_id': str(session.id), 'message': greetings.NOTICE, 'blocked': True}
 
     try:
         name = payload.name or 'Anonymous'
@@ -91,11 +112,24 @@ def send_message(request, session_id: str, payload: SendMessageSchema):
     from support.models import SupportSession, SupportMessage
     try:
         session = SupportSession.objects.get(id=session_id)
+        # CH-669: who is writing now (kept up to date), and greetings only.
+        who = _who(request, payload.browser_id)
+        who = {k: v for k, v in who.items() if v}
+        if who:
+            SupportSession.objects.filter(pk=session.pk).update(**who)
+            for k, v in who.items():
+                setattr(session, k, v)
+        from support import greetings
+        greeting, held = greetings.check(session, payload.message)
         SupportMessage.objects.create(
             session=session,
             sender='visitor',
             message=payload.message,
+            greeting=greeting,
+            held=held,
         )
+        if held:
+            return 200, {'message': greetings.NOTICE, 'blocked': True}
         try:
             name = session.name or 'Anonymous'
             prefix = str(session.id)[:8]
