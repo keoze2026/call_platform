@@ -11254,3 +11254,17 @@ voice_check line in Server B's crontab. Off again: remove them.
 Tests: `routing/test_voice_soft.py` (5). No migration. Deploy: `git pull` on
 Server B (the voice check runs from the folder); nothing changes until the
 two settings are switched on.
+
+## CH-664 - AI Audit: search by caller ID, smaller filter boxes
+
+11 Nov: "in AI Audit, make these filter boxes small and add a search bar,
+where the user can search with caller ID".
+
+Backend: `GET /api/ai-audit/calls` takes `q`, the caller ID - any part of the
+number, typed with or without +1, spaces or dashes (3 digits or more). The
+list and the filter boxes then show that caller's calls on the chosen day.
+Frontend (Avortyx, same CH): the search box above the list, and the filter
+boxes in one compact line each (name and count side by side).
+
+Tests: `routing/test_ai_audit_search.py` (2). No migration, no new address.
+Deploy: `web` (any time), with the frontend patch.

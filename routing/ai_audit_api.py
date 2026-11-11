@@ -9,9 +9,10 @@ label. Use corrections to retrain. Show AI accuracy % on the portal."
 A buyer or publisher login gets 403 on every endpoint here.
 
     GET  /api/ai-audit/status                        accuracy %, waiting count, thresholds
-    GET  /api/ai-audit/calls?date=YYYY-MM-DD&label=   a day's answered calls (EST)
+    GET  /api/ai-audit/calls?date=YYYY-MM-DD&label=&q=   a day's answered calls (EST); q = caller ID
     POST /api/ai-audit/calls/{id}/review   {correct: true} | {correct: false, label, note}
 """
+import re
 from datetime import datetime, time, timedelta
 from typing import Optional
 from zoneinfo import ZoneInfo
@@ -173,7 +174,7 @@ def translate_comments(request, payload: TranslateIn):
 
 @router.get('/calls', response={200: dict})
 def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, page_size: int = 50,
-          by: str = '', key: str = ''):
+          by: str = '', key: str = '', q: str = ''):
     user = _staff(request)
     try:
         day = datetime.strptime(date, '%Y-%m-%d').date() if date else timezone.now().astimezone(ET).date()
@@ -182,6 +183,11 @@ def calls(request, date: Optional[str] = None, label: str = '', page: int = 1, p
     if label not in FILTERS:
         raise HttpError(400, f'label must be one of: {", ".join(f for f in FILTERS if f)}')
     qs = _one_row(_day_qs(user, day), by, key)       # CH-650: one breakdown row or caller
+    # CH-664: search by caller ID - any part of the number, typed with or
+    # without +1, spaces or dashes; the boxes count that caller's calls too.
+    digits = re.sub(r'\D', '', q or '')
+    if len(digits) >= 3:
+        qs = qs.filter(caller_number__contains=digits)
     counts = qs.aggregate(
         total=Count('id'),
         pending=Count('id', filter=Q(ai_checked_at__isnull=True) & ~Q(voice_label='missing')),
