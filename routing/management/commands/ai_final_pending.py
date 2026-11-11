@@ -60,9 +60,12 @@ class Command(BaseCommand):
         # CH-594: a real conversation (the rules say Valid and the caller spoke
         # for AI_FINAL_SKIP_CALLER_SECONDS or more) is not sent - the same rule
         # as ai_labels.needs_final. Named calls (--id) always go.
+        # CH-667: and the agent spoke too - a caller side talking on its own
+        # (a computer pop-up) is checked.
         skip = ai_labels.final_skip_seconds()
         if skip and not o['id']:
-            sure = Q(voice_caller_seconds__gte=skip) & (
+            agent_spoke = Q(voice_agent_seconds__gte=ai_labels._min_speech()) | Q(voice_agent_seconds__isnull=True)
+            sure = Q(voice_caller_seconds__gte=skip) & agent_spoke & (
                 Q(ai_rule_label=ai_labels.VALID) | (Q(ai_rule_label='') & Q(ai_label=ai_labels.VALID)))
             qs = qs.exclude(sure)
         qs = (qs.exclude(recording_url='').exclude(ai_label='')

@@ -11313,3 +11313,46 @@ up -d --build web web_calls celery_worker celery_beat`, `python manage.py
 migrate`, `python manage.py tfn_pools --prove`. Then: KMQ `risk_override`
 high if it reads low; numbers into the stock with `import_tfns --stock`; each
 customer account's type on the Owner page.
+
+## CH-667 - No Voice AI: the computer pop-up is not the caller
+
+12 Nov, audit team: "the AI is still missing some No Voice - long No Voice
+calls, a beep followed by the agent speaking - marked as valid"; "65-70%".
+The team's own marks, 8-11 Nov: 191 marked, 182 Correct, 9 Wrong - all No
+Voice (or Caller OK) called Valid / Caller OK, three kinds:
+
+1. The caller's computer POP-UP talking on the caller's line ("suspicious
+   activity on Facebook, please call our support", "identity theft"). Silero
+   hears speech; the LLM said Valid or Robocall. The team: Only Agent +
+   Beeping. In 7 days 239 calls had such words: 152 Robocall (could not be
+   marked), 81 Valid.
+2. Caller side 15 s+ and the agent under 1 s: kept Valid with no transcript
+   check (CH-594 skip) - 71 calls in 7 days; the 3 marked were all wrong.
+3. The LLM turning a No Voice rule label into Valid / Caller OK on a stray
+   word (caller 0-0.3 s by Silero): 180 of 1107 in 7 days; of the 6 marked,
+   5 were No Voice.
+
+Fixes:
+- `scripts/ai_final/ai_final.py` instructions: a pop-up warning on the
+  caller's line is agent_beep (Only Agent + Beeping), not the caller and not
+  Robocall - unless a live person also talks with the agent. Robocall = an
+  automated caller that dialled in itself. With under 1 s of caller speech by
+  Silero and a No Voice rule label, the LLM keeps No Voice unless a live
+  caller clearly answers the agent in their own words.
+- `ai_labels.needs_final` / `ai_final_pending`: the 15 s skip needs the
+  agent to have spoken too (VOICE_MIN_SECONDS); otherwise the call goes to
+  the transcript check.
+- Robocall calls can be marked Correct / Wrong in AI Audit (team: "need more
+  verification on Robocall classification").
+
+Proof before deploy (dry run on the team's own 24 marked calls, no examples,
+nothing saved): matching the team 15/24 before, 19/24 with the first
+version; the 8 No Voice calls the AI had called Valid / Caller OK all No
+Voice, the 8 Correct No Voice calls unchanged. The second version also keeps
+a live caller who mentions the pop-up Valid, and a clear "hello?" Caller OK.
+
+Tests: `routing/test_popup_audit.py`, `routing/test_ai_labels.py`,
+`routing/test_ai_accuracy.py` (updated).
+No migration. Deploy: `git pull` (the ai_final script runs from the folder),
+`docker compose up -d --build web` (web only). New calls only; no old label
+is changed.

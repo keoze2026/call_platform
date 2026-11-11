@@ -365,8 +365,8 @@ class BackendTests(TestCase):
         # CH-616 (Sir, 6 Nov): "For now train it for NV" - verdicts on No Voice
         # calls; CH-643 (8 Nov): Valid and Caller OK calls too, so a No Voice
         # call the AI missed (it said Valid) is shown to the LLM as a mistake.
-        # A verdict on an IVR / Robocall / Voice Found call is kept on the call
-        # but never shown to the LLM.
+        # A verdict on an IVR / Voice Found call is kept on the call but never
+        # shown to the LLM. CH-667: Robocall is audited, so it is shown.
         now = timezone.now()
         for label, said in (('valid', 'agent_only'), ('dead_caller', 'valid'), ('robocall', 'robocall'),
                             ('caller_ok', 'caller_ok'), ('mixed', 'mixed'), ('valid', 'ivr')):
@@ -378,7 +378,8 @@ class BackendTests(TestCase):
         wrong = [r for r in rows if r['wrong']]
         self.assertEqual({(r['ai_said'], r['label']) for r in wrong}, {('agent_only', 'valid'), ('valid', 'dead_caller')})
         self.assertEqual(rows[:2], wrong)                                          # mistakes first
-        self.assertEqual([r['ai_said'] for r in rows[2:]], ['caller_ok', 'agent_beep'])
+        self.assertEqual(sorted(r['ai_said'] for r in rows[2:4]), ['caller_ok', 'robocall'])
+        self.assertEqual([r['ai_said'] for r in rows[4:]], ['agent_beep'])
         self.assertTrue(all(r['ai_said'] in ai_labels.AUDITED for r in rows))
         nv.refresh_from_db()
         self.assertEqual(CallLog.objects.exclude(ai_review_label='').count(), 7)    # nothing removed

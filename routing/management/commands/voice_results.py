@@ -110,7 +110,8 @@ class Command(BaseCommand):
                 # turns into Valid a few seconds later.
                 if not (getattr(settings, 'AI_FINAL_ENABLED', False) and ai_labels.needs_final(
                         before[4], extra['ai_label'], extra.get('voice_caller_seconds'),
-                        fault=extra.get('voice_audio_fault'), has_recording=bool(before[5]))):
+                        fault=extra.get('voice_audio_fault'), has_recording=bool(before[5]),
+                        agent_seconds=extra.get('voice_agent_seconds'))):
                     new_no_voice.append(call_id)
         summary = 'voice {voice} | no_voice {no_voice} | missing {missing} | skipped {skipped}'.format(**counts)
         # CH-536: the instant report to the team's Telegram (VOICE_TELEGRAM_ALERTS).

@@ -56,9 +56,10 @@ NO_VOICE = (DEAD, AGENT_ONLY, AGENT_BEEP)
 # CH-643 (8 Nov): the calls the audit team gives Correct / Wrong on. CH-616
 # put it on No Voice calls only; the team's misses - a No Voice call the AI
 # called Valid or "Caller spoke, no issue" - could then not be marked, so the
-# AI never learnt from them. Valid and Caller OK are audited too now; IVR,
-# Robocall and Voice Found still are not.
-AUDITED = NO_VOICE + (VALID, CALLER_OK)
+# AI never learnt from them. Valid and Caller OK are audited too now; IVR
+# and Voice Found still are not. CH-667 (12 Nov, audit team: "need more
+# verification on Robocall classification"): Robocall is audited too.
+AUDITED = NO_VOICE + (VALID, CALLER_OK, ROBOCALL)
 NAMES = {
     VALID: 'Valid Call',
     DEAD: 'No Voice | Dead Caller',
@@ -82,15 +83,22 @@ def final_skip_seconds() -> float:
         return 15.0
 
 
-def needs_final(status, rule_label, caller_seconds, fault=False, has_recording=True) -> bool:
+def needs_final(status, rule_label, caller_seconds, fault=False, has_recording=True,
+                agent_seconds=None) -> bool:
     """CH-594: will scripts/ai_final give this call its final label? The same
     rule as ai_final_pending, so the Telegram alert waits for the LLM only on
-    calls the LLM will really see (AI_FINAL_ENABLED)."""
+    calls the LLM will really see (AI_FINAL_ENABLED).
+
+    CH-667 (12 Nov): a long caller side is a real conversation only when the
+    agent spoke too. 71 calls in a week had the caller's side "speaking" 15 s
+    or more and the agent under 1 s - a computer pop-up talking - and were
+    kept Valid unchecked; the 3 the team listened to were all No Voice."""
     if status != 'completed' or fault or not has_recording or not rule_label:
         return False
     skip = final_skip_seconds()
     if skip and rule_label == VALID and caller_seconds is not None and float(caller_seconds) >= skip:
-        return False
+        if agent_seconds is None or float(agent_seconds) >= _min_speech():
+            return False
     return True
 
 

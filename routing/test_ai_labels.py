@@ -181,8 +181,9 @@ class AiAuditFlowTests(TestCase):
         # mark a No Voice call the AI missed; IVR / Robocall / Voice Found not.
         now = timezone.now()
         nv = {lab: self.call(ai_label=lab, ai_checked_at=now) for lab in ai_labels.NO_VOICE}
-        passed = {lab: self.call(ai_label=lab, ai_checked_at=now) for lab in ('valid', 'caller_ok')}
-        other = {lab: self.call(ai_label=lab, ai_checked_at=now) for lab in ('ivr', 'robocall', 'mixed')}
+        # CH-667: Robocall is audited too.
+        passed = {lab: self.call(ai_label=lab, ai_checked_at=now) for lab in ('valid', 'caller_ok', 'robocall')}
+        other = {lab: self.call(ai_label=lab, ai_checked_at=now) for lab in ('ivr', 'mixed')}
         # A verdict given on a Valid call earlier: kept, and now counted (a miss).
         old = self.call(ai_label='valid', ai_checked_at=now, ai_review_label='agent_only', ai_reviewed_at=now)
         admin = self.api('admin')
@@ -198,7 +199,7 @@ class AiAuditFlowTests(TestCase):
             for body in ({'correct': True}, {'correct': False, 'label': 'dead_caller'}):
                 r = post(c.id, body)
                 self.assertEqual(r.status_code, 400, lab)
-                self.assertIn('Caller spoke calls only', r.json()['detail'])
+                self.assertIn('Caller spoke and Robocall calls only', r.json()['detail'])
             c.refresh_from_db()
             self.assertEqual((c.ai_review_label, c.ai_reviewed_at), ('', None))
         # 3. No Voice calls: Correct, and Wrong with any right label (Valid too)

@@ -245,7 +245,7 @@ def review(request, call_id: str, body: ReviewIn):
         raise HttpError(400, 'The AI has not checked this call yet.')
     if c.ai_label not in ai_labels.AUDITED:
         # CH-616 / CH-643: No Voice, Valid and Caller OK calls are audited.
-        raise HttpError(400, 'Audit is on No Voice, Valid and Caller spoke calls only.')
+        raise HttpError(400, 'Audit is on No Voice, Valid, Caller spoke and Robocall calls only.')
     if body.correct:
         label = c.ai_label
     else:
