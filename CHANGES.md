@@ -11398,3 +11398,19 @@ in the chat itself, from the team: "Please tell us what you need help with."
 - saved with the chat, never sent to Telegram, shown by every chat window.
 Tests: `support/test_greetings.py` (updated). No migration. Deploy: `git
 pull`, `docker compose up -d --build web`.
+
+## CH-670 - One command for the balance of every connected service
+
+12 Nov: "Checking balances of all our connected integrations of the server -
+can we have a command?"
+
+    docker compose exec -T web python manage.py balances
+
+Read-only, keys never printed, one line each: Twilio and Telnyx (their own
+balance API, read now), Deepgram (when its key is set), XOLO (no API - the
+amount last sent with /balance), our own workspace balance in the portal;
+AssemblyAI, Anthropic, OpenAI, IPQS, RealValidito and Freedom: connected or
+not - no balance API, see their own website. A service that fails never hides
+the others.
+Tests: `support/test_balances.py`. No migration. Deploy: `git pull` only (the
+web container reads the folder; nothing restarts).
