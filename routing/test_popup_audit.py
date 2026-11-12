@@ -94,6 +94,17 @@ class InstructionTests(SimpleTestCase):
         self.assertIn('LITTLE CALLER SPEECH', self.system)
         self.assertIn('A clear greeting from a live caller in reply to the agent', self.system)
         self.assertIn('even only to say they got a notice or pop-up on their computer', self.system)
+
+    def test_background_echo_and_stray_words_are_not_the_caller(self):
+        # CH-674 (13 Nov): 72 calls marked since CH-667, 66 right; 5 of the 6
+        # wrong were a TV advert / Spanish news, the agent's own greeting, or
+        # "Me." "Okay." on the caller's line called a caller.
+        s = self.system
+        self.assertIn('BACKGROUND: speech on the caller', s)
+        self.assertIn('help St. Jude find more cures for more children', s)
+        self.assertIn('if everything on the caller\'s line is the agent\'s own words', s)
+        self.assertIn('Stray words that do not answer the agent', s)
+        self.assertIn('a lone "hello?" when the agent never spoke does not', s)
         self.assertIn('Silero heard under 1 s of human speech', self.system)
 
     def test_every_label_still_described_once(self):

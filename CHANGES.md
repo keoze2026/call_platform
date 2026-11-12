@@ -11472,3 +11472,23 @@ KOZ's miss (hidden) with 0 s.
 Tests: `routing/test_failover_ttc.py` (3). No migration. Deploy: `git pull`,
 `docker compose up -d --build web web_calls` (web_calls takes the hang-up -
 after hours, test call before and after), then the repair, dry run first.
+
+## CH-674 - No Voice AI: background TV, echo and stray words are not the caller
+
+13 Nov: since CH-667 (11 Nov 5:50 PM EST) the audit team marked 72 new calls:
+66 right (92%). 5 of the 6 wrong were the AI calling a caller what was not:
+a TV advert ("help St. Jude find more cures for more children") and Spanish
+TV news on the caller's line; the agent's own greeting echoed on the caller's
+line ("Thank you for calling technical support, this is Alex"); stray
+fragments ("Me." "Okay."; a lone "Hello?" when the agent never spoke) taken
+as "Caller spoke". The instructions (`scripts/ai_final/ai_final.py`) now say:
+- BACKGROUND: speech not addressed to the agent - TV, radio, an advert, news,
+  a song, another conversation - is not the caller: No Voice.
+- ECHO: when everything on the caller's line is the agent's own words, the
+  call is agent_only even when the rule label says valid.
+- caller_ok is a live person speaking TO the agent; stray words that do not
+  answer the agent are not; a lone "hello?" when the agent never spoke is not.
+(The 6th - a caller the AI called pop-up - is left to the team's examples.)
+Proof before deploy: dry run on every call the team marked (gold set), old
+vs new. Tests: `routing/test_popup_audit.py`. No migration. Deploy: `git
+pull` (the ai_final script runs from the folder; nothing restarts).
