@@ -752,6 +752,13 @@ def workspace_activity(request: HttpRequest, page: int = 1, page_size: int = 50)
         Q(organization_id=org_id)
         | Q(organization__isnull=True, user_id__in=_Login.objects.filter(organization_id=org_id).values('id'))
     ).order_by('-created_at')
+    # CH-671: the built-in roles the platform made when the account was opened
+    # (logged as the client's own until now) are not shown - kept, never
+    # deleted. Built-in names are taken by the built-ins, so a role a person
+    # created never has one of them.
+    from accounts.workspace_permissions import BUILTIN_NAMES
+    logs = logs.exclude(action=ActivityLog.Action.RECORD_CREATED, metadata__target_type='role',
+                        metadata__target_name__in=list(BUILTIN_NAMES.values()))
     # Only the page asked for is read and built. The whole log used to be loaded
     # on every request, which is fine for a few hundred rows and not for the
     # thousands this will hold now that every change is recorded.

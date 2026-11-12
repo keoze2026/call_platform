@@ -11434,3 +11434,18 @@ Tests: `support/test_balances.py` (5). No migration. Deploy: `git pull` (the
 command and /status read the folder), then `docker compose restart
 celery_worker` so the 15-minute status watch takes the new check (seconds;
 waiting tasks stay queued) - after hours to be safe.
+
+## CH-671 - A new client's activity log starts with what the client did
+
+12 Nov, on a new client's Workspace > Activity: "Mistake 1 - these things
+should be cleared to new clients." The first lines were "Created Role Admin /
+Viewer / Manager / Agent" under the client's own name: the 4 built-in roles
+the platform makes when the account is first opened - not the client's doing.
+
+- Not logged any more when the platform makes them (a role a person creates
+  is still logged, as before).
+- The ones already logged are not shown in any account's activity log -
+  kept, never deleted.
+- Sign-ins stay in the log: they are real sign-ins to the account.
+Tests: `accounts/test_new_client_log.py`. No migration. Deploy: `git pull`,
+`docker compose up -d --build web` (web only).

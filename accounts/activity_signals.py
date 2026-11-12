@@ -235,6 +235,14 @@ def on_save(sender, instance, created, **kwargs):
             # feed names it as its own action (CH-200).
             extra['switched'] = 'on' if changes['enabled']['new'] == 'True' else 'off'
 
+    if created and _label(instance) == 'accounts.CustomRole' and getattr(instance, 'is_builtin', False):
+        # CH-671 (12 Nov, "these things should be cleared to new clients"):
+        # the 4 built-in roles (Admin, Manager, Viewer, Agent) are made by the
+        # platform when the account is first opened - not by the client.
+        # Logged under the client's name they were the first lines of a new
+        # client's activity log. A role a person creates is still logged.
+        return
+
     _write(
         instance,
         ActivityLog.Action.RECORD_CREATED if created else ActivityLog.Action.RECORD_UPDATED,
