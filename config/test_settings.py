@@ -23,3 +23,5 @@ RECORDING_BASE_URL = ''
 ZERO_SECOND_ANSWER_IS_NOT_CONNECTED = True
 # CH-634: links unsigned unless a test turns signing on itself.
 RECORDING_LINK_SECRET = ''
+# CH-670: no live Twilio / Telnyx balance reads from the suite.
+BALANCE_CHECKS = False

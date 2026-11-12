@@ -29,9 +29,18 @@ def fake_get(url, **kw):
     return Resp({}, 404)
 
 
-@override_settings(MAIN_ORGANIZATION_SLUG='interns', TWILIO_ACCOUNT_SID='AC1', TWILIO_AUTH_TOKEN='secret-token',
-                   TELNYX_API_KEY='KEY-secret', ASSEMBLYAI_API_KEY='aai')
+KEYS = {'TWILIO_ACCOUNT_SID': 'AC1', 'TWILIO_AUTH_TOKEN': 'secret-token', 'TELNYX_API_KEY': 'KEY-secret',
+        'ASSEMBLYAI_API_KEY': 'aai'}
+
+
+@override_settings(MAIN_ORGANIZATION_SLUG='interns')
 class BalancesTests(TestCase):
+    def setUp(self):
+        # The server's own .env is in the test container: only these keys count.
+        p = mock.patch('support.management.commands.balances._key', side_effect=lambda n: KEYS.get(n, ''))
+        p.start()
+        self.addCleanup(p.stop)
+
     def run_it(self):
         out = StringIO()
         with mock.patch('requests.get', side_effect=fake_get), \
@@ -59,3 +68,69 @@ class BalancesTests(TestCase):
             out = self.run_it()
         self.assertIn('error: ConnectionError: down', out)
         self.assertIn('40.10 USD', out)
+
+
+def low_telnyx(url, **kw):
+    if 'twilio.com' in url:
+        return Resp({'balance': '252.93', 'currency': 'USD'})
+    return Resp({'data': {'balance': '8.23', 'available_credit': '8.23', 'currency': 'USD'}})
+
+
+@override_settings(BALANCE_CHECKS=True)
+class LowBalanceAlertTests(TestCase):
+    """12 Nov: "low alerts to the Notifications group, since this might cost
+    us - but rarely, not regularly". Telnyx was $8.23."""
+
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        p = mock.patch('support.management.commands.balances._key', side_effect=lambda n: KEYS.get(n, ''))
+        p.start()
+        self.addCleanup(p.stop)
+
+    def watch(self, getter=low_telnyx, at=None):
+        import time
+
+        from support import system_status as S
+        sent = []
+        with mock.patch('requests.get', side_effect=getter), \
+                mock.patch.object(S, 'collect', lambda: [('8', S.check_provider_balances())]), \
+                mock.patch('support.system_status.time.time', return_value=at or time.time()):
+            S.watch(sent.append)
+        return sent
+
+    def test_low_is_said_once_a_day_and_back_to_normal_once(self):
+        import time
+
+        from django.core.cache import cache
+        now = time.time()
+        sent = self.watch(at=now)
+        self.assertEqual(len(sent), 1)
+        self.assertIn('Telnyx balance: $8.23 · below $10 - please top up', sent[0])
+        self.assertEqual(self.watch(at=now + 900), [])            # every 15 min: nothing new
+        self.assertEqual(self.watch(at=now + 12 * 3600), [])      # not twice a day
+        self.assertEqual(len(self.watch(at=now + 25 * 3600)), 1)  # once a day while low
+        cache.delete('status:balance-read:telnyx')
+        topped = lambda url, **kw: Resp({'data': {'balance': '60', 'currency': 'USD'}}) if 'telnyx' in url \
+            else low_telnyx(url)
+        back = self.watch(topped, at=now + 26 * 3600)
+        self.assertEqual(len(back), 1)
+        self.assertIn('Back to normal', back[0])
+
+    def test_twilio_above_its_floor_is_quiet_and_a_failed_read_never_alerts(self):
+        from support import system_status as S
+        with mock.patch('requests.get', side_effect=low_telnyx):
+            items = {i.name: i for i in S.check_provider_balances()}
+        self.assertEqual((items['Twilio balance'].status, items['Twilio balance'].detail), (S.OK, '$252.93'))
+        self.assertEqual(items['Telnyx balance'].status, S.WARN)
+        from django.core.cache import cache
+        cache.clear()
+        with mock.patch('requests.get', side_effect=ConnectionError('down')):
+            items = S.check_provider_balances()
+        self.assertEqual({i.status for i in items}, {S.NA})
+        self.assertEqual(self.watch(lambda url, **kw: (_ for _ in ()).throw(ConnectionError('down'))), [])
+
+    @override_settings(BALANCE_CHECKS=False)
+    def test_off_in_the_test_suite(self):
+        from support import system_status as S
+        self.assertEqual(S.check_provider_balances(), [])

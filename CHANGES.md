@@ -11414,3 +11414,23 @@ not - no balance API, see their own website. A service that fails never hides
 the others.
 Tests: `support/test_balances.py`. No migration. Deploy: `git pull` only (the
 web container reads the folder; nothing restarts).
+
+## CH-670 (follow-up, 12 Nov) - Low balance warning in Notifications, once a day
+
+"Also low alerts to the Notifications group, since this might cost us - you
+see Telnyx has 8.23. But rarely, not regularly."
+- Twilio and Telnyx balances join /status (8. Subscriptions and billing),
+  read from their own API at most every 30 minutes.
+- Below the floor - BALANCE_WARN_TWILIO (50) / BALANCE_WARN_TELNYX (10)
+  dollars in .env, 0 = no warning - one warning in the Notifications group
+  ("Telnyx balance: $8.23 · below $10 - please top up"), again at most once
+  a day while it stays low, and one "Back to normal" when topped up.
+- A balance that cannot be read is shown in /status, never alerted on.
+- XOLO keeps its own warning (/balance), as before.
+Also: the CH-670 tests no longer take the server's own keys (one failed on
+Server B: its .env has a Deepgram key); the suite never reads live balances
+(BALANCE_CHECKS False in test settings).
+Tests: `support/test_balances.py` (5). No migration. Deploy: `git pull` (the
+command and /status read the folder), then `docker compose restart
+celery_worker` so the 15-minute status watch takes the new check (seconds;
+waiting tasks stay queued) - after hours to be safe.

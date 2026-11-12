@@ -28,32 +28,59 @@ def _key(name):
     return (getattr(settings, name, '') or os.environ.get(name, '') or '').strip()
 
 
-def twilio():
+class NotConnected(Exception):
+    pass
+
+
+def twilio_amount():
+    """(balance, currency) as Twilio reports it. NotConnected without keys."""
     sid, token = _key('TWILIO_ACCOUNT_SID'), _key('TWILIO_AUTH_TOKEN')
     if not (sid and token):
-        return 'not connected (no TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN)'
+        raise NotConnected('no TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN')
     r = requests.get(f'https://api.twilio.com/2010-04-01/Accounts/{sid}/Balance.json', auth=(sid, token),
                      timeout=TIMEOUT)
     if not r.ok:
-        return f'error: Twilio answered HTTP {r.status_code}'
+        raise RuntimeError(f'Twilio answered HTTP {r.status_code}')
     d = r.json()
-    return f"{float(d['balance']):,.2f} {d.get('currency', '')}".strip()
+    return float(d['balance']), d.get('currency', '')
 
 
-def telnyx():
+def telnyx_amount():
+    """(balance, currency, available credit or None) as Telnyx reports it."""
     key = _key('TELNYX_API_KEY')
     if not key:
-        return 'not connected (no TELNYX_API_KEY)'
+        raise NotConnected('no TELNYX_API_KEY')
     r = requests.get('https://api.telnyx.com/v2/balance', headers={'Authorization': f'Bearer {key}'},
                      timeout=TIMEOUT)
     if not r.ok:
-        return f'error: Telnyx answered HTTP {r.status_code}'
+        raise RuntimeError(f'Telnyx answered HTTP {r.status_code}')
     d = r.json().get('data') or {}
-    cur = d.get('currency', '')
-    line = f"{float(d.get('balance', 0)):,.2f} {cur}".strip()
-    if d.get('available_credit') is not None:
-        line += f" (available {float(d['available_credit']):,.2f} {cur})".rstrip()
-    return line
+    avail = d.get('available_credit')
+    return float(d.get('balance', 0)), d.get('currency', ''), (float(avail) if avail is not None else None)
+
+
+def _line(read):
+    try:
+        return read()
+    except NotConnected as e:
+        return f'not connected ({e})'
+
+
+def twilio():
+    def read():
+        amount, cur = twilio_amount()
+        return f'{amount:,.2f} {cur}'.strip()
+    return _line(read)
+
+
+def telnyx():
+    def read():
+        amount, cur, avail = telnyx_amount()
+        line = f'{amount:,.2f} {cur}'.strip()
+        if avail is not None:
+            line += f' (available {avail:,.2f} {cur})'.rstrip()
+        return line
+    return _line(read)
 
 
 def deepgram():

@@ -755,6 +755,43 @@ def check_carrier_balance():
     return [Item('Carrier balance (XOLO)', st, detail, key='balance')]
 
 
+def check_provider_balances():
+    """CH-670 (12 Nov: "low alerts to the Notifications group, since this
+    might cost us - but rarely, not regularly"): Twilio and Telnyx balances,
+    read from their own API at most every 30 minutes. Below its floor
+    (BALANCE_WARN_TWILIO / BALANCE_WARN_TELNYX, dollars; 0 = no warning) the
+    item is a warning: one message, again at most once a day while low, and
+    "back to normal" once topped up (watch(), COOLDOWN_PREFIX)."""
+    if not getattr(settings, 'BALANCE_CHECKS', True):
+        return []
+    from support.management.commands import balances as B
+
+    def amount(name, read):
+        k = f'status:balance-read:{name}'
+        got = cache.get(k)
+        if got is None:
+            got = read()[0]
+            cache.set(k, got, 1800)
+        return got
+
+    items = []
+    for name, label, read, floor_key, default in (
+            ('twilio', 'Twilio balance', B.twilio_amount, 'BALANCE_WARN_TWILIO', 50),
+            ('telnyx', 'Telnyx balance', B.telnyx_amount, 'BALANCE_WARN_TELNYX', 10)):
+        floor = _cfg(floor_key, default, cast=float)
+        try:
+            value = amount(name, read)
+        except B.NotConnected:
+            continue
+        except Exception as e:  # noqa: BLE001 - a failed read is shown, never alerted on
+            items.append(Item(label, NA, f'could not read: {str(e)[:80]}'))
+            continue
+        low = floor > 0 and value < floor
+        detail = f'${value:,.2f}' + (f' · below ${floor:,.0f} - please top up' if low else '')
+        items.append(Item(label, WARN if low else OK, detail, key=f'balance:{name}'))
+    return items
+
+
 # ── 9. Security ──────────────────────────────────────────────────────────────
 
 def check_logins():
@@ -1087,7 +1124,8 @@ AREAS = [
     ('6. Recording and storage', lambda h: check_recordings(h)),
     ('7. Reporting and notifications', lambda h: check_bot() + check_autodelete() + check_reports(h)
                                                 + check_email()),
-    ('8. Subscriptions and billing', lambda h: check_subscriptions() + check_carrier_balance()),
+    ('8. Subscriptions and billing', lambda h: check_subscriptions() + check_carrier_balance()
+     + check_provider_balances()),
     ('9. Security', lambda h: check_logins() + each(check_firewall)(h) + check_spikes()),
 ]
 
@@ -1177,6 +1215,8 @@ COOLDOWN = {WARN: 12 * 3600, DOWN: 3600}
 # Red items repeated every hour; a missing backup is known and waits on a
 # person (the B2 account), so it is repeated every 6 hours, not all night.
 COOLDOWN_KEY = {'backup': 6 * 3600}
+# CH-670: a low service balance is said once a day at most ("rarely").
+COOLDOWN_PREFIX = {'balance:': 24 * 3600}
 
 
 def watch(send) -> int:
@@ -1196,7 +1236,9 @@ def watch(send) -> int:
                     cache.delete(k)
                     sent += 1
                 continue
-            wait = COOLDOWN_KEY.get(it.key, COOLDOWN[it.status]) if it.status == DOWN else COOLDOWN[it.status]
+            wait = next((v for p, v in COOLDOWN_PREFIX.items() if it.key.startswith(p)), None)
+            if wait is None:
+                wait = COOLDOWN_KEY.get(it.key, COOLDOWN[it.status]) if it.status == DOWN else COOLDOWN[it.status]
             if prev and prev.get('status') == it.status and time.time() - prev.get('at', 0) < wait:
                 continue
             send(f'{ICON[it.status]} <b>Avortyx warning:</b> {escape(it.name)}: {escape(it.detail)}')
