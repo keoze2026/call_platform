@@ -78,6 +78,7 @@ def start_chat(request, payload: StartSessionSchema):
         held=held,
     )
     if held:
+        greetings.auto_reply(session)
         return 201, {'session_id': str(session.id), 'message': greetings.NOTICE, 'blocked': True}
 
     try:
@@ -129,6 +130,7 @@ def send_message(request, session_id: str, payload: SendMessageSchema):
             held=held,
         )
         if held:
+            greetings.auto_reply(session)
             return 200, {'message': greetings.NOTICE, 'blocked': True}
         try:
             name = session.name or 'Anonymous'

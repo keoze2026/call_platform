@@ -50,6 +50,13 @@ def is_greeting(text: str) -> bool:
     return any(_GREETING.match(w) for w in words) and all(_GREETING.match(w) or w in _FILLER for w in words)
 
 
+def auto_reply(session):
+    """The answer to a held greeting, in the chat itself as a message from
+    the team (12 Nov: a pop-up notice was missed) - never sent to Telegram."""
+    from support.models import SupportMessage
+    SupportMessage.objects.create(session=session, sender='agent', message=NOTICE)
+
+
 def _person(session):
     """Every chat of this person: the same chat, browser or internet address."""
     from support.models import SupportSession

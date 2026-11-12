@@ -78,8 +78,13 @@ class GreetingBlockTests(TestCase):
         s = SupportSession.objects.get(id=d['session_id'])
         self.assertEqual(s.greeting_block, 'day')
         self.assertAlmostEqual((s.greeting_block_until - timezone.now()).total_seconds(), 24 * 3600, delta=60)
-        m = SupportMessage.objects.get(session=s)
+        m = SupportMessage.objects.get(session=s, sender='visitor')
         self.assertEqual((m.message, m.greeting, m.held), ('Hi', True, True))   # kept, never deleted
+        # The answer is in the chat itself, from the team.
+        reply = SupportMessage.objects.get(session=s, sender='agent')
+        self.assertEqual(reply.message, greetings.NOTICE)
+        chat = self.client_for().get(f"/api/support/chat/{d['session_id']}").json()
+        self.assertEqual([x['message'] for x in chat['messages']][-1], greetings.NOTICE)
         text = self.nonpriority.call_args[0][0]
         self.assertIn('greetings blocked for 24 hours', text)
         self.assertIn('Location: Nairobi, Nairobi, KE (IP 41.90.1.2)', text)
@@ -126,6 +131,13 @@ class GreetingBlockTests(TestCase):
         for _ in range(4):
             self.start('Hi')
         self.assertNotIn('blocked', self.start('Hi', ip='105.1.1.1', browser='other'))
+
+    def test_each_held_greeting_is_answered_in_the_chat(self):
+        for _ in range(4):
+            sid = self.start('Hi')['session_id']
+        self.follow(sid, 'hi')
+        self.assertEqual(SupportMessage.objects.filter(session_id=sid, sender='agent').count(), 2)
+        self.assertEqual(SupportMessage.objects.filter(sender='agent').exclude(message=greetings.NOTICE).count(), 0)
 
     def test_a_real_message_starts_the_count_again(self):
         sid = self.start('Hi')['session_id']

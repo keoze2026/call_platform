@@ -11388,3 +11388,13 @@ IPINFO_TOKEN (optional). Migration: support 0004 (columns only).
 Tests: `support/test_greetings.py`. Frontend (Avortyx, same CH): the browser
 id, and the notice in both chats.
 Deploy: `git pull`, `docker compose up -d --build web`, `migrate` (web only).
+
+## CH-669 (follow-up, 12 Nov) - The answer to a held greeting is in the chat
+
+Tested 12 Nov: 4 "Hi" - 3 reached the group, the 4th did not, the Non
+Priority group got the block with location and device. But the visitor saw
+no answer (it was a short pop-up notice). Now each held greeting is answered
+in the chat itself, from the team: "Please tell us what you need help with."
+- saved with the chat, never sent to Telegram, shown by every chat window.
+Tests: `support/test_greetings.py` (updated). No migration. Deploy: `git
+pull`, `docker compose up -d --build web`.
