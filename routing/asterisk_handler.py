@@ -1160,10 +1160,15 @@ def call_ended(request):
     if answered and call_log.block_reason in ('asterisk_gone', 'stale_timeout'):
         # No longer an orphan: it was a real call.
         call_log.block_reason = ''
+    # CH-672 (12 Nov, HOZ, 5619328838): after the call moved to the next buyer
+    # its ring time counts from when THAT buyer was dialled, not from when the
+    # caller came in - HOZ was shown 21 s when it had the call for 6 s and
+    # KOZ, tried first, had rung 15 s of them.
+    ring_from = failover.try_started(call_log) or call_log.created_at
     if held_at:
         from routing.held_answer import as_datetime
         call_log.answered_at = min(as_datetime(held_at), ended_at)
-        call_log.ring_seconds = max(0, int((call_log.answered_at - call_log.created_at).total_seconds()))
+        call_log.ring_seconds = max(0, int((call_log.answered_at - ring_from).total_seconds()))
     if answered and not call_log.answered_at:
         call_log.answered_at = ended_at - timezone.timedelta(seconds=duration)
     # Switch-measured ring: DIALEDTIME covers the whole Dial (ring + talk),
@@ -1203,7 +1208,7 @@ def call_ended(request):
             # and ended when the hangup happens, so that span is the wait, to
             # within the routing step (well under a second).
             call_log.ring_seconds = max(
-                0, int((ended_at - call_log.created_at).total_seconds())
+                0, int((ended_at - ring_from).total_seconds())
             )
 
     # Why an unanswered call died, in the switch's own words. The owner's

@@ -11449,3 +11449,26 @@ the platform makes when the account is first opened - not the client's doing.
 - Sign-ins stay in the log: they are real sign-ins to the account.
 Tests: `accounts/test_new_client_log.py`. No migration. Deploy: `git pull`,
 `docker compose up -d --build web` (web only).
+
+## CH-672 - After a call moves to the next buyer, each buyer's ring time is its own
+
+12 Nov, HOZ: "you are lying - send SIP" about 5619328838 (10:31 AM EST,
+"missed on 30 TTC"). The SIP capture and the Asterisk CDR: KOZ got the call
+first, rang 15 s (10:31:06-10:31:22), no answer; the call moved to HOZ at
+10:31:22; the caller hung up at 10:31:28, before HOZ's phone rang (180 at
+10:31:28.96, our CANCEL at 10:31:30.6). HOZ did not miss it. Our Call Log
+showed the call on HOZ with ring 21 s - the caller's whole wait - and kept
+KOZ's miss (hidden) with 0 s.
+
+- The call's ring time (TTC) counts from when the buyer it is on was dialled
+  (the end of the last try it missed), not from when the caller came in.
+  A call on its first buyer is unchanged.
+- A missed try (CH-514, hidden) keeps how long it rang - from when it was
+  dialled until the call moved on - and that start time, instead of 0 s at
+  the next try's time (Asterisk sends no ring time for an unanswered dial).
+- `manage.py fix_failover_ttc [--days 7] [--caller N] [--apply]`: corrects the
+  calls from before (dry run by default; unanswered calls with tries only;
+  nothing deleted).
+Tests: `routing/test_failover_ttc.py` (3). No migration. Deploy: `git pull`,
+`docker compose up -d --build web web_calls` (web_calls takes the hang-up -
+after hours, test call before and after), then the repair, dry run first.

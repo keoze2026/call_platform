@@ -125,11 +125,29 @@ def cooling(buyer, number, now=None):
     return None
 
 
+def try_started(call_log):
+    """CH-672: when the destination the call is on now was dialled - the end
+    of the last try it missed - or None when it is the call's first
+    destination (it was dialled when the call came in)."""
+    from routing.models import CallLog
+    root_id = call_log.retry_root_id or call_log.pk
+    return (CallLog.objects.filter(retry_root_id=root_id, twilio_call_sid__contains='#try')
+            .exclude(pk=call_log.pk).order_by('-ended_at').values_list('ended_at', flat=True).first())
+
+
 def record_miss(call_log, dial_status: str, dialed_seconds: int):
     """Keep the destination this call just missed as a hidden row."""
     from routing.models import CallLog
     now = timezone.now()
     reason = DIAL_MISS.get((dial_status or '').upper(), 'No Answer')
+    # CH-672 (12 Nov, HOZ / KOZ, 5619328838): Asterisk gives no ring time for
+    # a dial nobody answered, so the missed try was kept with 0 s and the
+    # time of the NEXT try. This try rang from when it was dialled (the call
+    # coming in, or the end of the try before it) until now.
+    start = try_started(call_log) or call_log.created_at
+    measured = int(dialed_seconds or 0) > 0
+    if not measured:
+        dialed_seconds = max(0, int((now - start).total_seconds()))
     root_id = call_log.retry_root_id or call_log.pk
     n = CallLog.objects.filter(retry_root_id=root_id, twilio_call_sid__contains='#try').count() + 1
     miss = CallLog.objects.create(
@@ -149,7 +167,7 @@ def record_miss(call_log, dial_status: str, dialed_seconds: int):
         routing_trace=call_log.routing_trace or {},
     )
     # When this try started ringing, so the cooldown and any report see it in order.
-    started = now - timedelta(seconds=max(0, int(dialed_seconds or 0)))
+    started = now - timedelta(seconds=max(0, int(dialed_seconds or 0))) if measured else start
     CallLog.objects.filter(pk=miss.pk).update(created_at=max(started, call_log.created_at))
     return miss
 
