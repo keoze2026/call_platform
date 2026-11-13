@@ -372,7 +372,7 @@ class NonPriorityTopicTests(SimpleTestCase):
         self.run_twice(self.login_and_sudo())
         self.assertEqual([th for th, _ in self.sent], [None])
         self.down = set()
-        self.hw.run(checks=[])
+        self.hw.run(checks=[lambda r: None])   # nothing new; [] would mean "every real check" on this machine
         self.assertEqual([th for th, _ in self.sent], [None, '55'])
         self.assertIn('SSH login', self.sent[1][1])
         self.assertEqual(self.hw.load_state().get('pending'), [])
