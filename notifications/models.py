@@ -174,6 +174,9 @@ class NotificationPreference(models.Model):
     # "TFNs deleted" notice lists retirements after it and stays until the
     # user clicks Seen, on every device. Null = never acknowledged.
     deleted_tfns_seen_at = models.DateTimeField(null=True, blank=True)
+    # CH-675: the newest message from the platform owner this user clicked
+    # Seen on (notifications/owner_messages.py). Null = never.
+    owner_messages_seen_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

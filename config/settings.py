@@ -141,6 +141,9 @@ MIDDLEWARE = [
     # ip+page+day for the owner's guest-visits view, and swallows every one
     # of its own errors - tracking must never break the page it tracks.
     'analytics.guest_tracking.GuestVisitMiddleware',
+    # CH-675: the owner's read-only view of a client portal - refuses every
+    # change and logs what was viewed (accounts/owner_view.py).
+    'accounts.owner_view.OwnerViewMiddleware',
     # Point 1c: innermost, around the view only. The view starts with no
     # account; the login check gives it the login's (accounts/rls.py).
     'accounts.rls.TenantMiddleware',

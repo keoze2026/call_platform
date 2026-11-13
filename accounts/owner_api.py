@@ -102,7 +102,9 @@ def _money(value, field):
     return amount
 
 
-def _org_row(org, billing, calls_today, revenue_today):
+def _org_row(org, billing, calls_today, revenue_today, live_now=0, is_main=None):
+    from accounts import owner_insights as ins
+    is_main = _is_main(org) if is_main is None else is_main
     return {
         'id': str(org.id),
         'name': org.name,
@@ -119,6 +121,12 @@ def _org_row(org, billing, calls_today, revenue_today):
         'tfn_risk': org.tfn_risk,                                  # CH-665
         'calls_today': calls_today,
         'revenue_today': str(revenue_today),
+        # CH-675: the new Organizations page - Runway, Health, Main badge.
+        'is_main_account': is_main,
+        'low_balance_threshold': str(billing.low_balance_threshold) if billing else None,
+        'runway_minutes': ins.runway_minutes(billing),
+        'health': ins.health(org, billing, is_main),
+        'live_now': live_now,
     }
 
 
@@ -152,8 +160,10 @@ def list_organizations(request: HttpRequest, search: str = '', page: int = 1, pa
                    transaction_type='charge', status='completed')
                .values('organization').annotate(s=Sum('amount'))}
 
+    from accounts import owner_insights
+    live_now = owner_insights.live_by_org([o.id for o in orgs])
     rows = [_org_row(o, billing_by_org.get(o.id),
-                     calls.get(o.id, 0), revenue.get(o.id, Decimal('0')))
+                     calls.get(o.id, 0), revenue.get(o.id, Decimal('0')), live_now.get(o.id, 0))
             for o in orgs]
     return 200, paginate_list(rows, page, page_size)
 
@@ -262,6 +272,10 @@ def get_organization(request: HttpRequest, org_id: str):
     billing = _billing_account(org)
     users = [{'id': str(u.id), 'email': u.email, 'role': u.role,
               'is_active': u.is_active,
+              # CH-675: the account page's Users tab.
+              'name': f'{u.first_name} {u.last_name}'.strip(),
+              'mfa_enabled': bool(getattr(u, 'mfa_enabled', False)),
+              'date_joined': u.date_joined.isoformat() if u.date_joined else None,
               'last_login': u.last_login.isoformat() if u.last_login else None}
              for u in org.users.order_by('email')]
     return 200, {
@@ -549,3 +563,128 @@ def tfn_stock(request: HttpRequest):
     require_owner(request)
     from phone_numbers import stock
     return 200, {'rows': stock.summary()}
+
+
+# ── CH-675: the account page (Overview, Traffic, Numbers, Billing), the
+# Caller & TFN lookup, Message client and Open their portal ──────────────────
+# Sir, 13 Nov: "Org page front end - change it to the updated version with
+# more details". Reads only, except Message client (writes one line to the
+# account's own log) and Open their portal (a read-only pass, logged).
+
+@owner_router.get("/organizations/{org_id}/overview", response={200: dict})
+def organization_overview(request: HttpRequest, org_id: str):
+    require_owner(request)
+    from billing.models import BillingAccount
+    from accounts import owner_insights
+    org = _get_org(org_id)
+    billing = BillingAccount.objects.filter(organization=org).first()
+    data = owner_insights.overview(org, billing)
+    last = data.pop('last_call_at')
+    data['last_call_at'] = last.isoformat() if last else None
+    return 200, data
+
+
+@owner_router.get("/organizations/{org_id}/traffic", response={200: dict})
+def organization_traffic(request: HttpRequest, org_id: str, date: str = ''):
+    """Buying and selling by campaign for one day (server day, default today)."""
+    require_owner(request)
+    from datetime import date as _date, datetime, time, timedelta
+    from django.utils import timezone
+    from accounts import owner_insights
+    org = _get_org(org_id)
+    if date:
+        try:
+            day = _date.fromisoformat(date)
+        except ValueError:
+            raise HttpError(400, 'date must look like 2026-11-13')
+        start = timezone.make_aware(datetime.combine(day, time.min), timezone.get_default_timezone())
+    else:
+        start = owner_insights.day_start()
+    end = start + timedelta(days=1)
+    return 200, {'date': start.date().isoformat(), 'rows': owner_insights.traffic(org, start, end)}
+
+
+@owner_router.get("/organizations/{org_id}/numbers", response={200: dict})
+def organization_numbers(request: HttpRequest, org_id: str):
+    require_owner(request)
+    from accounts import owner_insights
+    org = _get_org(org_id)
+    rows = owner_insights.numbers(org)
+    return 200, {'count': len(rows), 'live': sum(1 for r in rows if r['state'] == 'live'), 'rows': rows}
+
+
+@owner_router.get("/organizations/{org_id}/transactions", response={200: dict})
+def organization_transactions(request: HttpRequest, org_id: str, limit: int = 50):
+    require_owner(request)
+    from accounts import owner_insights
+    org = _get_org(org_id)
+    return 200, {'rows': owner_insights.transactions(org, limit)}
+
+
+@owner_router.get("/lookup", response={200: dict})
+def lookup_number(request: HttpRequest, number: str = ''):
+    """Caller & TFN lookup: is this number on the platform, and where."""
+    require_owner(request)
+    from accounts import owner_insights
+    return 200, owner_insights.lookup(number)
+
+
+class OwnerMessageSchema(Schema):
+    text: str
+
+
+MESSAGE_MAX = 1000
+
+
+@owner_router.post("/organizations/{org_id}/message", response={200: dict, 400: dict})
+def message_organization(request: HttpRequest, org_id: str, payload: OwnerMessageSchema):
+    """Message client: shown to the account's people in their portal (a bar
+    at the top until they click Seen) and kept in their activity log, from
+    "Avortyx"."""
+    require_owner(request)
+    org = _get_org(org_id)
+    text = (payload.text or '').strip()
+    if not text:
+        return 400, {'detail': 'Write the message first.'}
+    if len(text) > MESSAGE_MAX:
+        return 400, {'detail': f'Keep the message under {MESSAGE_MAX} characters.'}
+    if _is_main(org):
+        return 400, {'detail': 'This is our own account.'}
+    from accounts.owner_audit import OWNER_MESSAGE, record
+    record(request, org, OWNER_MESSAGE, 'sent a message', message=text)
+    return 200, {'sent': True}
+
+
+@owner_router.get("/organizations/{org_id}/messages", response={200: dict})
+def organization_messages(request: HttpRequest, org_id: str):
+    """The messages sent to this account, newest first."""
+    require_owner(request)
+    from accounts.models import ActivityLog
+    from accounts.owner_audit import OWNER_MESSAGE
+    org = _get_org(org_id)
+    rows = (ActivityLog.objects.filter(organization_id=org.id, action=OWNER_MESSAGE)
+            .order_by('-created_at')[:50])
+    return 200, {'rows': [{'at': r.created_at.isoformat(),
+                           'text': (r.metadata or {}).get('message', '')} for r in rows]}
+
+
+@owner_router.post("/organizations/{org_id}/view-token", response={200: dict, 400: dict})
+def portal_view_token(request: HttpRequest, org_id: str):
+    """Open their portal: a pass to see the account as its main login sees
+    it, read-only (accounts/owner_view.py refuses every change), for
+    owner_view.MINUTES minutes, every view written to the audit log."""
+    owner = require_owner(request)
+    org = _get_org(org_id)
+    if _is_main(org):
+        return 400, {'detail': 'This is our own account.'}
+    if not org.is_active:
+        return 400, {'detail': 'The account is suspended - its portal does not open.'}
+    from accounts.main_user import main_user_of
+    login = main_user_of(org)
+    if login is None:
+        return 400, {'detail': 'The account has no active admin login to view it as.'}
+    from accounts import owner_view
+    token = owner_view.issue(owner, login)
+    from accounts.owner_audit import OWNER_VIEWED, record
+    record(request, org, OWNER_VIEWED, 'opened their portal (read-only)', as_login=login.email)
+    return 200, {'access': token, 'minutes': owner_view.MINUTES, 'account': org.name}

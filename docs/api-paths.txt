@@ -217,6 +217,8 @@ GET /api/notifications/deleted-tfns
 POST /api/notifications/deleted-tfns/seen
 GET /api/notifications/events
 GET /api/notifications/logs
+GET /api/notifications/owner-messages
+POST /api/notifications/owner-messages/seen
 GET /api/notifications/preferences
 PATCH /api/notifications/preferences
 GET /api/notifications/rules
@@ -256,6 +258,7 @@ GET /api/owner/company-profit
 GET /api/owner/company-profit-statement
 GET /api/owner/expenses
 GET /api/owner/guest-visits
+GET /api/owner/lookup
 GET /api/owner/organizations
 POST /api/owner/organizations
 DELETE /api/owner/organizations/{}
@@ -265,7 +268,14 @@ POST /api/owner/organizations/{}/activate
 POST /api/owner/organizations/{}/credit
 POST /api/owner/organizations/{}/debit
 GET /api/owner/organizations/{}/delete-preview
+POST /api/owner/organizations/{}/message
+GET /api/owner/organizations/{}/messages
+GET /api/owner/organizations/{}/numbers
+GET /api/owner/organizations/{}/overview
 POST /api/owner/organizations/{}/suspend
+GET /api/owner/organizations/{}/traffic
+GET /api/owner/organizations/{}/transactions
+POST /api/owner/organizations/{}/view-token
 GET /api/owner/ping
 GET /api/owner/routing-cost
 PATCH /api/owner/routing-cost/rate

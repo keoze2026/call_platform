@@ -87,6 +87,11 @@ def _write(instance, action, extra=None):
         return
 
     request = get_current_request()
+    # CH-675: the platform owner's read-only view of this account
+    # (accounts/owner_view.py) changes nothing; a record the platform makes on
+    # its own while the owner only looks is not the client's doing.
+    if request is not None and getattr(request, '_avx_owner_view', False):
+        return
     # CH-328: a change made through a Campaign Group says so; the Telegram
     # alert then sends the group's one line instead of one per campaign.
     via = getattr(request, '_activity_via_group', None) if request is not None else None

@@ -21,17 +21,25 @@ logger = logging.getLogger(__name__)
 
 OWNER_VIEWED = 'owner_viewed'
 OWNER_CHANGED = 'owner_changed'
+# CH-675: Message client - the message itself is in metadata['message'].
+OWNER_MESSAGE = 'owner_message'
 LABELS = {
     OWNER_VIEWED: 'Viewed by the platform owner',
     OWNER_CHANGED: 'Changed by the platform owner',
+    OWNER_MESSAGE: 'Message from the platform owner',
 }
 PLATFORM_NAME = 'Avortyx'
 
 
 def record(request, org, action: str, what: str, **extra) -> None:
     """Log an Owner-section request about `org`. Never fails the request."""
+    record_as(getattr(request, 'auth', None), org, action, what, **extra)
+
+
+def record_as(owner, org, action: str, what: str, **extra) -> None:
+    """The same, for a known owner login (CH-675: the read-only portal view,
+    logged from middleware, where the request has no `auth` yet)."""
     from accounts.models import ActivityLog
-    owner = getattr(request, 'auth', None)
     if owner is None or org is None:
         return
     meta = {'target_type': 'workspace', 'target_id': str(org.id), 'target_name': org.name,

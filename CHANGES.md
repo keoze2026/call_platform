@@ -11492,3 +11492,49 @@ as "Caller spoke". The instructions (`scripts/ai_final/ai_final.py`) now say:
 Proof before deploy: dry run on every call the team marked (gold set), old
 vs new. Tests: `routing/test_popup_audit.py`. No migration. Deploy: `git
 pull` (the ai_final script runs from the folder; nothing restarts).
+
+## CH-675 - Organizations page with more details: account page, lookup, Message client, read-only portal view
+
+13 Nov, Sir: "Org page - change it to the updated version with more
+details" (5 screens: the list with Runway and Health, and an account page
+with Overview, Traffic, Numbers, Caller & TFN lookup, Users, Billing,
+Message client and Open their portal). The backend for it, owner only
+(`require_owner`), all reads except the two below:
+- The list (`GET /api/owner/organizations`): each row also has
+  `runway_minutes` (balance / rate per minute), `health` (ok, low_balance,
+  no_balance, billing_not_set, suspended - the first that applies; our own
+  account only suspended or no_balance), `live_now`, `is_main_account`,
+  `low_balance_threshold`. Nothing removed.
+- `GET .../organizations/{id}/overview`: balance, runway, live now, calls
+  today, TFNs with calls, revenue today, users, last call, the day's flow
+  (calls in from publishers -> routed to buyers -> connected) and Health
+  checks (suspended / billing / balance, TFNs retired in the last 7 days,
+  no live TFN, logins without 2FA, account type not set).
+- `GET .../traffic?date=`: calls by campaign, publisher (bought from) and
+  buyer (sold to): calls in, sent on, connected, minutes, spend.
+- `GET .../numbers`: every TFN, whether it is Avortyx stock (our account's,
+  or sold from the stock - CH-665 `sale_risk`) or the client's own, risk,
+  campaign, calls today, live / expired / released, added.
+- `GET .../transactions`, and `mfa_enabled`, name and joined in the users of
+  `GET .../organizations/{id}`.
+- `GET /api/owner/lookup?number=`: a TFN (which account, campaign, source,
+  risk, state, total calls, first and last call) and / or a caller ID (its
+  calls, by account, first and last, the latest 10), or not found.
+- Message client - `POST .../message {text}`: kept as an owner action in the
+  account's own log (`owner_message`, "Message from the platform owner", by
+  Avortyx; CH-637). Their people see it at the top of their portal until
+  each clicks Seen: `GET /api/notifications/owner-messages`,
+  `POST /api/notifications/owner-messages/seen` (buyer and publisher logins
+  not shown them). `GET .../messages` lists what was sent.
+- Open their portal - `POST .../view-token`: a 60-minute pass as the
+  account's main login, with an `owner_view` claim, no refresh token (not in
+  their Active Sessions). `accounts/owner_view.py` (middleware) refuses every
+  change through it (403 "Read-only view"), ends it once the owner's login is
+  no longer the platform owner's, and writes what was viewed to our log and
+  theirs (as Avortyx) once per page area per 10 minutes. A record the
+  platform makes on its own during such a view (built-in roles) is not
+  logged as the client's doing. Not for our own account, a suspended one,
+  or one without an active admin.
+Migration: `notifications/0009` (one nullable column). Tests:
+`accounts/test_owner_org_page.py` (12). Deploy: `git pull`, `docker compose
+exec web python manage.py migrate`, restart `web` (new middleware).
