@@ -944,6 +944,19 @@ class RoutingEngine:
         )
         if required <= 0:
             # Unpriced campaign — nothing configured to charge against.
+            # CH-676 (Sir, 13 Nov: "if funds are 0 - every call should be
+            # missed unless they recharge their account - comment
+            # Insufficient Funds"): but an account that HAS a billing account
+            # and no money (balance + credit limit at or under $0) is refused
+            # even then. An account with no billing account yet ("Billing not
+            # set" on the Owner page) is routed as before.
+            from billing.models import BillingAccount
+            account = (BillingAccount.objects.filter(organization=campaign.organization)
+                       .only('balance', 'credit_limit').first())
+            if account is not None and (account.balance or 0) + (account.credit_limit or 0) <= 0:
+                logger.warning("insufficient_balance: campaign=%s org=%s unpriced balance=%s",
+                               campaign.id, campaign.organization_id, account.balance)
+                return False
             return True
 
         from billing.services import BillingService

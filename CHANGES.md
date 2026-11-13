@@ -11538,3 +11538,18 @@ Message client and Open their portal). The backend for it, owner only
 Migration: `notifications/0009` (one nullable column). Tests:
 `accounts/test_owner_org_page.py` (12). Deploy: `git pull`, `docker compose
 exec web python manage.py migrate`, restart `web` (new middleware).
+## CH-676 - $0 account: every call missed "Insufficient Funds", even without a rate
+
+13 Nov, Sir: "if funds are 0 - every call should be missed unless they
+recharge their account - comment Insufficient Funds". Already so since
+CH-255 for an account with a rate (a call needs one minute's cost in the
+balance + credit limit). The one gap: an account whose rate and payouts were
+all $0 ("unpriced") was routed at $0. Now an account that has a billing
+account and balance + credit limit at or under $0 is refused even then:
+MISSED, "Insufficient Funds", no rejected-call fee. A recharge lets the next
+call through. Unchanged: our own account is never refused; an account with no
+billing account yet ("Billing not set") is routed as before; the credit limit
+the owner sets still counts as funds.
+`routing/engine.py` (check_balance). Tests: `routing/test_user_billing.py`
+(+2). No migration. Deploy: `git pull`, restart `web_calls` (the call path)
+after calling hours, test call before and after.

@@ -86,6 +86,31 @@ class UserBillingTests(TestCase):
         self.assertEqual(charge_rejected_call(str(row.id)), 'not a refusal')
         self.assertFalse(Transaction.objects.filter(call_sid=row.twilio_call_sid).exists())
 
+    def test_recharge_lets_calls_through_again(self):
+        # CH-676 (Sir, 13 Nov): $0 -> missed "Insufficient Funds"; once the
+        # account is recharged ($50), the next call is routed.
+        body, row, _ = self.route()
+        self.assertEqual((row.status, row.block_reason), ('no_answer', 'Insufficient Funds'))
+        BillingService.add_funds(self.org, Decimal('50'), description='Recharge')
+        body, row, _ = self.route()
+        self.assertNotEqual(body['action'], 'hangup')
+        self.assertNotEqual(row.block_reason, 'Insufficient Funds')
+
+    @override_settings(MINIMUM_CALL_BALANCE=Decimal('0'))
+    def test_no_funds_is_refused_even_without_a_rate(self):
+        # CH-676: no rate and no payout set ("unpriced") used to route a $0
+        # account; an account with no billing account is still routed.
+        BillingAccount.objects.filter(pk=self.account.pk).update(per_minute_rate=0)
+        Campaign.objects.filter(pk=self.campaign.pk).update(payout_amount=0)
+        body, row, _ = self.route()
+        self.assertEqual((body['action'], row.status, row.block_reason), ('hangup', 'no_answer', 'Insufficient Funds'))
+        BillingAccount.objects.filter(pk=self.account.pk).update(balance=Decimal('50'))
+        body, row, _ = self.route()
+        self.assertNotEqual(row.block_reason, 'Insufficient Funds')
+        BillingAccount.objects.filter(pk=self.account.pk).delete()
+        body, row, _ = self.route()
+        self.assertNotEqual(row.block_reason, 'Insufficient Funds')
+
     def test_our_portal_is_never_refused_for_funds(self):
         User.objects.create(username='owner', email='o@x.io', organization=self.org,
                             role='admin', is_superuser=True, is_active=True)
